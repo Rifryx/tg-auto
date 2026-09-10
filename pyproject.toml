@@ -1,0 +1,27 @@
+[project]
+name = "neuro-commenting"
+version = "0.1.0"
+description = "Neuro-commenting: Telegram user-account library with LLM comment automation."
+requires-python = ">=3.11"
+dependencies = [
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14.0",
+    "psycopg[binary]>=3.2.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.3",
+    "pytest-postgresql>=6.1.1",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["core*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
