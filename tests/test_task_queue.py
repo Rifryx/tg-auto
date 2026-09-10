@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -9,11 +10,11 @@ import redis.asyncio as aioredis
 from arq.connections import RedisSettings
 from cryptography.fernet import Fernet
 
-import core.queue.tasks as tasks_mod
 from core.queue import QueueName, TaskName, TaskQueue, close_task_pool
 
-# Отдельная БД эфемерного Redis (поднят на 6380), чтобы не мешать ничему.
-REDIS_DSN = "redis://localhost:6380/1"
+# Тестовый Redis: локально — сервис redis_test из docker-compose (6380),
+# в CI переопределяется через TEST_REDIS_URL. Отдельная БД (/1), чтобы не мешать.
+REDIS_DSN = os.getenv("TEST_REDIS_URL", "redis://localhost:6380/1")
 
 
 def _make_worker(functions, *, burst=True, poll_delay=0.05):
