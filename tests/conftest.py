@@ -39,9 +39,17 @@ def engine():
 
 @pytest.fixture()
 def session(engine) -> Session:
+    # Внешняя транзакция + create_savepoint: код под тестом может звать
+    # session.commit() (как делает AccountStateMachine), но всё остаётся внутри
+    # savepoint'а и откатывается в teardown — изоляция между тестами сохранена.
     connection = engine.connect()
     transaction = connection.begin()
-    Session_ = sessionmaker(bind=connection, expire_on_commit=False, future=True)
+    Session_ = sessionmaker(
+        bind=connection,
+        expire_on_commit=False,
+        future=True,
+        join_transaction_mode="create_savepoint",
+    )
     session = Session_()
     try:
         yield session
