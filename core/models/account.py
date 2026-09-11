@@ -11,6 +11,7 @@ from sqlalchemy import (
     String,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.models.base import Base, TimestampMixin
@@ -97,3 +98,9 @@ class Account(Base, TimestampMixin):
     app_version: Mapped[str] = mapped_column(String, nullable=False)
     lang_code: Mapped[str] = mapped_column(String, nullable=False)
     system_lang_code: Mapped[str] = mapped_column(String, nullable=False)
+
+    # Служебный JSONB для эфемерного состояния (напр. phone_code_hash логин-флоу).
+    # Не для доменных полей — те выносятся в отдельные колонки.
+    meta: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
