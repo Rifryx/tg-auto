@@ -12,6 +12,7 @@ dependencies = [
     "cryptography>=43.0",
     "arq>=0.26",
     "structlog>=24.1",
+    "telethon>=1.36",
 ]
 
 [project.optional-dependencies]
