@@ -10,3 +10,4 @@ venv/
 build/
 dist/
 .claude/
+PROMPTS-5-24.md
