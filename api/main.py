@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from api.routers import accounts, personas, proxies
+from api.routers import accounts, login, personas, proxies
 
 app = FastAPI(
     title="Neuro-commenting API",
@@ -23,5 +23,6 @@ def health() -> dict[str, str]:
 
 
 app.include_router(accounts.router)
+app.include_router(login.router)
 app.include_router(proxies.router)
 app.include_router(personas.router)
