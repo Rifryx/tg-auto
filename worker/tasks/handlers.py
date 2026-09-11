@@ -21,14 +21,16 @@ from core.enums import Initiator
 from core.queue.task_names import TaskName
 from core.repositories.account import AccountRepository
 from core.state_machine import AccountEvent, AccountStateMachine
+from worker.login import (
+    login_confirm_impl,
+    login_password_impl,
+    login_start_impl,
+)
 from worker.tasks.dispatch import task
 from worker.tasks.logging import get_logger
 
 # Задачи, которые пока заглушки (реальная реализация — на своих этапах).
 _STUB_TASKS = [
-    TaskName.ACCOUNT_LOGIN_START,
-    TaskName.ACCOUNT_LOGIN_CONFIRM,
-    TaskName.ACCOUNT_LOGIN_PASSWORD,
     TaskName.ACCOUNT_START_WARMING,
     TaskName.WARMING_TICK,
     TaskName.HEALTH_CHECK_PROXIES,
@@ -75,10 +77,18 @@ maintenance_scheduler = task(TaskName.WARMING_MAINTENANCE_SCHEDULER.value)(
     maintenance_scheduler_impl
 )
 
+# Логин-флоу (§3.2/§11): тела в worker/login, здесь только регистрация.
+login_start = task(TaskName.ACCOUNT_LOGIN_START.value)(login_start_impl)
+login_confirm = task(TaskName.ACCOUNT_LOGIN_CONFIRM.value)(login_confirm_impl)
+login_password = task(TaskName.ACCOUNT_LOGIN_PASSWORD.value)(login_password_impl)
+
 TASK_FUNCTIONS = [
     func(task(name.value)(_make_stub(name.value)), name=name.value, max_tries=3)
     for name in _STUB_TASKS
 ] + [
+    func(login_start, name=TaskName.ACCOUNT_LOGIN_START.value, max_tries=3),
+    func(login_confirm, name=TaskName.ACCOUNT_LOGIN_CONFIRM.value, max_tries=3),
+    func(login_password, name=TaskName.ACCOUNT_LOGIN_PASSWORD.value, max_tries=3),
     # cooldown_return: max_tries=1 — при сбое повторится по крону
     func(cooldown_return, name=TaskName.HEALTH_COOLDOWN_RETURN.value, max_tries=1),
 ]
