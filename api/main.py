@@ -1,0 +1,27 @@
+"""FastAPI-приложение API-слоя (PROJECT-STAGES §4/§6).
+
+Только лёгкие операции: чтение из Postgres и постановка задач воркеру через
+очередь. Никакого Telethon и никакой прямой смены статуса аккаунтов.
+"""
+
+from __future__ import annotations
+
+from fastapi import FastAPI
+
+from api.routers import accounts, personas, proxies
+
+app = FastAPI(
+    title="Neuro-commenting API",
+    version="0.1.0",
+    description="Shared REST API: аккаунты, прокси, персоны (Telegram Mini App).",
+)
+
+
+@app.get("/health", tags=["system"])
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+app.include_router(accounts.router)
+app.include_router(proxies.router)
+app.include_router(personas.router)

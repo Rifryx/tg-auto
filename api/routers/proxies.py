@@ -1,0 +1,78 @@
+"""Роуты прокси: CRUD + постановка проверки живости в очередь (§6/§10)."""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from api.deps.auth import require_user
+from api.deps.db import get_session
+from api.deps.queue import get_task_queue
+from core.enums import ProxyStatus
+from core.queue import TaskQueue
+from core.queue.task_names import TaskName
+from core.repositories.proxy import ProxyRepository
+from core.schemas.proxy import ProxyCreate, ProxyRead, ProxyUpdate
+
+router = APIRouter(
+    prefix="/proxies", tags=["proxies"], dependencies=[Depends(require_user)]
+)
+
+
+@router.get("", response_model=list[ProxyRead])
+def list_proxies(
+    status: Optional[ProxyStatus] = None,
+    session: Session = Depends(get_session),
+) -> list[ProxyRead]:
+    repo = ProxyRepository(session)
+    proxies = repo.list_by_status(status) if status is not None else repo.list_all()
+    return [ProxyRead.model_validate(p) for p in proxies]
+
+
+@router.get("/{proxy_id}", response_model=ProxyRead)
+def get_proxy(proxy_id: int, session: Session = Depends(get_session)) -> ProxyRead:
+    proxy = ProxyRepository(session).get(proxy_id)
+    if proxy is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"proxy {proxy_id} not found")
+    return ProxyRead.model_validate(proxy)
+
+
+@router.post("", response_model=ProxyRead, status_code=status.HTTP_201_CREATED)
+def create_proxy(
+    body: ProxyCreate, session: Session = Depends(get_session)
+) -> ProxyRead:
+    proxy = ProxyRepository(session).create(body)
+    session.commit()
+    return ProxyRead.model_validate(proxy)
+
+
+@router.patch("/{proxy_id}", response_model=ProxyRead)
+def patch_proxy(
+    proxy_id: int, body: ProxyUpdate, session: Session = Depends(get_session)
+) -> ProxyRead:
+    proxy = ProxyRepository(session).update(proxy_id, body)
+    if proxy is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"proxy {proxy_id} not found")
+    session.commit()
+    return ProxyRead.model_validate(proxy)
+
+
+@router.delete("/{proxy_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_proxy(proxy_id: int, session: Session = Depends(get_session)) -> None:
+    if not ProxyRepository(session).delete(proxy_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"proxy {proxy_id} not found")
+    session.commit()
+
+
+@router.post("/{proxy_id}/check", status_code=status.HTTP_202_ACCEPTED)
+async def check_proxy(
+    proxy_id: int,
+    session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> dict[str, str]:
+    if ProxyRepository(session).get(proxy_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"proxy {proxy_id} not found")
+    job_id = await task_queue.enqueue(TaskName.HEALTH_CHECK_PROXIES, proxy_id)
+    return {"job_id": job_id}
