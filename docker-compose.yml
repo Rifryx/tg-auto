@@ -7,7 +7,9 @@ services:
       POSTGRES_PASSWORD: neuro
       POSTGRES_DB: neuro
     ports:
-      - "5432:5432"
+      # Хост-порт 5434, чтобы не конфликтовать с другим локальным Postgres на 5432.
+      # Внутри сети контейнеров порт остаётся 5432.
+      - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
