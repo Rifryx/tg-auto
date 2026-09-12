@@ -28,11 +28,11 @@ from worker.login import (
 )
 from worker.tasks.dispatch import task
 from worker.tasks.logging import get_logger
+from worker.tasks.warming import maintenance_scheduler_impl, warming_tick_impl
 
 # Задачи, которые пока заглушки (реальная реализация — на своих этапах).
 _STUB_TASKS = [
     TaskName.ACCOUNT_START_WARMING,
-    TaskName.WARMING_TICK,
     TaskName.HEALTH_CHECK_PROXIES,
     TaskName.ACCOUNT_RETIRE,
     TaskName.ACCOUNT_ACKNOWLEDGE_BAN,
@@ -65,17 +65,14 @@ async def cooldown_return_impl(ctx: dict, *args: Any, **kwargs: Any) -> list[int
     return returned
 
 
-async def maintenance_scheduler_impl(ctx: dict, *args: Any, **kwargs: Any) -> None:
-    """Заглушка cron-планировщика поддерживающего прогрева."""
-    get_logger().info("maintenance_scheduler.tick")
-    return None
-
-
 # Декорированные и зарегистрированные задачи.
 cooldown_return = task(TaskName.HEALTH_COOLDOWN_RETURN.value)(cooldown_return_impl)
+
+# Прогрев (§3): тела в worker/tasks/warming.py и worker/warming.
 maintenance_scheduler = task(TaskName.WARMING_MAINTENANCE_SCHEDULER.value)(
     maintenance_scheduler_impl
 )
+warming_tick = task(TaskName.WARMING_TICK.value)(warming_tick_impl)
 
 # Логин-флоу (§3.2/§11): тела в worker/login, здесь только регистрация.
 login_start = task(TaskName.ACCOUNT_LOGIN_START.value)(login_start_impl)
@@ -86,6 +83,7 @@ TASK_FUNCTIONS = [
     func(task(name.value)(_make_stub(name.value)), name=name.value, max_tries=3)
     for name in _STUB_TASKS
 ] + [
+    func(warming_tick, name=TaskName.WARMING_TICK.value, max_tries=3),
     func(login_start, name=TaskName.ACCOUNT_LOGIN_START.value, max_tries=3),
     func(login_confirm, name=TaskName.ACCOUNT_LOGIN_CONFIRM.value, max_tries=3),
     func(login_password, name=TaskName.ACCOUNT_LOGIN_PASSWORD.value, max_tries=3),
