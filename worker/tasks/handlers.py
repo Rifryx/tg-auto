@@ -27,13 +27,13 @@ from worker.login import (
     login_start_impl,
 )
 from worker.tasks.dispatch import task
+from worker.tasks.health import check_proxies_impl
 from worker.tasks.logging import get_logger
 from worker.tasks.warming import maintenance_scheduler_impl, warming_tick_impl
 
 # Задачи, которые пока заглушки (реальная реализация — на своих этапах).
 _STUB_TASKS = [
     TaskName.ACCOUNT_START_WARMING,
-    TaskName.HEALTH_CHECK_PROXIES,
     TaskName.ACCOUNT_RETIRE,
     TaskName.ACCOUNT_ACKNOWLEDGE_BAN,
     TaskName.COMMENTING_ON_NEW_POST,
@@ -74,6 +74,9 @@ maintenance_scheduler = task(TaskName.WARMING_MAINTENANCE_SCHEDULER.value)(
 )
 warming_tick = task(TaskName.WARMING_TICK.value)(warming_tick_impl)
 
+# Health (§5.3): проверка прокси — cron каждые 10 минут.
+check_proxies = task(TaskName.HEALTH_CHECK_PROXIES.value)(check_proxies_impl)
+
 # Логин-флоу (§3.2/§11): тела в worker/login, здесь только регистрация.
 login_start = task(TaskName.ACCOUNT_LOGIN_START.value)(login_start_impl)
 login_confirm = task(TaskName.ACCOUNT_LOGIN_CONFIRM.value)(login_confirm_impl)
@@ -96,6 +99,13 @@ CRON_JOBS = [
         maintenance_scheduler,
         name=TaskName.WARMING_MAINTENANCE_SCHEDULER.value,
         minute=set(range(0, 60, 5)),
+        run_at_startup=False,
+        max_tries=1,
+    ),
+    cron(
+        check_proxies,
+        name=TaskName.HEALTH_CHECK_PROXIES.value,
+        minute=set(range(0, 60, 10)),
         run_at_startup=False,
         max_tries=1,
     ),
