@@ -26,6 +26,7 @@ from worker.login import (
     login_password_impl,
     login_start_impl,
 )
+from worker.tasks.commenting import on_new_post_impl, post_comment_impl
 from worker.tasks.dispatch import task
 from worker.tasks.health import check_proxies_impl
 from worker.tasks.logging import get_logger
@@ -36,8 +37,6 @@ _STUB_TASKS = [
     TaskName.ACCOUNT_START_WARMING,
     TaskName.ACCOUNT_RETIRE,
     TaskName.ACCOUNT_ACKNOWLEDGE_BAN,
-    TaskName.COMMENTING_ON_NEW_POST,
-    TaskName.COMMENTING_POST_COMMENT,
 ]
 
 
@@ -77,6 +76,10 @@ warming_tick = task(TaskName.WARMING_TICK.value)(warming_tick_impl)
 # Health (§5.3): проверка прокси — cron каждые 10 минут.
 check_proxies = task(TaskName.HEALTH_CHECK_PROXIES.value)(check_proxies_impl)
 
+# Модуль commenting (§5): тела в modules/commenting/worker/runner.
+on_new_post = task(TaskName.COMMENTING_ON_NEW_POST.value)(on_new_post_impl)
+post_comment = task(TaskName.COMMENTING_POST_COMMENT.value)(post_comment_impl)
+
 # Логин-флоу (§3.2/§11): тела в worker/login, здесь только регистрация.
 login_start = task(TaskName.ACCOUNT_LOGIN_START.value)(login_start_impl)
 login_confirm = task(TaskName.ACCOUNT_LOGIN_CONFIRM.value)(login_confirm_impl)
@@ -87,6 +90,8 @@ TASK_FUNCTIONS = [
     for name in _STUB_TASKS
 ] + [
     func(warming_tick, name=TaskName.WARMING_TICK.value, max_tries=3),
+    func(on_new_post, name=TaskName.COMMENTING_ON_NEW_POST.value, max_tries=3),
+    func(post_comment, name=TaskName.COMMENTING_POST_COMMENT.value, max_tries=3),
     func(login_start, name=TaskName.ACCOUNT_LOGIN_START.value, max_tries=3),
     func(login_confirm, name=TaskName.ACCOUNT_LOGIN_CONFIRM.value, max_tries=3),
     func(login_password, name=TaskName.ACCOUNT_LOGIN_PASSWORD.value, max_tries=3),
