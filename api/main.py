@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from api.routers import accounts, login, monitoring, personas, proxies
+from modules.commenting.api import router as commenting_router
 
 app = FastAPI(
     title="Neuro-commenting API",
@@ -27,3 +28,4 @@ app.include_router(login.router)
 app.include_router(monitoring.router)
 app.include_router(proxies.router)
 app.include_router(personas.router)
+app.include_router(commenting_router)
