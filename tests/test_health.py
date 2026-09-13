@@ -46,6 +46,14 @@ class _Req:
     pass
 
 
+class _SpyPublisher:
+    def __init__(self):
+        self.events = []
+
+    def publish(self, channel, payload):
+        self.events.append((channel, dict(payload)))
+
+
 def _clean(session):
     session.execute(text(f"TRUNCATE {', '.join(_TABLES)} RESTART IDENTITY CASCADE"))
     session.commit()
@@ -231,6 +239,55 @@ async def test_flood_wait_not_handled_passes_through_without_incident(session):
     # ни HealthEvent, ни cooldown — флудвейт разбирает вызывающий (login-flow)
     assert _events(session, account_id, "flood_wait") == []
     assert AccountRepository(session).get(account_id).status == "pool"
+
+
+# --- 3e. HealthEvent публикует health_alert в pub/sub (#9) -------------------
+
+
+async def test_incident_publishes_health_alert(session):
+    _clean(session)
+    account_id = _make_account(session, status="pool")
+    pub = _SpyPublisher()
+
+    async def call():
+        raise FloodWaitError(request=_Req(), capture=30)
+
+    with pytest.raises(FloodWaitError):
+        await around_telethon_call(
+            call,
+            account_id=account_id,
+            session_factory=_factory(session),
+            publisher=pub,
+            now=NOW,
+        )
+
+    alerts = [p for ch, p in pub.events if ch == "health_alert"]
+    assert alerts == [
+        {"account_id": account_id, "event_type": "flood_wait", "severity": "warning"}
+    ]
+
+
+async def test_ban_publishes_health_alert(session):
+    _clean(session)
+    account_id = _make_account(session, status="pool")
+    pub = _SpyPublisher()
+
+    async def call():
+        raise SessionRevokedError(request=_Req())
+
+    with pytest.raises(SessionRevokedError):
+        await around_telethon_call(
+            call,
+            account_id=account_id,
+            session_factory=_factory(session),
+            publisher=pub,
+            now=NOW,
+        )
+
+    alerts = [p for ch, p in pub.events if ch == "health_alert"]
+    assert alerts == [
+        {"account_id": account_id, "event_type": "session_revoked", "severity": "critical"}
+    ]
 
 
 # --- 4. governor: 20 ок, 21-й — нет ------------------------------------------

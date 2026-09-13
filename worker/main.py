@@ -12,7 +12,7 @@ import asyncio
 from arq.connections import RedisSettings
 
 from core.config import get_settings
-from core.queue.publisher import RedisPublisher
+from core.queue.publisher import build_redis_publisher
 from core.queue.task_names import QueueName
 from modules.commenting.worker.registry import (
     CampaignLifecycleListener,
@@ -34,7 +34,9 @@ configure_logging()
 async def startup(ctx: dict) -> None:
     settings = get_settings()
     ctx["session_factory"] = build_session_factory(settings.database_url)
-    ctx["publisher"] = RedisPublisher(ctx["redis"])
+    # Синхронный публикатор (не arq-редис ctx['redis'], который async — иначе
+    # publish возвращал бы неожиданную корутину и событие не уходило).
+    ctx["publisher"] = build_redis_publisher(settings.redis_url)
 
     # ClientPool кладём в ctx СРАЗУ и явно (не лениво): от него зависят и
     # слушатели кампаний, и login/warming/commenting-задачи (аудит #12).

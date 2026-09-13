@@ -37,10 +37,13 @@ from core.repositories.account import AccountRepository
 from core.schemas.account import AccountUpdate
 from core.state_machine import AccountEvent, AccountStateMachine
 from worker.client_pool import ClientPool
-from worker.health import Governor, around_telethon_call
 from worker.tasks.dispatch import FloodWaitError
 from worker.tasks.logging import get_logger
 
+# worker.health импортируется ЛЕНИВО (в _governor / _around_call): worker.health
+# тянет worker.tasks.logging → worker.tasks, а тот через handlers возвращается в
+# login/flow — обратная дуга должна быть ленивой, иначе цикл при импорте
+# worker.health раньше worker.tasks.
 LOGIN_ACTION = "login"  # тип действия для governor (лимит логин-операций)
 
 LOGIN_CHANNEL = "login"
@@ -76,9 +79,28 @@ def _task_queue(ctx: dict) -> TaskQueue:
     return ctx.get("task_queue") or TaskQueue(redis=ctx.get("redis"))
 
 
-def _governor(ctx: dict) -> Governor:
+def _governor(ctx: dict):
     """Governor из ctx (инъекция в тестах), иначе поверх ctx['redis']."""
-    return ctx.get("governor") or Governor(ctx.get("redis"))
+    gov = ctx.get("governor")
+    if gov is not None:
+        return gov
+    from worker.health import Governor
+
+    return Governor(ctx.get("redis"))
+
+
+async def _around_call(ctx: dict, account_id: int, call):
+    """Обёртка health-монитора для login-вызовов (флудвейт не трогаем — свой разбор)."""
+    from worker.health import around_telethon_call
+
+    return await around_telethon_call(
+        call,
+        account_id=account_id,
+        session_factory=ctx["session_factory"],
+        publisher=ctx.get("publisher"),
+        now=ctx.get("now"),
+        handle_flood_wait=False,
+    )
 
 
 def _publish(
@@ -181,13 +203,8 @@ async def login_start_impl(ctx: dict, account_id: int) -> None:
             _publish(publisher, account_id, LoginState.RATE_LIMITED)
             return
         await client.connect()
-        sent = await around_telethon_call(
-            lambda: client.send_code_request(phone),
-            account_id=account_id,
-            session_factory=session_factory,
-            publisher=publisher,
-            now=ctx.get("now"),
-            handle_flood_wait=False,  # флудвейт разбирает login-flow сам (ниже)
+        sent = await _around_call(
+            ctx, account_id, lambda: client.send_code_request(phone)
         )
         session_str = client.session.save()
     except TelethonFloodWaitError as exc:
@@ -227,13 +244,10 @@ async def login_confirm_impl(ctx: dict, account_id: int, code: str) -> None:
             _publish(publisher, account_id, LoginState.RATE_LIMITED)
             return
         await client.connect()
-        await around_telethon_call(
+        await _around_call(
+            ctx,
+            account_id,
             lambda: client.sign_in(phone=phone, code=code, phone_code_hash=code_hash),
-            account_id=account_id,
-            session_factory=session_factory,
-            publisher=publisher,
-            now=ctx.get("now"),
-            handle_flood_wait=False,
         )
         session_str = client.session.save()
     except TelethonFloodWaitError as exc:
@@ -281,14 +295,7 @@ async def login_password_impl(ctx: dict, account_id: int, password: str) -> None
             _publish(publisher, account_id, LoginState.RATE_LIMITED)
             return
         await client.connect()
-        await around_telethon_call(
-            lambda: client.sign_in(password=password),
-            account_id=account_id,
-            session_factory=session_factory,
-            publisher=publisher,
-            now=ctx.get("now"),
-            handle_flood_wait=False,
-        )
+        await _around_call(ctx, account_id, lambda: client.sign_in(password=password))
         session_str = client.session.save()
     except TelethonFloodWaitError as exc:
         raise FloodWaitError(exc.seconds) from exc

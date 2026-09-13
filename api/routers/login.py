@@ -72,13 +72,9 @@ def _current_state(
 
 
 def _sse(entry: dict) -> str:
-    payload = {
-        "account_id": entry.get("account_id"),
-        "state": entry.get("state"),
-        "reason": entry.get("reason"),
-        "updated_at": entry.get("updated_at"),
-    }
-    return f"data: {json.dumps(payload, default=str)}\n\n"
+    # Универсальный стрим: отдаём entry как есть (login И account_status).
+    # У каждого entry есть 'type' (login|account_status) + свои поля.
+    return f"data: {json.dumps(entry, default=str)}\n\n"
 
 
 @router.post("/{account_id}/login/start", response_model=LoginStateResponse)

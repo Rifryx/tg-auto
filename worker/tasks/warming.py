@@ -44,6 +44,9 @@ from worker.warming.presets import (
 
 _ACTIVE_WARMING_STATUSES = (AccountStatus.WARMING.value, AccountStatus.POOL.value)
 
+# Канал pub/sub с прогрессом прогрева (аудит #9).
+WARMING_PROGRESS_CHANNEL = "warming_progress"
+
 
 def _now(ctx: dict) -> datetime:
     return ctx.get("now") or datetime.now(timezone.utc)
@@ -173,6 +176,18 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
         session.commit()
         if kind is WarmingActivityKind.INITIAL:
             _maybe_complete_warming(session, publisher, account_id, now)
+
+    # Прогресс прогрева в pub/sub (аудит #9): фронт сможет показать «живой» тик.
+    if publisher is not None:
+        publisher.publish(
+            WARMING_PROGRESS_CHANNEL,
+            {
+                "account_id": account_id,
+                "action_type": result.action_type.value,
+                "status": result.status.value,
+                "kind": kind.value,
+            },
+        )
 
     log.info(
         "warming.tick.done",

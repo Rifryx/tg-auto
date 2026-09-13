@@ -8,7 +8,6 @@ from typing import Any, Awaitable, Callable, Optional, Union
 
 from core.enums import WarmingActionType, WarmingActivityStatus
 from core.models import Account
-from worker.health import around_telethon_call
 from worker.tasks.logging import get_logger
 
 # Небольшой пул публичных целей для действий прогрева (реестра интересов пока
@@ -49,6 +48,11 @@ def action(action_type: WarmingActionType) -> Callable[[_ActionBody], _ActionBod
             publisher: Any = None,
             now: Optional[datetime] = None,
         ) -> WarmingActionResult:
+            # Ленивый импорт: worker.health → worker.tasks.logging, а обратная
+            # дуга (login/warming → worker.health) должна оставаться ленивой,
+            # иначе цикл при импорте worker.health раньше worker.tasks.
+            from worker.health import around_telethon_call
+
             try:
                 if session_factory is None:
                     # Без ctx (напр. прямой вызов в старых тестах) — без health-обёртки.

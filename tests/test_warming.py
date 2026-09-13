@@ -22,6 +22,7 @@ from core.models import Account, HealthEvent, WarmingActivity
 from core.queue.task_names import TaskName
 from core.repositories.account import AccountRepository
 from worker.tasks.warming import (
+    WARMING_PROGRESS_CHANNEL,
     initial_start_impl,
     maintenance_scheduler_impl,
     warming_tick_impl,
@@ -131,7 +132,7 @@ def _make_account(session, *, status, profile=WarmingProfile.MEDIUM, warming_sta
     return acc.id
 
 
-def _ctx(session, *, now, rng=None, client=None, task_queue=None, governor=None):
+def _ctx(session, *, now, rng=None, client=None, task_queue=None, governor=None, publisher=None):
     return {
         "session_factory": lambda: _Ctx(session),
         "now": now,
@@ -139,12 +140,20 @@ def _ctx(session, *, now, rng=None, client=None, task_queue=None, governor=None)
         "client_pool": _FakePool(client) if client is not None else None,
         "task_queue": task_queue,
         "governor": governor,
-        "publisher": None,
+        "publisher": publisher,
     }
 
 
 class _Req:
     pass
+
+
+class _SpyPublisher:
+    def __init__(self):
+        self.events: list[tuple[str, dict]] = []
+
+    def publish(self, channel, payload):
+        self.events.append((channel, dict(payload)))
 
 
 class _DenyGovernor:
@@ -395,3 +404,33 @@ async def test_warming_action_ban_records_health_event_and_bans(session):
     assert len(events) == 1
     # аккаунт переведён в banned через state machine
     assert AccountRepository(session).get(account_id).status == "banned"
+
+
+# --- 8. warming.tick публикует прогресс в pub/sub (#9) -----------------------
+
+
+async def test_warming_tick_publishes_progress(session):
+    _clean(session)
+    account_id = _make_account(session, status="warming", warming_started_at=NOW_INSIDE)
+    client = AsyncMock()
+    pub = _SpyPublisher()
+    ctx = _ctx(
+        session,
+        now=NOW_INSIDE,
+        rng=_FixedRng(WarmingActionType.IDLE_ONLINE),
+        client=client,
+        publisher=pub,
+    )
+
+    result = await warming_tick_impl(ctx, account_id)
+
+    assert result == "done"
+    progress = [p for ch, p in pub.events if ch == WARMING_PROGRESS_CHANNEL]
+    assert progress == [
+        {
+            "account_id": account_id,
+            "action_type": "idle_online",
+            "status": "done",
+            "kind": "initial",
+        }
+    ]

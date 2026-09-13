@@ -28,9 +28,11 @@ from api.deps.db import get_session
 from api.deps.queue import get_task_queue
 from api.routers import login as login_router
 from api.services.login import LoginEventHub, get_login_hub
+from core.enums import Initiator
 from core.queue.task_names import TaskName
 from core.repositories.account import AccountRepository
 from core.schemas.account import AccountCreate
+from core.state_machine import AccountEvent, AccountStateMachine
 
 pytestmark = pytest.mark.asyncio
 
@@ -108,13 +110,15 @@ async def _open_stream(account_id, session, hub):
     return agen
 
 
-async def _publish_until_delivered(pub, payload: dict, tries: int = 200) -> None:
+async def _publish_until_delivered(
+    pub, payload: dict, tries: int = 200, channel: str = "login"
+) -> None:
     data = json.dumps(payload)
     for _ in range(tries):
-        if await pub.publish("login", data) >= 1:
+        if await pub.publish(channel, data) >= 1:
             return
         await asyncio.sleep(0.02)
-    raise AssertionError("no subscriber received the login event")
+    raise AssertionError(f"no subscriber received the {channel} event")
 
 
 async def _read_data(agen, max_chunks: int = 20) -> dict:
@@ -200,6 +204,63 @@ async def test_state_after_success(app, session, hub):
         body = resp.json()
         assert body["state"] == "success"
         assert body["updated_at"] is not None
+    finally:
+        await hub.stop()
+        await pub.aclose()
+
+
+# --- 3b. переход публикует account_status РОВНО один раз (#9, без дублей) -----
+
+
+async def test_transition_publishes_account_status_once(session):
+    """State machine публикует account_status один раз на переход — независимо
+    от инициатора (API или воркер). API не добавляет вторую публикацию сверху."""
+    events: list[tuple[str, dict]] = []
+
+    class _Spy:
+        def publish(self, channel, payload):
+            events.append((channel, dict(payload)))
+
+    account_id = _make_account(session)
+    # RETIRE из created (как это сделал бы API-роут /actions/retire с реальным
+    # publisher из get_publisher()).
+    AccountStateMachine(session, _Spy()).transition(
+        account_id, AccountEvent.RETIRE, Initiator.USER
+    )
+
+    status_events = [p for ch, p in events if ch == "account_status"]
+    assert len(status_events) == 1  # ровно одно событие, без дублей
+    assert status_events[0]["account_id"] == account_id
+    assert status_events[0]["to"] == "retired"
+
+
+# --- 4. account_status доходит до SSE (универсальный стрим, #9) ---------------
+
+
+async def test_sse_receives_account_status_event(app, session, hub):
+    """Тот же per-account SSE отдаёт события канала account_status (не только login)."""
+    account_id = _make_account(session)
+    pub = aioredis.from_url(REDIS_URL)
+    try:
+        agen = await _open_stream(account_id, session, hub)
+        try:
+            await _publish_until_delivered(
+                pub,
+                {
+                    "account_id": account_id,
+                    "from": "pool",
+                    "to": "cooldown",
+                    "reason": "health.incident",
+                    "initiator": "health",
+                },
+                channel="account_status",
+            )
+            event = await _read_data(agen)
+            assert event["type"] == "account_status"
+            assert event["to"] == "cooldown"
+            assert event["from"] == "pool"
+        finally:
+            await agen.aclose()
     finally:
         await hub.stop()
         await pub.aclose()

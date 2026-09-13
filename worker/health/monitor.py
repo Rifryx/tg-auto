@@ -43,16 +43,53 @@ from telethon.errors import (
     UserIsBlockedError,
 )
 
+import structlog
+
 from core.enums import HealthEventType, Initiator
 from core.queue.publisher import Publisher
 from core.repositories.health_event import HealthEventRepository
 from core.schemas.health import HealthEventCreate
 from core.state_machine import AccountEvent, AccountStateMachine, TransitionError
-from worker.tasks.logging import get_logger
+
+# worker.health не зависит от worker.tasks (иначе цикл: worker.tasks.__init__
+# импортирует login/warming/commenting, а те — worker.health). Логгер берём
+# напрямую из structlog — конфигурация процессоров глобальна (configure_logging).
+get_logger = structlog.get_logger
 
 T = TypeVar("T")
 
 SPAM_COOLDOWN_HOURS = 24
+
+# Канал pub/sub с health-алертами (аудит #9). Дашборд может опрашивать БД, но
+# канал существует для «живых» алертов.
+HEALTH_ALERT_CHANNEL = "health_alert"
+
+# severity деривируется из типа события (отдельной колонки нет — §1.3/§5.3).
+_SEVERITY: dict[str, str] = {
+    HealthEventType.FLOOD_WAIT.value: "warning",
+    HealthEventType.PROXY_DOWN.value: "warning",
+    HealthEventType.RESTRICTED.value: "critical",
+    HealthEventType.SPAM_BLOCK.value: "critical",
+    HealthEventType.SESSION_REVOKED.value: "critical",
+    HealthEventType.AUTH_FAILED.value: "critical",
+}
+
+
+def _severity(event_type: HealthEventType) -> str:
+    return _SEVERITY.get(event_type.value, "warning")
+
+
+def _publish_alert(publisher, account_id: int, event_type: HealthEventType) -> None:
+    if publisher is None:
+        return
+    publisher.publish(
+        HEALTH_ALERT_CHANNEL,
+        {
+            "account_id": account_id,
+            "event_type": event_type.value,
+            "severity": _severity(event_type),
+        },
+    )
 
 
 async def around_telethon_call(
@@ -143,6 +180,7 @@ def _incident(
                 event_type=event_type.value,
                 error=repr(exc),
             )
+    _publish_alert(publisher, account_id, event_type)
 
 
 def _ban(
@@ -168,3 +206,4 @@ def _ban(
             get_logger().warning(
                 "health.ban_no_transition", account_id=account_id, error=repr(exc)
             )
+    _publish_alert(publisher, account_id, event_type)
