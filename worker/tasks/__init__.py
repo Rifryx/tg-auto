@@ -9,6 +9,8 @@ from worker.tasks.handlers import (
     login_start,
     maintenance_scheduler,
     registered_names,
+    warming_initial_start,
+    warming_tick,
 )
 from worker.tasks.logging import configure_logging, get_logger
 
@@ -26,4 +28,6 @@ __all__ = [
     "maintenance_scheduler",
     "registered_names",
     "task",
+    "warming_initial_start",
+    "warming_tick",
 ]

@@ -7,7 +7,9 @@
 
 Границы ответственности:
 * смена статуса — ТОЛЬКО через :class:`AccountStateMachine` (событие
-  ``warming.start``: created → warming). Сам прогрев здесь не запускается.
+  ``warming.start``: created → warming). Сразу после перехода первичный прогрев
+  запускается постановкой задачи ``warming.initial_start`` в очередь через
+  :class:`TaskQueue` (единый транспорт — не прямым импортом функции прогрева).
 * ``FloodWaitError`` от Telethon превращается в диспетчерский
   :class:`worker.tasks.dispatch.FloodWaitError` — его ловит middleware и делает
   отложенный ретрай (провалом это НЕ считается).
@@ -28,7 +30,9 @@ from telethon.errors import (
 
 from core.crypto import encrypt_session
 from core.enums import Initiator
+from core.queue import TaskQueue
 from core.queue.publisher import Publisher
+from core.queue.task_names import TaskName
 from core.repositories.account import AccountRepository
 from core.schemas.account import AccountUpdate
 from core.state_machine import AccountEvent, AccountStateMachine
@@ -61,6 +65,11 @@ def _pool(ctx: dict) -> ClientPool:
         pool = ClientPool(ctx["session_factory"])
         ctx["client_pool"] = pool
     return pool
+
+
+def _task_queue(ctx: dict) -> TaskQueue:
+    """Очередь задач из ctx (инъекция в тестах), иначе поверх ctx['redis']."""
+    return ctx.get("task_queue") or TaskQueue(redis=ctx.get("redis"))
 
 
 def _publish(
@@ -109,18 +118,19 @@ def _save_session_only(session_factory: Any, account_id: int, session_str: str) 
         session.commit()
 
 
-def _finish_login(
-    session_factory: Any,
-    publisher: Optional[Publisher],
-    account_id: int,
-    session_str: str,
-) -> None:
+async def _finish_login(ctx: dict, account_id: int, session_str: str) -> None:
     """Успех входа: сохранить сессию, снять pending, перевести created → warming.
 
     Обновление session_enc/meta и переход статуса — в одной транзакции: state
     machine коммитит сессию, поэтому наши правки над тем же объектом фиксируются
     атомарно вместе с переходом.
+
+    Сразу после перехода ставим ``warming.initial_start`` в очередь — это и есть
+    запуск первичного прогрева. Enqueue идёт ЧЕРЕЗ :class:`TaskQueue` (а не прямым
+    импортом функции прогрева), чтобы транспорт задач оставался единым.
     """
+    session_factory = ctx["session_factory"]
+    publisher = ctx.get("publisher")
     with session_factory() as session:
         account = AccountRepository(session).get(account_id)
         account.session_enc = encrypt_session(session_str.encode())
@@ -130,6 +140,7 @@ def _finish_login(
         AccountStateMachine(session, publisher).transition(
             account_id, AccountEvent.WARMING_START, Initiator.AUTO
         )
+    await _task_queue(ctx).enqueue(TaskName.WARMING_INITIAL_START, account_id)
     _publish(publisher, account_id, LoginState.SUCCESS)
 
 
@@ -215,7 +226,7 @@ async def login_confirm_impl(ctx: dict, account_id: int, code: str) -> None:
         _publish(publisher, account_id, LoginState.WAITING_PASSWORD)
         return
 
-    _finish_login(session_factory, publisher, account_id, session_str)
+    await _finish_login(ctx, account_id, session_str)
 
 
 async def login_password_impl(ctx: dict, account_id: int, password: str) -> None:
@@ -248,4 +259,4 @@ async def login_password_impl(ctx: dict, account_id: int, password: str) -> None
     finally:
         await pool.release(account_id)
 
-    _finish_login(session_factory, publisher, account_id, session_str)
+    await _finish_login(ctx, account_id, session_str)

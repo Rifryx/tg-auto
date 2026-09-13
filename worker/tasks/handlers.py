@@ -30,11 +30,14 @@ from worker.tasks.commenting import on_new_post_impl, post_comment_impl
 from worker.tasks.dispatch import task
 from worker.tasks.health import check_proxies_impl
 from worker.tasks.logging import get_logger
-from worker.tasks.warming import maintenance_scheduler_impl, warming_tick_impl
+from worker.tasks.warming import (
+    initial_start_impl,
+    maintenance_scheduler_impl,
+    warming_tick_impl,
+)
 
 # Задачи, которые пока заглушки (реальная реализация — на своих этапах).
 _STUB_TASKS = [
-    TaskName.ACCOUNT_START_WARMING,
     TaskName.ACCOUNT_RETIRE,
     TaskName.ACCOUNT_ACKNOWLEDGE_BAN,
 ]
@@ -72,6 +75,10 @@ maintenance_scheduler = task(TaskName.WARMING_MAINTENANCE_SCHEDULER.value)(
     maintenance_scheduler_impl
 )
 warming_tick = task(TaskName.WARMING_TICK.value)(warming_tick_impl)
+# Стартер первичного прогрева: enqueue'ится напрямую из login/flow.py::_finish_login
+# сразу после перехода created → warming (промежуточная задача-обёртка удалена
+# как лишний слой индирекции — прямой enqueue надёжнее).
+warming_initial_start = task(TaskName.WARMING_INITIAL_START.value)(initial_start_impl)
 
 # Health (§5.3): проверка прокси — cron каждые 10 минут.
 check_proxies = task(TaskName.HEALTH_CHECK_PROXIES.value)(check_proxies_impl)
@@ -90,6 +97,11 @@ TASK_FUNCTIONS = [
     for name in _STUB_TASKS
 ] + [
     func(warming_tick, name=TaskName.WARMING_TICK.value, max_tries=3),
+    func(
+        warming_initial_start,
+        name=TaskName.WARMING_INITIAL_START.value,
+        max_tries=3,
+    ),
     func(on_new_post, name=TaskName.COMMENTING_ON_NEW_POST.value, max_tries=3),
     func(post_comment, name=TaskName.COMMENTING_POST_COMMENT.value, max_tries=3),
     func(login_start, name=TaskName.ACCOUNT_LOGIN_START.value, max_tries=3),

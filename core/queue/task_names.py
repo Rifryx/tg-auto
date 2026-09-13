@@ -14,7 +14,7 @@ class TaskName(str, Enum):
     ACCOUNT_LOGIN_START = "account.login_start"
     ACCOUNT_LOGIN_CONFIRM = "account.login_confirm"
     ACCOUNT_LOGIN_PASSWORD = "account.login_password"
-    ACCOUNT_START_WARMING = "account.start_warming"
+    WARMING_INITIAL_START = "warming.initial_start"
     WARMING_TICK = "warming.tick"
     WARMING_MAINTENANCE_SCHEDULER = "warming.maintenance_scheduler"
     HEALTH_CHECK_PROXIES = "health.check_proxies"

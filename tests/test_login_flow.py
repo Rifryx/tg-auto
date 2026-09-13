@@ -25,6 +25,7 @@ from telethon.sessions import StringSession
 from core.crypto import decrypt_session, encrypt_session, reset_cache
 from core.config import get_settings
 from core.models import Account, AccountStatusHistory, Proxy
+from core.queue.task_names import TaskName
 from worker.client_pool import ClientPool
 from worker.login import (
     LOGIN_CHANNEL,
@@ -134,6 +135,24 @@ class _SpyPublisher:
         return [p for ch, p in self.events if ch == LOGIN_CHANNEL]
 
 
+class _SpyTaskQueue:
+    """Ловит enqueue из _finish_login (реального Redis в этих тестах нет)."""
+
+    def __init__(self) -> None:
+        self.enqueued: list[tuple] = []
+
+    async def enqueue(self, task_name, *args, **kwargs):
+        self.enqueued.append((task_name, args, kwargs))
+        return "job-1"
+
+    def initial_starts(self) -> list[tuple]:
+        return [
+            (args, kwargs)
+            for name, args, kwargs in self.enqueued
+            if name == TaskName.WARMING_INITIAL_START
+        ]
+
+
 # --- Fake TelegramClient factory ---------------------------------------------
 
 
@@ -176,12 +195,13 @@ def _make_client_factory(
     return factory
 
 
-def _ctx(store, publisher, factory):
+def _ctx(store, publisher, factory, task_queue=None):
     pool = ClientPool(_session_factory(store), settings=_SETTINGS, client_factory=factory)
     return {
         "session_factory": _session_factory(store),
         "publisher": publisher,
         "client_pool": pool,
+        "task_queue": task_queue if task_queue is not None else _SpyTaskQueue(),
         "redis": None,
     }
 
@@ -204,6 +224,8 @@ async def test_code_without_2fa():
     assert decrypt_session(account.session_enc).decode() == _SAVED_SESSION
     assert account.status == "warming"
     assert pub.login_events()[-1] == {"account_id": 1, "state": "success"}
+    # Прогрев запущен ПОСТАНОВКОЙ задачи в очередь (spy), не прямым вызовом.
+    assert ctx["task_queue"].initial_starts() == [((1,), {})]
 
 
 # --- 2. С 2FA -----------------------------------------------------------------
@@ -223,10 +245,14 @@ async def test_with_2fa():
     await login_confirm_impl(ctx, 1, "12345")
     assert pub.login_events()[-1] == {"account_id": 1, "state": "waiting_password"}
     assert store["accounts"][1].status == "created"  # ещё не warming
+    # confirm с 2FA НЕ запускает прогрев (логин ещё не завершён).
+    assert ctx["task_queue"].initial_starts() == []
 
     await login_password_impl(ctx, 1, "s3cret")
     assert store["accounts"][1].status == "warming"
     assert pub.login_events()[-1] == {"account_id": 1, "state": "success"}
+    # Ровно один enqueue прогрева на весь 2FA-путь (confirm не задублировал).
+    assert ctx["task_queue"].initial_starts() == [((1,), {})]
 
 
 # --- 3. Неверный код ----------------------------------------------------------

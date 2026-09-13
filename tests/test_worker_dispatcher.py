@@ -18,7 +18,13 @@ from core.enums import AccountStatus, Initiator
 from core.queue import TaskName, TaskQueue
 from core.repositories.account import AccountRepository
 from core.schemas.account import AccountCreate
-from worker.tasks import FloodWaitError, cooldown_return, registered_names, task
+from worker.tasks import (
+    FloodWaitError,
+    cooldown_return,
+    registered_names,
+    task,
+    warming_initial_start,
+)
 
 REDIS_DSN = os.getenv("TEST_REDIS_URL_WORKER", "redis://localhost:6380/2")
 
@@ -153,11 +159,11 @@ async def test_stub_retries_three_times_then_failed(arq_pool):
         calls.append(1)
         raise NotImplementedError("stub")
 
-    name = TaskName.ACCOUNT_START_WARMING.value
+    name = TaskName.ACCOUNT_RETIRE.value
     wrapped = func(task(name)(failing), name=name, max_tries=3)
 
     tq = TaskQueue(redis=arq_pool)
-    job_id = await tq.enqueue(TaskName.ACCOUNT_START_WARMING)
+    job_id = await tq.enqueue(TaskName.ACCOUNT_RETIRE)
 
     worker = Worker(
         functions=[wrapped],
@@ -213,3 +219,59 @@ async def test_flood_wait_reschedules_via_task_queue(monkeypatch):
     delta_hi = (call["run_at"] - after).total_seconds()
     assert 14.0 <= delta_lo <= 16.0
     assert 14.0 <= delta_hi <= 16.0
+
+
+# --------------------------------------------------------------------------- #
+# 5. Реальный arq-воркер забирает warming.initial_start из очереди и планирует
+#    стартовую пачку warming.tick (замыкание пайплайна из _finish_login, #1/#2).
+# --------------------------------------------------------------------------- #
+class _LowRng:
+    """rng, при котором randint возвращает нижнюю границу (детерминизм пачки)."""
+
+    def randint(self, a, b):
+        return a
+
+
+class _SpyTaskQueue:
+    def __init__(self):
+        self.enqueued: list[tuple] = []
+
+    async def enqueue(self, task_name, *args, **kwargs):
+        self.enqueued.append((task_name, args))
+        return "job-1"
+
+
+@pytest.mark.asyncio
+async def test_worker_runs_initial_start_and_schedules_ticks(arq_pool):
+    spy = _SpyTaskQueue()
+
+    async def startup(ctx):
+        # initial_start сам ничего не пишет в БД: нужны только rng и task_queue.
+        ctx["rng"] = _LowRng()
+        ctx["task_queue"] = spy
+
+    wrapped = func(
+        warming_initial_start,
+        name=TaskName.WARMING_INITIAL_START.value,
+        max_tries=3,
+    )
+
+    tq = TaskQueue(redis=arq_pool)
+    await tq.enqueue(TaskName.WARMING_INITIAL_START, 42)
+
+    worker = Worker(
+        functions=[wrapped],
+        redis_pool=arq_pool,
+        queue_name="default",
+        on_startup=startup,
+        burst=True,
+        poll_delay=0.05,
+        handle_signals=False,
+    )
+    await asyncio.wait_for(worker.async_run(), timeout=15)
+
+    # Воркер реально забрал задачу и запланировал стартовую пачку warming.tick.
+    # MEDIUM-профиль: randint(2, 5) → 2 при _LowRng.
+    ticks = [args for name, args in spy.enqueued if name == TaskName.WARMING_TICK]
+    assert len(ticks) == 2
+    assert all(args == (42,) for args in ticks)

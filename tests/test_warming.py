@@ -16,14 +16,20 @@ from sqlalchemy import func, select, text
 
 from core.config import get_settings
 
+from core.crypto import reset_cache
 from core.enums import WarmingActionType, WarmingProfile
 from core.models import Account, WarmingActivity
+from core.queue.task_names import TaskName
 from core.repositories.account import AccountRepository
 from worker.tasks.warming import (
     initial_start_impl,
     maintenance_scheduler_impl,
     warming_tick_impl,
 )
+# worker.login импортируется ПОСЛЕ worker.tasks: flow.py тянет
+# worker.tasks.dispatch, поэтому пакет worker.tasks должен инициализироваться
+# первым (иначе циклический импорт handlers ↔ login).
+from worker.login import login_confirm_impl
 
 pytestmark = pytest.mark.asyncio
 
@@ -266,3 +272,50 @@ async def test_reaction_on_missing_post_records_failed(session):
     client.get_messages = AsyncMock(return_value=[type("M", (), {"id": 1})()])
     ctx["rng"] = _FixedRng(WarmingActionType.IDLE_ONLINE)
     assert await warming_tick_impl(ctx, account_id) == "done"
+
+
+# --- 5. e2e: login_confirm → warming → (ускоренный прогон) → pool -------------
+
+
+async def test_login_confirm_to_pool_without_manual_initial_start(session):
+    """created→warming→pool целиком от login_confirm, БЕЗ ручного initial_start.
+
+    Регрессия на #1/#2/#11: раньше путь заводился только ручным вызовом
+    initial_start_impl в тесте. Теперь login_confirm сам ставит прогрев в
+    очередь (проверяем spy), а аккаунт доходит до pool на ускоренной серии
+    tick'ов.
+    """
+    reset_cache()
+    _clean(session)
+
+    # Аккаунт в 'created' с pending-логином (phone_code_hash в meta).
+    account_id = _make_account(session, status="created", warming_started_at=None)
+    account = AccountRepository(session).get(account_id)
+    account.meta = {"phone_code_hash": "HASH123"}
+    session.commit()
+
+    # Один фейковый клиент обслуживает и логин (connect/sign_in/session.save),
+    # и прогрев (client(UpdateStatusRequest) через IDLE_ONLINE).
+    client = AsyncMock()
+    client.session.save = lambda: "e2e-session-string"
+    spy = _SpyTaskQueue()
+    ctx = _ctx(
+        session,
+        now=NOW_INSIDE,
+        rng=_FixedRng(WarmingActionType.IDLE_ONLINE),
+        client=client,
+        task_queue=spy,
+    )
+
+    # 1) Логин: код без 2FA → created→warming, прогрев поставлен В ОЧЕРЕДЬ.
+    await login_confirm_impl(ctx, account_id, "12345")
+    assert AccountRepository(session).get(account_id).status == "warming"
+    initial = [args for name, args in spy.enqueued if name == TaskName.WARMING_INITIAL_START]
+    assert initial == [(account_id,)]
+
+    # 2) Ускоренная серия tick'ов — initial_start_impl вручную НЕ вызывается.
+    for _ in range(50):
+        await warming_tick_impl(ctx, account_id)
+
+    assert AccountRepository(session).get(account_id).status == "pool"
+    assert _activity_count(session, account_id, kind="initial") == 50
