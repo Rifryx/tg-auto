@@ -10,6 +10,43 @@
 никто не запускает. Это каскадом убивает и весь commenting (нет аккаунтов в
 `pool` → нечего аттачить в кампании).
 
+---
+
+## Повторный аудит — верификация связности (2026-09-13, после промптов 19–24)
+
+Метод: повторное чтение реальных потоков + `grep` вызовов (исключая `tests/`),
+подсчёт LOC. Код не менялся этим проходом. Цель — проверить, что найденные ранее
+обрывы **реально** подключены, а не только «по коммитам». `alembic check` в этой
+среде не запускался (нет БД) — см. #10.
+
+| # | Место | Ожидание | Факт (проверено чтением кода) | Severity |
+|---|-------|----------|------|----------|
+| 1 | Запуск прогрева после логина | created→warming ставит задачу прогрева в очередь | ✅ ПОДКЛЮЧЕНО. `worker/login/flow.py:174` `_finish_login` делает `enqueue(TaskName.WARMING_INITIAL_START, account_id)` сразу после перехода. Обёртка `account.start_warming` удалена (нет в `TaskName`). Вызывается из реального потока, не только из тестов. | нет |
+| 2 | `warming.initial_start` | Зарегистрирована как задача и вызывается | ✅ ПОДКЛЮЧЕНО. Зарегистрирована в `worker/tasks/handlers.py:81` (в `TASK_FUNCTIONS`), тело `worker/tasks/warming.py:225` планирует пачку `warming.tick`. Enqueue из `_finish_login` (не из тестов). | нет |
+| 3 | `health.check_proxies` — реальный хендшейк | SOCKS5/HTTP-хендшейк с авторизацией | ✅ РЕАЛИЗОВАНО. `worker/health/proxy_probe.py`: SOCKS5/4 через `python-socks` (`proxy.connect`), HTTP через `CONNECT` + `Proxy-Authorization` с проверкой `200`. `check_proxies` использует его дефолтным пробером (sync/async). Не заглушка. | нет |
+| 4 | Слушатели кампаний | Подключаются при старте для всех enabled; динамика после старта | ✅ ПОДКЛЮЧЕНО + ДИНАМИКА. `worker/main.py:48` `await registry.load_all(ctx)` (после `client_pool`, стр. 43). Создание/enable/disable/delete/attach — через pub/sub `campaign_lifecycle`, слушатель `CampaignLifecycleListener` (`main.py:54`, `create_task`) делает attach/detach без рестарта. | нет |
+| 5 | Entrypoint API | Запускаемый прод-сервер | ✅ ЕСТЬ. `api/asgi.py::create_app()` (+ lifespan/CORS/request-id/error-handler), `app` ленивый (PEP 562). `deploy/gunicorn.conf.py` (`UvicornWorker`), `deploy/entrypoint-api.sh` (`alembic upgrade head` → `exec gunicorn … api.asgi:app`). | нет |
+| 6 | Зависимости | Все runtime-импорты объявлены с версиями | ✅ ОБЪЯВЛЕНЫ. `httpx>=0.27`, `google-generativeai>=0.8`, `redis>=5.0`, `uvicorn[standard]>=0.30`, `gunicorn>=22.0`, `python-socks>=2.4` — в runtime-секции. `uvicorn`/`gunicorn` не импортируются в коде (это серверы — норма). Явно неиспользуемых объявленных не найдено. | нет |
+| 7 | `Governor` во всех исходящих действиях | warming + posting + login | ✅ ВЕЗДЕ. `check_and_reserve` вызывается в login (`flow.py:202/243/294`, тип `login`), warming (`warming/actions/__init__.py:58`, тип `warming`), posting (`runner.py:231`, тип `comment`). | нет |
+| 8 | `around_telethon_call` вокруг всех вызовов Telethon | warming + login + posting | ✅ ВЕЗДЕ. login (`flow.py:96` через `_around_call`, `handle_flood_wait=False`), warming (`actions/base.py:61`), posting (`runner.py:249`). | нет |
+| 9 | Redis pub/sub | Публикуются все нужные каналы; API-потребитель подписан | ✅ ПОДКЛЮЧЕНО. Публикация: `login` (`flow.py:117`), `account_status` (state machine `account.py:337`), `warming_progress` (`warming.py:182`), `health_alert` (`monitor.py:85`), `campaign_lifecycle` (`registry.py:246`). `get_publisher` реальный (`deps/queue.py:26`). Потребитель `LoginEventHub` подписан на `login`+`account_status` (`services/login.py:60`) и отдаёт оба через SSE. | нет |
+| 10 | Миграции vs модели | Нет дрейфа + runtime-накат | ⚠️ НЕ ПРОВЕРЕНО в этой среде (нет БД для `alembic check`). Файлы миграций на месте (`migrations/versions/0001_initial.py`, `0002_account_meta.py`); runtime-накат подключён (`deploy/entrypoint-api.sh`). Нужен прогон `alembic check` в среде с БД. | minor (не верифицировано) |
+
+### Дополнительно найденное этим проходом (сверх 10 пунктов)
+
+| # | Место | Наблюдение | Severity |
+|---|-------|-----------|----------|
+| A | `worker/main.py:44` `ctx['publisher']` + `RedisPublisher.publish` | Публикатор воркера теперь на СИНХРОННОМ redis-клиенте (это исправление — раньше был async arq-редис и `publish` возвращал корутину, не публикуя). Побочно: sync-`publish` вызывается внутри async-цикла воркера — короткая блокирующая операция. Для масштаба §6 приемлемо; при росте нагрузки — вынести в async-паблишер/executor. | minor |
+| B | `api/main.py` | «Голое» приложение (`app = FastAPI()` без lifespan/CORS/request-id) всё ещё существует — используется тестами и как удобная точка. Риск: если в проде запустить `uvicorn api.main:app` вместо `api.asgi:app`, потеряются fail-fast-проверки коннектов и middleware. Docstring предупреждает, но footgun остаётся. | minor |
+| C | Каналы `warming_progress` / `health_alert` | Публикуются, но подписчиков пока НЕТ (по замыслу — под будущий фронт/живые алерты). Дашборд `/monitoring` по-прежнему опрашивает БД. Это не обрыв, а задел; отметить, чтобы не всплыло как «мёртвый канал». | инфо |
+| D | Тесты стыков #9 (`test_api_retire_publishes_account_status_to_redis`, warming/health-публикации) и сквозной `tests/integration/test_full_pipeline.py` | Требуют живых Postgres/Redis — в текущей среде только коллектятся, не исполнялись. Связность подтверждена чтением кода; фактический прогон нужен в CI/среде с сервисами. | инфо |
+
+**Вывод повторного аудита:** все 10 исходных пунктов реально подключены к рантайму
+(проверено по вызовам, не только по тестам). Остаток — некритичный: `alembic check`
+не прогнан здесь (#10), плюс мелкие эксплуатационные заметки A–B и заделы C–D.
+
+---
+
 ## Сводная таблица
 
 | # | Место | Ожидание | Факт | Severity |
