@@ -59,7 +59,7 @@ def patch_proxy(
     return ProxyRead.model_validate(proxy)
 
 
-@router.delete("/{proxy_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{proxy_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 def delete_proxy(proxy_id: int, session: Session = Depends(get_session)) -> None:
     if not ProxyRepository(session).delete(proxy_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"proxy {proxy_id} not found")

@@ -95,7 +95,11 @@ def patch_campaign(
     return CampaignRead.model_validate(campaign)
 
 
-@router.delete("/campaigns/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/campaigns/{campaign_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 def delete_campaign(
     campaign_id: int,
     session: Session = Depends(get_session),
@@ -156,6 +160,7 @@ def attach_account(
 @router.delete(
     "/campaigns/{campaign_id}/accounts/{account_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
 )
 def detach_account(
     campaign_id: int,

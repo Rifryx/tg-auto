@@ -49,7 +49,7 @@ def patch_persona(
     return PersonaRead.model_validate(persona)
 
 
-@router.delete("/{persona_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{persona_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 def delete_persona(persona_id: int, session: Session = Depends(get_session)) -> None:
     if not PersonaRepository(session).delete(persona_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"persona {persona_id} not found")
