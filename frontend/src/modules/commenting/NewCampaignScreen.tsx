@@ -1,0 +1,182 @@
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { ArrowLeft } from "lucide-react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { accountsApi } from "../../shared/accounts";
+import { haptic } from "../../shared/tg";
+import { commentingApi } from "./api";
+import { AccountPickRow } from "./components/AccountPickRow";
+import {
+  CapsuleButton,
+  Field,
+  RangeField,
+  Section,
+  SegmentedControl,
+  TextArea,
+  TextInput,
+} from "./components/ui";
+import type { LLMProvider } from "./types";
+
+const TZ_OPTIONS = ["Europe/Kiev", "Europe/Moscow", "Europe/Warsaw", "UTC"];
+const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
+  { value: "deepseek", label: "DeepSeek" },
+  { value: "gemini", label: "Gemini" },
+];
+
+export function NewCampaignScreen() {
+  const navigate = useNavigate();
+  const [name, setName] = useState("");
+  const [channel, setChannel] = useState("");
+  const [llm, setLlm] = useState<LLMProvider>("deepseek");
+  const [prompt, setPrompt] = useState("");
+  const [start, setStart] = useState("09:00");
+  const [end, setEnd] = useState("23:00");
+  const [tz, setTz] = useState("Europe/Kiev");
+  const [delayMin, setDelayMin] = useState(30);
+  const [delayMax, setDelayMax] = useState(120);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+
+  const pool = useQuery({ queryKey: ["accounts", "pool"], queryFn: () => accountsApi.list("pool") });
+
+  const valid =
+    name.trim() !== "" && channel.trim() !== "" && prompt.trim() !== "" && delayMin <= delayMax;
+
+  const create = useMutation({
+    mutationFn: async () => {
+      const camp = await commentingApi.create({
+        name: name.trim(),
+        target_channel: channel.trim(),
+        base_system_prompt: prompt.trim(),
+        llm_provider: llm,
+        active_hours_start: `${start}:00`,
+        active_hours_end: `${end}:00`,
+        active_hours_tz: tz,
+        posting_delay_min_sec: delayMin,
+        posting_delay_max_sec: delayMax,
+        enabled: true,
+      });
+      for (const id of selected) await commentingApi.attach(camp.id, id);
+      return camp;
+    },
+    onSuccess: (camp) => {
+      haptic("light");
+      navigate(`/modules/commenting/campaigns/${camp.id}`);
+    },
+  });
+
+  const setDelayMinClamped = (v: number) => {
+    setDelayMin(v);
+    if (v > delayMax) setDelayMax(v);
+  };
+
+  return (
+    <div className="flex min-h-full flex-col pb-28 pt-1">
+      <button
+        onClick={() => navigate("/tasks")}
+        className="mb-4 inline-flex w-fit items-center gap-1 text-[14px] text-text-secondary active:text-text-primary"
+      >
+        <ArrowLeft className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+        Кампании
+      </button>
+      <h1 className="screen-title mb-6">Новая кампания</h1>
+
+      <Section title="Основное">
+        <Field label="Название">
+          <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Промо-кампания" />
+        </Field>
+        <Field label="Канал">
+          <TextInput value={channel} onChange={(e) => setChannel(e.target.value)} placeholder="@channel" />
+        </Field>
+      </Section>
+
+      <Section title="Модель">
+        <SegmentedControl options={LLM_OPTIONS} value={llm} onChange={setLlm} />
+      </Section>
+
+      <Section title="Промпт">
+        <TextArea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Ты — активный участник обсуждений. Пиши короткие релевантные комментарии…"
+        />
+      </Section>
+
+      <Section title="Окно активности">
+        <div className="flex gap-2">
+          <Field label="С">
+            <TextInput type="time" value={start} onChange={(e) => setStart(e.target.value)} className="nums" />
+          </Field>
+          <Field label="До">
+            <TextInput type="time" value={end} onChange={(e) => setEnd(e.target.value)} className="nums" />
+          </Field>
+        </div>
+        <Field label="Часовой пояс">
+          <select
+            value={tz}
+            onChange={(e) => setTz(e.target.value)}
+            className="w-full min-h-[48px] rounded-chip border border-hairline bg-surface-1 px-4 text-[16px] text-text-primary outline-none focus:border-strong"
+          >
+            {TZ_OPTIONS.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </Section>
+
+      <Section title="Задержки постинга">
+        <RangeField label="Минимум" value={delayMin} min={5} max={600} onChange={setDelayMinClamped} />
+        <RangeField label="Максимум" value={delayMax} min={5} max={600} onChange={setDelayMax} />
+      </Section>
+
+      <Section title="Аккаунты из пула">
+        {pool.data && pool.data.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            {pool.data.map((a) => (
+              <AccountPickRow
+                key={a.id}
+                account={a}
+                selected={selected.has(a.id)}
+                onToggle={() =>
+                  setSelected((s) => {
+                    const n = new Set(s);
+                    n.has(a.id) ? n.delete(a.id) : n.add(a.id);
+                    return n;
+                  })
+                }
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-[13px] text-text-tertiary">В пуле нет свободных аккаунтов.</p>
+        )}
+      </Section>
+
+      {create.isError && (
+        <p className="mb-3 text-[13px] text-status-critical">Не удалось создать кампанию.</p>
+      )}
+
+      <StickyBar>
+        <CapsuleButton
+          variant={valid ? "accent" : "secondary"}
+          disabled={!valid || create.isPending}
+          onClick={() => create.mutate()}
+        >
+          {create.isPending ? "Создаём…" : "Создать кампанию"}
+        </CapsuleButton>
+      </StickyBar>
+    </div>
+  );
+}
+
+function StickyBar({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[440px] border-t border-hairline bg-bg-base px-5 pt-3"
+      style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
+    >
+      {children}
+    </div>
+  );
+}
