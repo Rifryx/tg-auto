@@ -1,0 +1,43 @@
+@import "./tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: theme("fontFamily.sans");
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* Mini App не должен «резинить» страницу по вертикали. */
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Крупные числа (KPI, счётчики) — моноширинные цифры (§3 брифа). */
+  .nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Карточка верхнего уровня (§4): радиус, hairline-обводка, без тени. */
+  .card {
+    @apply rounded-card border border-hairline bg-surface-1;
+  }
+
+  /* Заголовок экрана H1 (§3): 28–34px / 700 / плотный трекинг. */
+  .screen-title {
+    @apply text-[30px] font-bold leading-tight text-text-primary;
+    letter-spacing: -0.02em;
+  }
+}

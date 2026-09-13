@@ -1,0 +1,29 @@
+/* Design tokens — ЕДИНСТВЕННЫЙ источник цвета (UI-DESIGN-BRIEF.md §2).
+   Компоненты не хардкодят hex: используют tailwind-классы (bg-surface-1,
+   text-secondary, border-hairline …), смэппенные на эти переменные. */
+:root {
+  /* Фон */
+  --bg-base: #050505;        /* истинно чёрный, не #000 */
+  --bg-elevated: #0f0f11;    /* второй уровень — модалки, дровер */
+
+  /* Поверхности карточек */
+  --surface-1: #141416;      /* базовая карточка / капсула навбара */
+  --surface-2: #1c1c1f;      /* карточка внутри карточки / активная пилюля */
+  --surface-border: rgba(255, 255, 255, 0.07);        /* hairline вместо тени */
+  --surface-border-strong: rgba(255, 255, 255, 0.14);
+
+  /* Текст */
+  --text-primary: #f5f5f7;   /* тёплый почти-белый */
+  --text-secondary: #8e8e93; /* iOS system gray */
+  --text-tertiary: #636366;
+
+  /* Функциональные цвета — ТОЛЬКО статусы, нигде как декор */
+  --status-active: #34c759;   /* pool/assigned */
+  --status-warning: #ff9f0a;  /* warming/cooldown */
+  --status-critical: #ff453a; /* banned / health-алерт */
+  --status-neutral: #636366;  /* created/retired */
+
+  /* Единственный акцент — точечно: главная кнопка, активный таб */
+  --accent: #f5f5f7;         /* белый на чёрном (референсы 2, 6) */
+  --accent-on: #050505;      /* текст/иконка НА акцентной поверхности */
+}
