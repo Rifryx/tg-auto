@@ -37,6 +37,9 @@ class Governor:
 
     async def check_and_reserve(self, account_id: int, action_type: str) -> bool:
         """True и слот занят, если ни одно окно не превышено; иначе False."""
+        if self._redis is None:
+            # Без Redis лимитировать нечем — fail-open (не роняем прогрев/логин).
+            return True
         windows = LIMITS.get(action_type)
         if windows is None:
             # Неизвестный тип действия не лимитируем (но и не роняем).

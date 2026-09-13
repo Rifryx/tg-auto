@@ -195,13 +195,26 @@ def _make_client_factory(
     return factory
 
 
-def _ctx(store, publisher, factory, task_queue=None):
+class _FakeGovernor:
+    """Governor-заглушка: разрешает или запрещает резерв слота."""
+
+    def __init__(self, allow: bool = True) -> None:
+        self.allow = allow
+        self.calls: list[tuple[int, str]] = []
+
+    async def check_and_reserve(self, account_id: int, action_type: str) -> bool:
+        self.calls.append((account_id, action_type))
+        return self.allow
+
+
+def _ctx(store, publisher, factory, task_queue=None, governor=None):
     pool = ClientPool(_session_factory(store), settings=_SETTINGS, client_factory=factory)
     return {
         "session_factory": _session_factory(store),
         "publisher": publisher,
         "client_pool": pool,
         "task_queue": task_queue if task_queue is not None else _SpyTaskQueue(),
+        "governor": governor,
         "redis": None,
     }
 
@@ -323,3 +336,29 @@ async def test_confirm_without_pending():
     assert last["state"] == "failed"
     assert last["reason"] == "no pending login"
     assert store["accounts"][1].status == "created"
+
+
+# --- 6. governor 'login' исчерпан → rate_limited, реального вызова нет --------
+
+
+async def test_login_start_rate_limited():
+    sent_calls: list[str] = []
+
+    def track_send(phone):
+        sent_calls.append(phone)
+        return SimpleNamespace(phone_code_hash="HASH123")
+
+    store = _make_store()
+    pub = _SpyPublisher()
+    gov = _FakeGovernor(allow=False)
+    ctx = _ctx(store, pub, _make_client_factory(on_send=track_send), governor=gov)
+
+    await login_start_impl(ctx, 1)
+
+    # явное состояние ожидания, НЕ failed
+    assert pub.login_events()[-1] == {"account_id": 1, "state": "rate_limited"}
+    # реальный send_code_request не выполнялся, pending не создан
+    assert sent_calls == []
+    assert "phone_code_hash" not in store["accounts"][1].meta
+    assert store["accounts"][1].status == "created"
+    assert gov.calls == [(1, "login")]

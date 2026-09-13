@@ -31,6 +31,7 @@ from core.repositories.warming_activity import WarmingActivityRepository
 from core.schemas.warming import WarmingActivityCreate
 from core.state_machine import AccountEvent, AccountStateMachine
 from worker.client_pool import ClientPool
+from worker.health import Governor
 from worker.tasks.logging import get_logger
 from worker.warming.actions import execute_action
 from worker.warming.planner import choose_action, due_interval, is_within_active_window
@@ -62,6 +63,10 @@ def _pool(ctx: dict) -> ClientPool:
 
 def _task_queue(ctx: dict) -> TaskQueue:
     return ctx.get("task_queue") or TaskQueue(redis=ctx.get("redis"))
+
+
+def _governor(ctx: dict) -> Governor:
+    return ctx.get("governor") or Governor(ctx.get("redis"))
 
 
 def _successful_initial_actions(session, account_id: int) -> int:
@@ -142,7 +147,15 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
     pool = _pool(ctx)
     client = await pool.get(account_id)
     try:
-        result = await execute_action(action_type, client, account)
+        result = await execute_action(
+            action_type,
+            client,
+            account,
+            governor=_governor(ctx),
+            session_factory=session_factory,
+            publisher=publisher,
+            now=now,
+        )
     finally:
         await pool.release(account_id)
 

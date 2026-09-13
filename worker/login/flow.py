@@ -37,8 +37,11 @@ from core.repositories.account import AccountRepository
 from core.schemas.account import AccountUpdate
 from core.state_machine import AccountEvent, AccountStateMachine
 from worker.client_pool import ClientPool
+from worker.health import Governor, around_telethon_call
 from worker.tasks.dispatch import FloodWaitError
 from worker.tasks.logging import get_logger
+
+LOGIN_ACTION = "login"  # тип действия для governor (лимит логин-операций)
 
 LOGIN_CHANNEL = "login"
 _META_CODE_HASH = "phone_code_hash"
@@ -49,6 +52,7 @@ class LoginState(str, Enum):
     WAITING_PASSWORD = "waiting_password"
     SUCCESS = "success"
     FAILED = "failed"
+    RATE_LIMITED = "rate_limited"
 
 
 # --- вспомогательные ---------------------------------------------------------
@@ -70,6 +74,11 @@ def _pool(ctx: dict) -> ClientPool:
 def _task_queue(ctx: dict) -> TaskQueue:
     """Очередь задач из ctx (инъекция в тестах), иначе поверх ctx['redis']."""
     return ctx.get("task_queue") or TaskQueue(redis=ctx.get("redis"))
+
+
+def _governor(ctx: dict) -> Governor:
+    """Governor из ctx (инъекция в тестах), иначе поверх ctx['redis']."""
+    return ctx.get("governor") or Governor(ctx.get("redis"))
 
 
 def _publish(
@@ -167,8 +176,19 @@ async def login_start_impl(ctx: dict, account_id: int) -> None:
 
     client = await pool.get(account_id)
     try:
+        # governor 'login' — до реального обращения к Telegram: исчерпан → ждём.
+        if not await _governor(ctx).check_and_reserve(account_id, LOGIN_ACTION):
+            _publish(publisher, account_id, LoginState.RATE_LIMITED)
+            return
         await client.connect()
-        sent = await client.send_code_request(phone)
+        sent = await around_telethon_call(
+            lambda: client.send_code_request(phone),
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+            now=ctx.get("now"),
+            handle_flood_wait=False,  # флудвейт разбирает login-flow сам (ниже)
+        )
         session_str = client.session.save()
     except TelethonFloodWaitError as exc:
         # Отдаём диспетчеру — он перепланирует ретрай, это не провал.
@@ -203,8 +223,18 @@ async def login_confirm_impl(ctx: dict, account_id: int, code: str) -> None:
     session_str: Optional[str] = None
     client = await pool.get(account_id)
     try:
+        if not await _governor(ctx).check_and_reserve(account_id, LOGIN_ACTION):
+            _publish(publisher, account_id, LoginState.RATE_LIMITED)
+            return
         await client.connect()
-        await client.sign_in(phone=phone, code=code, phone_code_hash=code_hash)
+        await around_telethon_call(
+            lambda: client.sign_in(phone=phone, code=code, phone_code_hash=code_hash),
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+            now=ctx.get("now"),
+            handle_flood_wait=False,
+        )
         session_str = client.session.save()
     except TelethonFloodWaitError as exc:
         raise FloodWaitError(exc.seconds) from exc
@@ -247,8 +277,18 @@ async def login_password_impl(ctx: dict, account_id: int, password: str) -> None
     session_str: Optional[str] = None
     client = await pool.get(account_id)
     try:
+        if not await _governor(ctx).check_and_reserve(account_id, LOGIN_ACTION):
+            _publish(publisher, account_id, LoginState.RATE_LIMITED)
+            return
         await client.connect()
-        await client.sign_in(password=password)
+        await around_telethon_call(
+            lambda: client.sign_in(password=password),
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+            now=ctx.get("now"),
+            handle_flood_wait=False,
+        )
         session_str = client.session.save()
     except TelethonFloodWaitError as exc:
         raise FloodWaitError(exc.seconds) from exc

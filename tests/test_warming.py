@@ -18,7 +18,7 @@ from core.config import get_settings
 
 from core.crypto import reset_cache
 from core.enums import WarmingActionType, WarmingProfile
-from core.models import Account, WarmingActivity
+from core.models import Account, HealthEvent, WarmingActivity
 from core.queue.task_names import TaskName
 from core.repositories.account import AccountRepository
 from worker.tasks.warming import (
@@ -131,15 +131,25 @@ def _make_account(session, *, status, profile=WarmingProfile.MEDIUM, warming_sta
     return acc.id
 
 
-def _ctx(session, *, now, rng=None, client=None, task_queue=None):
+def _ctx(session, *, now, rng=None, client=None, task_queue=None, governor=None):
     return {
         "session_factory": lambda: _Ctx(session),
         "now": now,
         "rng": rng,
         "client_pool": _FakePool(client) if client is not None else None,
         "task_queue": task_queue,
+        "governor": governor,
         "publisher": None,
     }
+
+
+class _Req:
+    pass
+
+
+class _DenyGovernor:
+    async def check_and_reserve(self, account_id, action_type):
+        return False
 
 
 def _activity_count(session, account_id, **filters) -> int:
@@ -319,3 +329,69 @@ async def test_login_confirm_to_pool_without_manual_initial_start(session):
 
     assert AccountRepository(session).get(account_id).status == "pool"
     assert _activity_count(session, account_id, kind="initial") == 50
+
+
+# --- 6. governor 'warming' исчерпан → действие skipped, клиент не тронут (#7) -
+
+
+async def test_warming_action_skipped_when_rate_limited(session):
+    _clean(session)
+    account_id = _make_account(session, status="warming", warming_started_at=NOW_INSIDE)
+    client = AsyncMock()  # не должен быть вызван
+    ctx = _ctx(
+        session,
+        now=NOW_INSIDE,
+        rng=_FixedRng(WarmingActionType.IDLE_ONLINE),
+        client=client,
+        governor=_DenyGovernor(),
+    )
+
+    result = await warming_tick_impl(ctx, account_id)
+
+    assert result == "skipped"
+    # действие записано как skipped с причиной rate_limited (не failed)
+    acts = session.execute(
+        select(WarmingActivity).where(WarmingActivity.account_id == account_id)
+    ).scalars().all()
+    assert len(acts) == 1
+    assert acts[0].status == "skipped"
+    assert acts[0].meta == {"reason": "rate_limited"}
+    # Telethon-клиент не вызывался
+    assert client.await_count == 0
+    assert client.call_count == 0
+    # аккаунт остаётся в warming
+    assert AccountRepository(session).get(account_id).status == "warming"
+
+
+# --- 7. бан во время прогрева → HealthEvent + banned (#8) --------------------
+
+
+async def test_warming_action_ban_records_health_event_and_bans(session):
+    """UserDeactivatedBan во время warming-действия: раньше был бы просто failed
+    без HealthEvent; теперь — session_revoked + переход в banned."""
+    from telethon.errors import UserDeactivatedBanError
+
+    _clean(session)
+    account_id = _make_account(session, status="warming", warming_started_at=NOW_INSIDE)
+    # client(UpdateStatusRequest(...)) в IDLE_ONLINE бросит бан-ошибку
+    client = AsyncMock(side_effect=UserDeactivatedBanError(request=_Req()))
+    ctx = _ctx(
+        session,
+        now=NOW_INSIDE,
+        rng=_FixedRng(WarmingActionType.IDLE_ONLINE),
+        client=client,
+    )
+
+    result = await warming_tick_impl(ctx, account_id)
+
+    assert result == "failed"
+    # HealthEvent зафиксирован (раньше НЕ создавался — вызов шёл в обход монитора)
+    events = session.execute(
+        select(HealthEvent).where(
+            HealthEvent.account_id == account_id,
+            HealthEvent.event_type == "session_revoked",
+        )
+    ).scalars().all()
+    assert len(events) == 1
+    # аккаунт переведён в banned через state machine
+    assert AccountRepository(session).get(account_id).status == "banned"

@@ -5,16 +5,23 @@
 применимо) переводя аккаунт через :class:`AccountStateMachine`:
 
 * ``FloodWaitError`` → flood_wait, cooldown на ``seconds`` (health.incident);
+  при ``handle_flood_wait=False`` НЕ обрабатывается тут, а пробрасывается как
+  есть (login-flow разбирает флудвейт сам: waiting_code/waiting_password);
+* ``SessionPasswordNeededError`` → НЕ инцидент (штатный шаг 2FA): пробрасывается
+  нетронутым, без ``HealthEvent`` и без warning;
 * ``UserBannedInChannelError`` / ``ChatWriteForbiddenError`` /
   ``UserIsBlockedError`` → spam_block, cooldown 24ч (health.incident);
-* ``AuthKeyUnregisteredError`` / ``SessionRevokedError`` → session_revoked,
-  бан (health.ban_detected);
+* ``AuthKeyUnregisteredError`` / ``SessionRevokedError`` /
+  ``UserDeactivatedBanError`` / ``UserDeactivatedError`` /
+  ``PhoneNumberBannedError`` → session_revoked, бан (health.ban_detected);
 * прочие ``RPCError`` — только warning, инцидентом не считаются.
 
 Исходное исключение всегда пробрасывается дальше — вызывающий сам решает, что
 делать с провалом (прогрев → failed-действие, постинг → reschedule и т.п.).
 health.incident допустим лишь из pool/assigned — для остальных статусов
-переход пропускается (``HealthEvent`` всё равно фиксируется).
+переход пропускается (``HealthEvent`` всё равно фиксируется). health.ban_detected
+допустим из большинства статусов (включая created/warming), поэтому бан ловится
+и во время логина, и во время прогрева.
 """
 
 from __future__ import annotations
@@ -26,9 +33,13 @@ from telethon.errors import (
     AuthKeyUnregisteredError,
     ChatWriteForbiddenError,
     FloodWaitError,
+    PhoneNumberBannedError,
     RPCError,
+    SessionPasswordNeededError,
     SessionRevokedError,
     UserBannedInChannelError,
+    UserDeactivatedBanError,
+    UserDeactivatedError,
     UserIsBlockedError,
 )
 
@@ -51,12 +62,22 @@ async def around_telethon_call(
     session_factory: Callable[[], Any],
     publisher: Optional[Publisher] = None,
     now: Optional[datetime] = None,
+    handle_flood_wait: bool = True,
 ) -> T:
-    """Выполняет ``call()``; при health-ошибке фиксирует инцидент и пробрасывает."""
+    """Выполняет ``call()``; при health-ошибке фиксирует инцидент и пробрасывает.
+
+    ``handle_flood_wait=False`` — не трогать ``FloodWaitError`` (его разбирает
+    вызывающий, напр. login-flow): исключение пробрасывается без ``HealthEvent``.
+    """
     now = now or datetime.now(timezone.utc)
     try:
         return await call()
+    except SessionPasswordNeededError:
+        # Штатный шаг 2FA — не инцидент: пробрасываем нетронутым.
+        raise
     except FloodWaitError as exc:
+        if not handle_flood_wait:
+            raise
         _incident(
             session_factory, publisher, account_id,
             HealthEventType.FLOOD_WAIT,
@@ -72,7 +93,13 @@ async def around_telethon_call(
             cooldown_until=now + timedelta(hours=SPAM_COOLDOWN_HOURS),
         )
         raise
-    except (AuthKeyUnregisteredError, SessionRevokedError) as exc:
+    except (
+        AuthKeyUnregisteredError,
+        SessionRevokedError,
+        UserDeactivatedBanError,
+        UserDeactivatedError,
+        PhoneNumberBannedError,
+    ) as exc:
         _ban(
             session_factory, publisher, account_id,
             HealthEventType.SESSION_REVOKED,
