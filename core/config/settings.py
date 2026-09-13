@@ -48,6 +48,22 @@ class Settings(BaseSettings):
     # --- Режим ---
     dev_mode: bool = False
 
+    # --- CORS: origin Telegram Mini App (вне DEV_MODE). Несколько — через запятую. ---
+    webapp_origin: Optional[str] = None
+
+    @property
+    def cors_allow_origins(self) -> list[str]:
+        """Список разрешённых origin'ов для CORS.
+
+        В ``DEV_MODE`` — ``["*"]`` (разрешить всё). Иначе — origin(ы) Mini App из
+        ``WEBAPP_ORIGIN`` (через запятую); пусто, если не задано.
+        """
+        if self.dev_mode:
+            return ["*"]
+        if not self.webapp_origin:
+            return []
+        return [o.strip() for o in self.webapp_origin.split(",") if o.strip()]
+
     # --- Окна активности по умолчанию ---
     default_active_hours_start: time = time(9, 0)
     default_active_hours_end: time = time(23, 0)

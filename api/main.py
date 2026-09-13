@@ -2,6 +2,11 @@
 
 Только лёгкие операции: чтение из Postgres и постановка задач воркеру через
 очередь. Никакого Telethon и никакой прямой смены статуса аккаунтов.
+
+Это «голое» приложение (без lifespan/CORS/request-id) — удобно для тестов и
+локальной отладки. **Прод-entrypoint — ``api.asgi:app``** (fail-fast проверка
+коннектов, CORS, request-id, глобальный обработчик ошибок), его и запускают под
+gunicorn/uvicorn (см. ``deploy/gunicorn.conf.py``).
 """
 
 from __future__ import annotations
