@@ -73,3 +73,45 @@ export const api = {
     apiFetch<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
   del: <T>(path: string) => apiFetch<T>(path, { method: "DELETE" }),
 };
+
+/* SSE поверх fetch + ReadableStream — в отличие от EventSource умеет слать
+   заголовки авторизации (initData). Возвращает функцию отписки. */
+export function subscribeStream(
+  path: string,
+  onEvent: (data: unknown) => void,
+): () => void {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const res = await fetch(`${BASE_URL}${path}`, {
+        headers: { Accept: "text/event-stream", ...authHeaders() },
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) return;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() ?? "";
+        for (const chunk of chunks) {
+          const line = chunk.split("\n").find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          try {
+            onEvent(JSON.parse(line.slice(5).trim()));
+          } catch {
+            /* keepalive / не-JSON — пропускаем */
+          }
+        }
+      }
+    } catch {
+      /* abort или сеть — молча завершаем */
+    }
+  })();
+
+  return () => controller.abort();
+}
