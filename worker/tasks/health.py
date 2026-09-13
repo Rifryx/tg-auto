@@ -7,51 +7,52 @@
 * ``health.cooldown_return`` реализована в worker/tasks/handlers.py (возврат из
   cooldown через state machine) — здесь не дублируется.
 
-Пробер прокси инъектируется через ``ctx['proxy_prober']`` (для тестов); по
-умолчанию — простой TCP-connect (liveness).
+Пробер прокси инъектируется через ``ctx['proxy_prober']`` (для тестов; может быть
+sync или async); по умолчанию — реальный хендшейк по типу прокси до
+``proxy_check_host:proxy_check_port`` (см. :mod:`worker.health.proxy_probe`,
+аудит #3), а не простой TCP-connect.
 """
 
 from __future__ import annotations
 
-import socket
+import inspect
 from datetime import datetime, timezone
 from typing import Any, Callable
 
 from sqlalchemy import select
 
+from core.config import get_settings
 from core.enums import AccountStatus, HealthEventType, ProxyStatus
 from core.models import Account
 from core.repositories.health_event import HealthEventRepository
 from core.repositories.proxy import ProxyRepository
 from core.schemas.health import HealthEventCreate
 from core.schemas.proxy import ProxyUpdate
+from worker.health.proxy_probe import probe_proxy
 from worker.tasks.logging import get_logger
 
-_PROBE_TIMEOUT = 5.0
 _AFFECTED_STATUSES = (AccountStatus.ASSIGNED.value, AccountStatus.POOL.value)
 
 
-def _probe_tcp(host: str, port: int, timeout: float = _PROBE_TIMEOUT) -> bool:
-    """Грубая проверка живости: удаётся ли установить TCP-соединение."""
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except OSError:
-        return False
+def _default_prober(ctx: dict) -> Callable[[Any], Any]:
+    settings = get_settings()
+    target = (settings.proxy_check_host, settings.proxy_check_port)
+    return lambda proxy: probe_proxy(proxy, target=target)
 
 
 async def check_proxies_impl(ctx: dict, *args: Any, **kwargs: Any) -> dict[str, list[int]]:
     now = ctx.get("now") or datetime.now(timezone.utc)
-    prober: Callable[[Any], bool] = ctx.get("proxy_prober") or (
-        lambda proxy: _probe_tcp(proxy.host, proxy.port)
-    )
+    prober: Callable[[Any], Any] = ctx.get("proxy_prober") or _default_prober(ctx)
     session_factory = ctx["session_factory"]
 
     result: dict[str, list[int]] = {"alive": [], "dead": []}
     with session_factory() as session:
         proxies = ProxyRepository(session).list_all()
         for proxy in proxies:
-            alive = bool(prober(proxy))
+            probed = prober(proxy)
+            if inspect.isawaitable(probed):
+                probed = await probed
+            alive = bool(probed)
             ProxyRepository(session).update(
                 proxy.id,
                 ProxyUpdate(

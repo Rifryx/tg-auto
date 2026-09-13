@@ -64,6 +64,11 @@ class Settings(BaseSettings):
             return []
         return [o.strip() for o in self.webapp_origin.split(",") if o.strip()]
 
+    # --- Health-проба прокси (реальный хендшейк, аудит #3) ---
+    # Целевой хост:порт, до которого делается CONNECT через прокси.
+    proxy_check_host: str = "api.telegram.org"
+    proxy_check_port: int = 443
+
     # --- Окна активности по умолчанию ---
     default_active_hours_start: time = time(9, 0)
     default_active_hours_end: time = time(23, 0)

@@ -24,6 +24,8 @@ dependencies = [
     # ASGI-сервер(ы) для прод-запуска api.asgi:app.
     "uvicorn[standard]>=0.30",
     "gunicorn>=22.0",
+    # Реальный SOCKS5-хендшейк в health.check_proxies (аудит #3).
+    "python-socks>=2.4",
 ]
 
 [project.optional-dependencies]
