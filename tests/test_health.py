@@ -265,6 +265,11 @@ async def test_incident_publishes_health_alert(session):
     assert alerts == [
         {"account_id": account_id, "event_type": "flood_wait", "severity": "warning"}
     ]
+    # Переход, ИНИЦИИРОВАННЫЙ воркером (health.incident), публикует account_status
+    # РОВНО один раз (acceptance #2: не дублируется, независимо от инициатора).
+    status_events = [p for ch, p in pub.events if ch == "account_status"]
+    assert len(status_events) == 1
+    assert status_events[0]["to"] == "cooldown"
 
 
 async def test_ban_publishes_health_alert(session):
