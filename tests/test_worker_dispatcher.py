@@ -79,8 +79,33 @@ async def test_startup_logs_all_registered_functions(monkeypatch):
     get_settings.cache_clear()
     import worker.main as worker_main
 
+    # Тест про логирование регистрации: подключение слушателей и фоновую подписку
+    # изолируем (без БД/Redis), чтобы startup дошёл до лог-события.
+    class _FakeRegistry:
+        async def load_all(self, ctx):
+            return []
+
+        def active(self):
+            return []
+
+    class _FakeLifecycle:
+        def __init__(self, *a, **k):
+            pass
+
+        async def run(self):
+            return None
+
+    monkeypatch.setattr(worker_main, "ListenerRegistry", _FakeRegistry)
+    monkeypatch.setattr(worker_main, "CampaignLifecycleListener", _FakeLifecycle)
+
+    ctx: dict = {"redis": object()}
     with capture_logs() as logs:
-        await worker_main.startup({"redis": object()})
+        await worker_main.startup(ctx)
+
+    # фоновую задачу гасим, чтобы не текла между тестами
+    task = ctx.get("campaign_lifecycle_task")
+    if task is not None:
+        task.cancel()
 
     startup_events = [e for e in logs if e["event"] == "worker.startup"]
     assert startup_events, "нет события worker.startup"

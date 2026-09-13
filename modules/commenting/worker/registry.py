@@ -1,0 +1,248 @@
+"""Реестр слушателей кампаний + динамика через Redis pub/sub (§5, §8.3; аудит #4/#12).
+
+:class:`ListenerRegistry` держит по одному NewMessage-слушателю на кампанию и
+умеет подключать/отключать их поштучно (``attach``/``detach``), а не «все сразу
+при старте». ``load_all`` вызывается из ``worker/main.py::startup`` уже ПОСЛЕ
+того, как в ``ctx['client_pool']`` положен готовый :class:`ClientPool`.
+
+:class:`CampaignLifecycleListener` — фоновая подписка на канал
+``campaign_lifecycle`` (payload ``{campaign_id, action: attach|detach}``): API
+публикует туда события при смене ``campaigns.enabled`` / удалении кампании /
+привязке первого аккаунта, а воркер реагирует БЕЗ рестарта. Слушатель живёт весь
+процесс воркера (создаётся ``asyncio.create_task`` при старте, гасится в
+shutdown).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from dataclasses import dataclass
+from typing import Any, Optional
+
+import redis.asyncio as aioredis
+
+from core.queue import TaskQueue
+from modules.commenting.repositories import CampaignRepository
+from modules.commenting.worker.listener import (
+    make_new_post_handler,
+    round_robin_account,
+)
+from worker.tasks.logging import get_logger
+
+CAMPAIGN_LIFECYCLE_CHANNEL = "campaign_lifecycle"
+ACTION_ATTACH = "attach"
+ACTION_DETACH = "detach"
+
+
+@dataclass
+class _Attached:
+    """Всё, что нужно, чтобы позже корректно снять слушатель кампании."""
+
+    client: Any
+    handler: Any
+    event: Any
+    pool: Any
+    account_id: int
+
+
+def _task_queue(ctx: dict) -> TaskQueue:
+    return ctx.get("task_queue") or TaskQueue(redis=ctx.get("redis"))
+
+
+class ListenerRegistry:
+    """Реестр активных слушателей: campaign_id → подключённый handler.
+
+    Потокобезопасность в рамках event loop обеспечивает ``asyncio.Lock`` —
+    attach/detach одной кампании сериализуются, чтобы не возникло двух
+    слушателей или гонки attach/detach.
+    """
+
+    def __init__(self) -> None:
+        self._handlers: dict[int, _Attached] = {}
+        self._cursor: dict[int, int] = {}
+        self._lock = asyncio.Lock()
+
+    def active(self) -> list[int]:
+        """id кампаний с подключённым слушателем."""
+        return sorted(self._handlers)
+
+    def is_attached(self, campaign_id: int) -> bool:
+        return campaign_id in self._handlers
+
+    async def load_all(self, ctx: dict) -> list[int]:
+        """Подключает слушателей ко ВСЕМ enabled-кампаниям (вызов при старте).
+
+        Требует готовый ``ctx['client_pool']`` — поэтому вызывается в startup
+        строго ПОСЛЕ того, как пул положен в ctx.
+        """
+        session_factory = ctx["session_factory"]
+        with session_factory() as session:
+            enabled = [c.id for c in CampaignRepository(session).list_all() if c.enabled]
+        for campaign_id in enabled:
+            await self.attach(campaign_id, ctx)
+        started = self.active()
+        get_logger().info("commenting.listener.load_all", campaigns=started)
+        return started
+
+    async def attach(self, campaign_id: int, ctx: dict) -> bool:
+        """Подключает слушатель одной кампании. Идемпотентно (повтор — no-op).
+
+        Возвращает True, если слушатель активен после вызова; False — если
+        кампания не enabled / нет assigned-аккаунтов (подключать нечем/незачем).
+        """
+        from telethon import events
+
+        async with self._lock:
+            if campaign_id in self._handlers:
+                return True  # уже подключён — повторное событие безопасно
+
+            session_factory = ctx["session_factory"]
+            pool = ctx["client_pool"]
+            task_queue = _task_queue(ctx)
+
+            with session_factory() as session:
+                campaign = CampaignRepository(session).get(campaign_id)
+                if campaign is None or not campaign.enabled:
+                    get_logger().info(
+                        "commenting.listener.attach.skip",
+                        campaign_id=campaign_id,
+                        reason="missing_or_disabled",
+                    )
+                    return False
+                target_channel = campaign.target_channel
+                discussion_group_id = campaign.discussion_group_id
+                account = await round_robin_account(session, campaign_id, self._cursor)
+
+            if account is None:
+                get_logger().warning(
+                    "commenting.listener.attach.no_account", campaign_id=campaign_id
+                )
+                return False
+
+            client = await pool.get(account.id)
+            channel = await client.get_entity(target_channel)
+            channel_id = getattr(channel, "id", None)
+            handler = make_new_post_handler(campaign_id, task_queue, channel_id=channel_id)
+            event = events.NewMessage(chats=discussion_group_id)
+            client.add_event_handler(handler, event)
+            self._handlers[campaign_id] = _Attached(
+                client=client,
+                handler=handler,
+                event=event,
+                pool=pool,
+                account_id=account.id,
+            )
+            get_logger().info(
+                "commenting.listener.attach",
+                campaign_id=campaign_id,
+                account_id=account.id,
+            )
+            return True
+
+    async def detach(self, campaign_id: int) -> bool:
+        """Отключает слушатель кампании: снимает handler и отпускает клиента.
+
+        Возвращает True, если слушатель был активен и снят; False — если такого
+        слушателя не было (повторный/лишний detach безопасен).
+        """
+        async with self._lock:
+            attached = self._handlers.pop(campaign_id, None)
+            if attached is None:
+                return False
+            try:
+                attached.client.remove_event_handler(attached.handler, attached.event)
+            finally:
+                await attached.pool.release(attached.account_id)
+            get_logger().info("commenting.listener.detach", campaign_id=campaign_id)
+            return True
+
+    async def close_all(self) -> None:
+        """Снимает все слушатели (shutdown)."""
+        for campaign_id in self.active():
+            await self.detach(campaign_id)
+
+
+class CampaignLifecycleListener:
+    """Фоновая подписка на ``campaign_lifecycle`` → attach/detach через реестр.
+
+    Держит собственное async-соединение с Redis (как :class:`LoginEventHub`),
+    чтобы не конкурировать с транспортом задач arq. Цикл ``run`` работает пока
+    задачу не отменят (``stop``) — то есть весь срок жизни воркера.
+    """
+
+    def __init__(
+        self,
+        registry: ListenerRegistry,
+        ctx: dict,
+        redis_url: str,
+        channel: str = CAMPAIGN_LIFECYCLE_CHANNEL,
+    ) -> None:
+        self._registry = registry
+        self._ctx = ctx
+        self._redis_url = redis_url
+        self._channel = channel
+        self._redis: Optional[aioredis.Redis] = None
+        self._pubsub: Any = None
+
+    async def run(self) -> None:
+        """Подписывается и вечно обрабатывает события (до отмены задачи)."""
+        self._redis = aioredis.from_url(self._redis_url)
+        self._pubsub = self._redis.pubsub()
+        await self._pubsub.subscribe(self._channel)
+        get_logger().info("commenting.lifecycle.subscribed", channel=self._channel)
+        async for message in self._pubsub.listen():
+            if message.get("type") != "message":
+                continue
+            await self._handle(message.get("data"))
+
+    async def _handle(self, data: Any) -> None:
+        if isinstance(data, (bytes, bytearray)):
+            data = data.decode()
+        try:
+            payload = json.loads(data)
+        except (TypeError, ValueError):
+            return
+        campaign_id = payload.get("campaign_id")
+        action = payload.get("action")
+        if campaign_id is None or action not in (ACTION_ATTACH, ACTION_DETACH):
+            return
+        try:
+            if action == ACTION_ATTACH:
+                await self._registry.attach(int(campaign_id), self._ctx)
+            else:
+                await self._registry.detach(int(campaign_id))
+        except Exception as exc:  # noqa: BLE001 - событие не должно ронять цикл
+            get_logger().warning(
+                "commenting.lifecycle.handle_failed",
+                campaign_id=campaign_id,
+                action=action,
+                error=repr(exc),
+            )
+
+    async def stop(self) -> None:
+        """Закрывает pub/sub-соединение (под таймаутами, как в LoginEventHub)."""
+        if self._pubsub is not None:
+            try:
+                await asyncio.wait_for(self._pubsub.aclose(), timeout=2.0)
+            except Exception:
+                pass
+            self._pubsub = None
+        if self._redis is not None:
+            try:
+                await asyncio.wait_for(self._redis.aclose(), timeout=2.0)
+            except Exception:
+                pass
+            self._redis = None
+
+
+def publish_campaign_lifecycle(publisher: Any, campaign_id: int, action: str) -> None:
+    """Публикует событие жизненного цикла кампании (no-op, если publisher=None).
+
+    Единая точка формирования payload ``{campaign_id, action}`` для API-роутов.
+    """
+    if publisher is None:
+        return
+    publisher.publish(
+        CAMPAIGN_LIFECYCLE_CHANNEL, {"campaign_id": campaign_id, "action": action}
+    )

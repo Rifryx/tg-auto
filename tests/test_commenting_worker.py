@@ -19,7 +19,7 @@ from core.models import Account, CampaignAccount
 from core.repositories.account import AccountRepository
 from modules.commenting.repositories import CampaignRepository, CommentLogRepository
 from modules.commenting.schemas import CampaignCreate
-from modules.commenting.worker import listener, runner
+from modules.commenting.worker import listener, registry, runner
 from core.queue.task_names import TaskName
 
 pytestmark = pytest.mark.asyncio
@@ -340,3 +340,63 @@ async def test_post_comment_flood_wait_cooldown(session):
         campaign_id, 100,
     )
     assert count == 0
+
+
+# --- 7. e2e в одном процессе: attach слушателя → NewMessage → comment_logs ----
+
+
+class _ListenerClient:
+    """Клиент, покрывающий и attach (get_entity/handlers), и постинг (send_message)."""
+
+    def __init__(self, channel_id: int):
+        self._channel_id = channel_id
+        self.added: list = []
+        self.send_message = AsyncMock(return_value=SimpleNamespace(id=999))
+
+    async def get_entity(self, target):
+        return SimpleNamespace(id=self._channel_id)
+
+    def add_event_handler(self, handler, event):
+        self.added.append((handler, event))
+
+    def remove_event_handler(self, handler, event):
+        self.added = [(h, e) for h, e in self.added if h is not handler]
+
+
+async def test_registry_attach_to_comment_logs_single_process(session):
+    """created→enabled→attach аккаунт→NewMessage→comment_logs, без рестарта."""
+    _clean(session)
+    campaign_id = _make_campaign(session)          # enabled по умолчанию
+    account_id = _make_assigned(session, campaign_id)
+
+    channel_id = 777
+    client = _ListenerClient(channel_id)
+    spy = _SpyTaskQueue()
+    ctx = _ctx(session, now=NOW_INSIDE, rng=_Rng(random_value=0.9), task_queue=spy,
+               client=client, governor=_FakeGovernor(allow=True))
+
+    # 1) Подключаем слушатель одной кампании через реестр (attach).
+    reg = registry.ListenerRegistry()
+    assert await reg.attach(campaign_id, ctx) is True
+    assert reg.active() == [campaign_id]
+    assert len(client.added) == 1
+    handler, _event = client.added[0]
+
+    # 2) Прилетает пост самого канала в discussion group → handler ставит on_new_post.
+    await handler(SimpleNamespace(message=SimpleNamespace(sender_id=channel_id, id=100)))
+    assert spy.enqueued == [(TaskName.COMMENTING_ON_NEW_POST, (campaign_id, 100), {})]
+
+    # 3) Прогоняем on_new_post → post_comment (как это сделал бы воркер).
+    scheduled = await runner.on_new_post(ctx, campaign_id, 100)
+    assert scheduled >= 1
+    for _name, _run_at, args, kwargs in spy.scheduled:
+        await runner.post_comment(ctx, *args, **kwargs)
+
+    # 4) comment_logs заполнился — весь путь отработал в одном процессе.
+    logs = CommentLogRepository(session).list_by_campaign(campaign_id)
+    assert len(logs) == scheduled
+    assert all(log.status == "posted" for log in logs)
+
+    # detach снимает слушатель (запись остаётся — это чистка листенера).
+    assert await reg.detach(campaign_id) is True
+    assert reg.active() == []

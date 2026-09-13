@@ -27,6 +27,11 @@ from modules.commenting.repositories import (
     CampaignRepository,
     CommentLogRepository,
 )
+from modules.commenting.worker.registry import (
+    ACTION_ATTACH,
+    ACTION_DETACH,
+    publish_campaign_lifecycle,
+)
 from modules.commenting.schemas import (
     AttachAccountRequest,
     CampaignAccountRead,
@@ -70,19 +75,39 @@ def create_campaign(
 
 @router.patch("/campaigns/{campaign_id}", response_model=CampaignRead)
 def patch_campaign(
-    campaign_id: int, body: CampaignUpdate, session: Session = Depends(get_session)
+    campaign_id: int,
+    body: CampaignUpdate,
+    session: Session = Depends(get_session),
+    publisher: Optional[Publisher] = Depends(get_publisher),
 ) -> CampaignRead:
     campaign = CampaignRepository(session).update(campaign_id, body)
     if campaign is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
     session.commit()
+    # Смена enabled → динамика слушателя (attach/detach) без рестарта воркера.
+    # Публикуем ПОСЛЕ commit'а: изменение уже зафиксировано в БД (аудит #4).
+    if body.enabled is not None:
+        publish_campaign_lifecycle(
+            publisher,
+            campaign_id,
+            ACTION_ATTACH if campaign.enabled else ACTION_DETACH,
+        )
     return CampaignRead.model_validate(campaign)
 
 
 @router.delete("/campaigns/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_campaign(campaign_id: int, session: Session = Depends(get_session)) -> None:
-    if not CampaignRepository(session).delete(campaign_id):
+def delete_campaign(
+    campaign_id: int,
+    session: Session = Depends(get_session),
+    publisher: Optional[Publisher] = Depends(get_publisher),
+) -> None:
+    if CampaignRepository(session).get(campaign_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    # detach публикуем ДО удаления записи: слушатель должен сняться раньше, чем
+    # исчезнет кампания, иначе handler может сработать по уже удалённой кампании
+    # (порядок, не гонка — acceptance #3).
+    publish_campaign_lifecycle(publisher, campaign_id, ACTION_DETACH)
+    CampaignRepository(session).delete(campaign_id)
     session.commit()
 
 
@@ -118,6 +143,13 @@ def attach_account(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except service.CommentingConflict as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+    # Первый аккаунт enabled-кампании: раньше подключать было нечем (слушатель
+    # писал "no_account" warning) — теперь триггерим attach (аудит #4).
+    links = CampaignAccountRepository(session).list_by_campaign(campaign_id)
+    campaign = CampaignRepository(session).get(campaign_id)
+    if len(links) == 1 and campaign is not None and campaign.enabled:
+        publish_campaign_lifecycle(publisher, campaign_id, ACTION_ATTACH)
     return CampaignAccountRead.model_validate(link)
 
 
