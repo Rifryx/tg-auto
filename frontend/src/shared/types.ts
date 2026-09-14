@@ -33,6 +33,8 @@ export type LoginState =
 export interface Account {
   id: number;
   phone: string;
+  first_name: string | null;
+  last_name: string | null;
   username: string | null;
   bio: string | null;
   avatar_url: string | null;

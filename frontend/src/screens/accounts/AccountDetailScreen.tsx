@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, HeartPulse, Lock, Radio, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowLeft, Camera, Check, HeartPulse, Lock, Radio, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { accountsApi, catalogApi, channelsApi, detachFromCampaign } from "../../shared/accounts";
 import { formatDateTime, maskHost, maskPhone, timeAgo } from "../../shared/format";
 import { PROFILE_LABEL, STATUS_LABEL, statusDotClass } from "../../shared/status";
 import { haptic } from "../../shared/tg";
 import type { MonitoredChannel, MonitoredChannelStatus, WarmingProfile } from "../../shared/types";
-import { Field, TextArea, TextInput, Toggle } from "../../modules/commenting/components/ui";
+import { Field, TextArea, Toggle } from "../../modules/commenting/components/ui";
 import { CapsuleButton, ConfirmDialog, Section, SegmentedControl, StatusBadge } from "./components/ui";
 
 const PROFILE_OPTIONS: { value: WarmingProfile; label: string }[] = [
@@ -106,30 +106,53 @@ export function AccountDetailScreen() {
         <StatusBadge status={acc.status} />
       </div>
 
-      {/* Профиль — редактируемый (автосохранение onBlur). */}
+      {/* Профиль — редактируемый в стиле Telegram (автосохранение onBlur). */}
       <Section title="Профиль">
         <div className="card p-4">
-          <ProfileHeader avatarUrl={acc.avatar_url} username={acc.username} />
-          <AutoField
-            label="Юзернейм"
-            value={acc.username ?? ""}
-            placeholder="username"
-            onSave={(v) => patchProfile.mutateAsync({ username: v || null })}
-          />
-          <AutoField
-            label="Описание"
-            value={acc.bio ?? ""}
-            placeholder="Био профиля"
-            textarea
-            onSave={(v) => patchProfile.mutateAsync({ bio: v || null })}
-          />
-          <AutoField
-            label="Аватар (URL)"
-            value={acc.avatar_url ?? ""}
-            placeholder="https://…"
-            onSave={(v) => patchProfile.mutateAsync({ avatar_url: v || null })}
+          <AvatarPicker
+            avatarUrl={acc.avatar_url}
+            fallback={acc.first_name || acc.username}
+            onPick={(dataUrl) => patchProfile.mutateAsync({ avatar_url: dataUrl })}
+            onClear={() => patchProfile.mutateAsync({ avatar_url: null })}
           />
         </div>
+
+        {/* Группа «Имя» в стиле сгруппированного списка Telegram. */}
+        <TgGroup caption="Имя и фамилия отображаются в Telegram у собеседников.">
+          <TgField
+            label="Имя"
+            value={acc.first_name ?? ""}
+            placeholder="Имя"
+            onSave={(v) => patchProfile.mutateAsync({ first_name: v || null })}
+          />
+          <TgField
+            label="Фамилия"
+            value={acc.last_name ?? ""}
+            placeholder="Фамилия (необязательно)"
+            onSave={(v) => patchProfile.mutateAsync({ last_name: v || null })}
+          />
+        </TgGroup>
+
+        <TgGroup caption="Люди смогут найти аккаунт по этому имени пользователя и написать ему.">
+          <TgField
+            label="@"
+            mono
+            value={acc.username ?? ""}
+            placeholder="username"
+            onSave={(v) => patchProfile.mutateAsync({ username: v.replace(/^@/, "") || null })}
+          />
+        </TgGroup>
+
+        <TgGroup caption={`О себе — коротко. ${70 - (acc.bio?.length ?? 0)} симв.`}>
+          <TgField
+            label="О себе"
+            value={acc.bio ?? ""}
+            placeholder="Немного о себе"
+            textarea
+            maxLength={70}
+            onSave={(v) => patchProfile.mutateAsync({ bio: v || null })}
+          />
+        </TgGroup>
       </Section>
 
       {/* 1. Статус + таймлайн переходов */}
@@ -392,35 +415,126 @@ function PickerSelect({
 }
 
 /* Аватар + юзернейм над полями профиля. */
-function ProfileHeader({ avatarUrl, username }: { avatarUrl: string | null; username: string | null }) {
+/* Уменьшает выбранное фото до 512px и возвращает data-URL (JPEG) —
+   чтобы не хранить в БД мегабайты. */
+async function fileToAvatarDataUrl(file: File): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result as string);
+    fr.onerror = () => reject(fr.error);
+    fr.readAsDataURL(file);
+  });
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("bad image"));
+    el.src = dataUrl;
+  });
+  const max = 512;
+  const scale = Math.min(1, max / Math.max(img.width, img.height));
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext("2d")?.drawImage(img, 0, 0, w, h);
+  return canvas.toDataURL("image/jpeg", 0.85);
+}
+
+/* Аватар с камерой (загрузка фото с устройства) — как в редакторе профиля TG. */
+function AvatarPicker({
+  avatarUrl,
+  fallback,
+  onPick,
+  onClear,
+}: {
+  avatarUrl: string | null;
+  fallback: string | null;
+  onPick: (dataUrl: string) => Promise<unknown>;
+  onClear: () => Promise<unknown>;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // разрешаем повторный выбор того же файла
+    if (!file) return;
+    setBusy(true);
+    try {
+      await onPick(await fileToAvatarDataUrl(file));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="mb-4 flex items-center gap-3">
-      {avatarUrl ? (
-        <img src={avatarUrl} alt="" className="h-12 w-12 rounded-full object-cover" />
-      ) : (
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-[18px] font-semibold text-text-secondary">
-          {(username ?? "?").slice(0, 1).toUpperCase()}
-        </div>
+    <div className="flex flex-col items-center gap-2 py-1">
+      <button
+        onClick={() => inputRef.current?.click()}
+        disabled={busy}
+        className="relative h-[88px] w-[88px] rounded-full"
+        aria-label="Загрузить фото"
+      >
+        {avatarUrl ? (
+          <img src={avatarUrl} alt="" className="h-[88px] w-[88px] rounded-full object-cover" />
+        ) : (
+          <span className="flex h-[88px] w-[88px] items-center justify-center rounded-full bg-surface-2 text-[32px] font-semibold text-text-secondary">
+            {(fallback ?? "?").slice(0, 1).toUpperCase()}
+          </span>
+        )}
+        <span className="absolute bottom-0 right-0 flex h-7 w-7 items-center justify-center rounded-full bg-accent text-accent-on ring-2 ring-surface-1">
+          <Camera className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+        </span>
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        onChange={onFile}
+        className="hidden"
+      />
+      {avatarUrl && (
+        <button
+          onClick={() => onClear()}
+          className="text-[13px] text-status-critical active:opacity-70"
+        >
+          Удалить фото
+        </button>
       )}
-      <span className="text-[15px] text-text-primary">
-        {username ? `@${username}` : "без юзернейма"}
-      </span>
+      {busy && <p className="text-[12px] text-text-tertiary">Загрузка…</p>}
     </div>
   );
 }
 
-/* Поле профиля с автосохранением onBlur + галочка «Сохранено» на 1.5 сек. */
-function AutoField({
+/* Сгруппированный список в стиле Telegram: карточка с рядами + подпись снизу. */
+function TgGroup({ caption, children }: { caption?: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-4">
+      <div className="overflow-hidden rounded-card border border-hairline bg-surface-1">
+        {children}
+      </div>
+      {caption && <p className="mt-1.5 px-3 text-[12px] leading-snug text-text-tertiary">{caption}</p>}
+    </div>
+  );
+}
+
+/* Ряд редактируемого поля: подпись слева, инпут во всю ширину, автосейв onBlur. */
+function TgField({
   label,
   value,
   placeholder,
   textarea,
+  mono,
+  maxLength,
   onSave,
 }: {
   label: string;
   value: string;
   placeholder?: string;
   textarea?: boolean;
+  mono?: boolean;
+  maxLength?: number;
   onSave: (v: string) => Promise<unknown>;
 }) {
   const [v, setV] = useState(value);
@@ -431,24 +545,36 @@ function AutoField({
     if (v.trim() === value.trim()) return;
     await onSave(v.trim());
     setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
+    setTimeout(() => setSaved(false), 1200);
   };
 
-  const hint = saved ? (
-    <span className="inline-flex items-center gap-0.5 text-text-tertiary">
-      <Check className="h-3 w-3" strokeWidth={2} aria-hidden />
-      Сохранено
-    </span>
-  ) : undefined;
+  const inputCls = `min-h-[24px] flex-1 bg-transparent text-[16px] text-text-primary placeholder:text-text-tertiary outline-none ${mono ? "font-mono" : ""}`;
 
   return (
-    <Field label={label} hint={hint}>
+    <div className="flex items-start gap-3 border-b border-hairline px-4 py-3 last:border-b-0">
+      <span className="mt-0.5 w-[76px] shrink-0 text-[15px] text-text-secondary">{label}</span>
       {textarea ? (
-        <TextArea value={v} onChange={(e) => setV(e.target.value)} onBlur={commit} placeholder={placeholder} />
+        <textarea
+          value={v}
+          maxLength={maxLength}
+          onChange={(e) => setV(e.target.value)}
+          onBlur={commit}
+          placeholder={placeholder}
+          rows={2}
+          className={`${inputCls} resize-none`}
+        />
       ) : (
-        <TextInput value={v} onChange={(e) => setV(e.target.value)} onBlur={commit} placeholder={placeholder} />
+        <input
+          value={v}
+          maxLength={maxLength}
+          onChange={(e) => setV(e.target.value)}
+          onBlur={commit}
+          placeholder={placeholder}
+          className={inputCls}
+        />
       )}
-    </Field>
+      {saved && <Check className="mt-1 h-4 w-4 shrink-0 text-status-active" strokeWidth={2} aria-hidden />}
+    </div>
   );
 }
 

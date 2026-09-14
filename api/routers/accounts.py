@@ -53,6 +53,8 @@ class AccountPatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     phone: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     username: Optional[str] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None

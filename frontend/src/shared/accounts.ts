@@ -18,6 +18,8 @@ export const accountsApi = {
   patch: (
     id: number,
     body: Partial<{
+      first_name: string | null;
+      last_name: string | null;
       username: string | null;
       bio: string | null;
       avatar_url: string | null;

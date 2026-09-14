@@ -57,6 +57,8 @@ class Account(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
     phone: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    first_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    last_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     username: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     bio: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     avatar_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
