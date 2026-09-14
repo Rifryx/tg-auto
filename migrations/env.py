@@ -13,7 +13,17 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# URL берём из окружения (DATABASE_URL), а если его нет — из конфигурации
+# приложения (core.config читает .env), чтобы `alembic upgrade head` без явного
+# DATABASE_URL ходил в ту же БД, что и API/воркер, а не в дефолт alembic.ini.
 db_url_env = os.getenv("DATABASE_URL")
+if not db_url_env:
+    try:
+        from core.config import get_settings
+
+        db_url_env = get_settings().database_url
+    except Exception:  # noqa: BLE001 - падать на резолве URL нельзя, оставим ini
+        db_url_env = None
 if db_url_env:
     config.set_main_option("sqlalchemy.url", db_url_env)
 
