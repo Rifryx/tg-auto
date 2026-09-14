@@ -142,6 +142,19 @@ class _FailingClient:
         raise RuntimeError("no such channel")
 
 
+class _FailingPool:
+    """Пул, который не может собрать клиента (битая сессия/прокси)."""
+
+    def __init__(self):
+        self.released = []
+
+    async def get(self, account_id):
+        raise RuntimeError("Decryption failed: invalid token or wrong key")
+
+    async def release(self, account_id):
+        self.released.append(account_id)
+
+
 def _ctx(session, *, client, task_queue=None, publisher=None, governor=None):
     return {
         "session_factory": _factory(session),
@@ -245,6 +258,35 @@ async def test_resolve_failure_marks_failed(session):
     row = MonitoredChannelRepository(session).get(ch.id)
     assert row.status == "failed"
     assert "no such channel" in row.error
+
+
+async def test_resolve_client_build_failure_marks_failed(session):
+    """Битая сессия/прокси (get() падает) → канал failed, не застревает pending."""
+    _clean(session)
+    account_id = _make_account(session)
+    ch = MonitoredChannelRepository(session).create(
+        account_id, "@durov", is_folder=False
+    )
+    session.commit()
+
+    failing_pool = _FailingPool()
+    ctx = {
+        "session_factory": _factory(session),
+        "now": NOW_INSIDE,
+        "rng": _Rng(),
+        "task_queue": _SpyTaskQueue(),
+        "client_pool": failing_pool,
+        "governor": None,
+        "llm_provider": _FakeLLM(),
+        "publisher": None,
+    }
+    result = await channels.resolve_channel(ctx, ch.id)
+
+    assert result == "failed"
+    row = MonitoredChannelRepository(session).get(ch.id)
+    assert row.status == "failed"
+    assert "Decryption failed" in row.error
+    assert failing_pool.released == []  # клиента не было — release не зовём
 
 
 # --- leave_channel -----------------------------------------------------------

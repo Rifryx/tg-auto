@@ -196,8 +196,11 @@ async def resolve_channel(ctx: dict, channel_id: int) -> str:
         is_folder = ch.is_folder
 
     pool = _pool(ctx)
-    client = await pool.get(account_id)
+    client = None
     try:
+        # get() внутри try: битая сессия/прокси (CryptoError и т.п.) должна
+        # помечать канал failed с текстом, а не оставлять его навсегда pending.
+        client = await pool.get(account_id)
         if is_folder:
             slug = _folder_slug(input_ref)
             if slug is None:
@@ -255,7 +258,8 @@ async def resolve_channel(ctx: dict, channel_id: int) -> str:
         )
         return "failed"
     finally:
-        await pool.release(account_id)
+        if client is not None:
+            await pool.release(account_id)
 
 
 # --- leave_channel -----------------------------------------------------------
@@ -271,8 +275,9 @@ async def leave_channel(
     publisher = ctx.get("publisher")
     now = _now(ctx)
     pool = _pool(ctx)
-    client = await pool.get(account_id)
+    client = None
     try:
+        client = await pool.get(account_id)
         target: Any = channel_tg_id if channel_tg_id is not None else _public_ref(channel_ref)
         entity = await around_telethon_call(
             lambda: client.get_entity(target),
@@ -295,7 +300,8 @@ async def leave_channel(
         )
         return False
     finally:
-        await pool.release(account_id)
+        if client is not None:
+            await pool.release(account_id)
 
 
 # --- pub/sub жизненного цикла канала -----------------------------------------
