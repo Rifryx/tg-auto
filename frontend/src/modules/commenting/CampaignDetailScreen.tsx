@@ -125,11 +125,6 @@ export function CampaignDetailScreen() {
             value={c.name}
             onSave={(v) => save.mutateAsync({ name: v })}
           />
-          <AutoText
-            label="Канал"
-            value={c.target_channel}
-            onSave={(v) => save.mutateAsync({ target_channel: v })}
-          />
           <div className="mb-4">
             <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">Модель</p>
             <SegmentedControl

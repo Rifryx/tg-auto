@@ -26,7 +26,9 @@ export function CampaignCard({ campaign }: { campaign: Campaign }) {
       <MessagesSquare className="h-7 w-7 text-text-secondary" strokeWidth={1.6} aria-hidden />
       <div>
         <p className="truncate text-[15px] font-semibold text-text-primary">{campaign.name}</p>
-        <p className="truncate text-[13px] text-text-secondary">{campaign.target_channel}</p>
+        <p className="truncate text-[13px] text-text-secondary">
+          {campaign.enabled ? "Активна" : "Выключена"}
+        </p>
         <p className="mt-2 text-right text-[13px] text-text-tertiary nums">
           {count} акк.
         </p>

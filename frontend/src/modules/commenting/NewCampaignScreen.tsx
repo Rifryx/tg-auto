@@ -17,7 +17,28 @@ import {
 } from "./components/ui";
 import type { LLMProvider } from "./types";
 
-const TZ_OPTIONS = ["Europe/Kiev", "Europe/Moscow", "Europe/Warsaw", "UTC"];
+const TZ_OPTIONS = [
+  "UTC",
+  "Europe/Kiev",
+  "Europe/Moscow",
+  "Europe/Warsaw",
+  "Europe/London",
+  "Europe/Berlin",
+  "Europe/Paris",
+  "Europe/Madrid",
+  "Europe/Istanbul",
+  "Europe/Minsk",
+  "Asia/Almaty",
+  "Asia/Tbilisi",
+  "Asia/Yerevan",
+  "Asia/Dubai",
+  "Asia/Tashkent",
+  "Asia/Bangkok",
+  "America/New_York",
+  "America/Chicago",
+  "America/Los_Angeles",
+  "America/Sao_Paulo",
+];
 const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
   { value: "deepseek", label: "DeepSeek" },
   { value: "gemini", label: "Gemini" },
@@ -26,7 +47,6 @@ const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
 export function NewCampaignScreen() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
-  const [channel, setChannel] = useState("");
   const [llm, setLlm] = useState<LLMProvider>("deepseek");
   const [prompt, setPrompt] = useState("");
   const [start, setStart] = useState("09:00");
@@ -38,14 +58,12 @@ export function NewCampaignScreen() {
 
   const pool = useQuery({ queryKey: ["accounts", "pool"], queryFn: () => accountsApi.list("pool") });
 
-  const valid =
-    name.trim() !== "" && channel.trim() !== "" && prompt.trim() !== "" && delayMin <= delayMax;
+  const valid = name.trim() !== "" && prompt.trim() !== "" && delayMin <= delayMax;
 
   const create = useMutation({
     mutationFn: async () => {
       const camp = await commentingApi.create({
         name: name.trim(),
-        target_channel: channel.trim(),
         base_system_prompt: prompt.trim(),
         llm_provider: llm,
         active_hours_start: `${start}:00`,
@@ -84,9 +102,10 @@ export function NewCampaignScreen() {
         <Field label="Название">
           <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Промо-кампания" />
         </Field>
-        <Field label="Канал">
-          <TextInput value={channel} onChange={(e) => setChannel(e.target.value)} placeholder="@channel" />
-        </Field>
+        <p className="px-1 text-[12px] text-text-tertiary">
+          Кампания — это папка для группы аккаунтов с общим промптом. Каналы для
+          мониторинга задаются на каждом аккаунте отдельно.
+        </p>
       </Section>
 
       <Section title="Модель">

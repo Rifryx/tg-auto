@@ -37,7 +37,8 @@ class Campaign(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
-    target_channel: Mapped[str] = mapped_column(String, nullable=False)
+    # Легаси-поле (каналы переехали на аккаунты); допускаем NULL.
+    target_channel: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     discussion_group_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     base_system_prompt: Mapped[str] = mapped_column(String, nullable=False)
     llm_provider: Mapped[str] = mapped_column(String, nullable=False)

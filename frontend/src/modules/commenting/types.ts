@@ -6,7 +6,7 @@ export type CommentStatus = "posted" | "failed" | "flagged";
 export interface Campaign {
   id: number;
   name: string;
-  target_channel: string;
+  target_channel: string | null;
   discussion_group_id: number | null;
   base_system_prompt: string;
   llm_provider: LLMProvider;
@@ -42,7 +42,7 @@ export interface CommentLog {
 
 export interface CampaignCreateBody {
   name: string;
-  target_channel: string;
+  target_channel?: string | null;
   base_system_prompt: string;
   llm_provider: LLMProvider;
   active_hours_start: string;
