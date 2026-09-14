@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { UserPlus } from "lucide-react";
 import { useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { accountsApi } from "../../../shared/accounts";
 import { CapsuleButton } from "./ui";
 import { AccountPickRow } from "./AccountPickRow";
@@ -20,6 +22,7 @@ export function AccountPickerSheet({
   onAdd: (accountIds: number[]) => void;
   busy?: boolean;
 }) {
+  const navigate = useNavigate();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [dragY, setDragY] = useState(0);
   const startY = useRef<number | null>(null);
@@ -71,9 +74,17 @@ export function AccountPickerSheet({
 
         <div className="flex-1 overflow-y-auto px-5">
           {available.length === 0 ? (
-            <p className="py-8 text-center text-[13px] text-text-tertiary">
-              Нет свободных аккаунтов в пуле.
-            </p>
+            <div className="flex flex-col items-center gap-4 py-8">
+              <p className="text-center text-[13px] text-text-tertiary">
+                Нет свободных аккаунтов в пуле.
+              </p>
+              <CapsuleButton onClick={() => navigate("/accounts/new")}>
+                <span className="inline-flex items-center gap-1.5">
+                  <UserPlus className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                  Зарегистрировать новый аккаунт
+                </span>
+              </CapsuleButton>
+            </div>
           ) : (
             <div className="flex flex-col gap-2 pb-2">
               {available.map((a) => (

@@ -33,6 +33,21 @@ export const accountsApi = {
     persona_id?: number | null;
     warming_profile: WarmingProfile;
   }) => api.post<Account>("/accounts", body),
+  importSession: (body: {
+    phone: string;
+    proxy_id: number;
+    warming_profile: WarmingProfile;
+    session_string?: string;
+    session_file?: File;
+  }) => {
+    const fd = new FormData();
+    fd.append("phone", body.phone);
+    fd.append("proxy_id", String(body.proxy_id));
+    fd.append("warming_profile", body.warming_profile);
+    if (body.session_string) fd.append("session_string", body.session_string);
+    if (body.session_file) fd.append("session_file", body.session_file);
+    return api.postForm<Account>("/accounts/import-session", fd);
+  },
   history: (id: number) => api.get<StatusHistoryRecord[]>(`/accounts/${id}/history`),
   warming: (id: number) => api.get<WarmingActivity[]>(`/accounts/${id}/warming`),
   setProfile: (id: number, profile: WarmingProfile) =>

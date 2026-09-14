@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Check, Info, Plus } from "lucide-react";
+import { ArrowLeft, Check, Info, Plus, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { accountsApi, catalogApi } from "../../shared/accounts";
@@ -20,6 +20,7 @@ const INPUT =
    бэкендом автоматически; состояние логина приходит по SSE. */
 export function NewAccountFlow() {
   const navigate = useNavigate();
+  const [method, setMethod] = useState<"code" | "session">("code");
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
   const [proxyId, setProxyId] = useState<number | null>(null);
@@ -27,6 +28,8 @@ export function NewAccountFlow() {
   const [profile] = useState<WarmingProfile>("medium");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
+  const [sessionString, setSessionString] = useState("");
+  const [sessionFile, setSessionFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const accountIdRef = useRef<number | null>(null);
 
@@ -64,6 +67,22 @@ export function NewAccountFlow() {
     return unsub;
   }, [step]);
 
+  const importSession = useMutation({
+    mutationFn: () =>
+      accountsApi.importSession({
+        phone: phone.trim(),
+        proxy_id: proxyId!,
+        warming_profile: profile,
+        session_string: sessionString.trim() || undefined,
+        session_file: sessionFile ?? undefined,
+      }),
+    onSuccess: (acc) => {
+      accountIdRef.current = acc.id;
+      setStep("done");
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
   const confirmCode = useMutation({
     mutationFn: () => accountsApi.confirmCode(accountIdRef.current!, code),
     onError: (e: Error) => setError(e.message),
@@ -93,7 +112,25 @@ export function NewAccountFlow() {
       )}
 
       {step === "phone" && (
-        <Stepper title="Новый аккаунт" subtitle="Номер и прокси">
+        <Stepper title="Новый аккаунт" subtitle="Способ подключения">
+          <div className="mb-4 flex gap-1 rounded-chip border border-hairline bg-surface-1 p-1">
+            {(
+              [
+                ["code", "По коду"],
+                ["session", "Через .session"],
+              ] as const
+            ).map(([m, label]) => (
+              <button
+                key={m}
+                onClick={() => setMethod(m)}
+                className={`min-h-[40px] flex-1 rounded-[9px] text-[14px] font-medium transition-colors ${
+                  method === m ? "bg-surface-2 text-text-primary" : "text-text-secondary active:text-text-primary"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <Field label="Номер телефона">
             <input
               value={phone}
@@ -120,6 +157,39 @@ export function NewAccountFlow() {
               setProxyId(p.id);
             }}
           />
+          {method === "session" && (
+            <div className="mt-2">
+              <Field label="Файл сессии (.session)">
+                <label className="flex min-h-[48px] cursor-pointer items-center gap-2 rounded-chip border border-dashed border-hairline bg-surface-1 px-4 text-[14px] text-text-secondary active:border-strong">
+                  <Upload className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
+                  <span className="truncate">{sessionFile ? sessionFile.name : "Выбрать .session"}</span>
+                  <input
+                    type="file"
+                    accept=".session,application/octet-stream"
+                    onChange={(e) => setSessionFile(e.target.files?.[0] ?? null)}
+                    className="hidden"
+                  />
+                </label>
+              </Field>
+              <p className="mb-3 px-1 text-[12px] text-text-tertiary">
+                Или вставьте StringSession-строку:
+              </p>
+              <Field label="StringSession (необязательно, если выбран файл)">
+                <textarea
+                  value={sessionString}
+                  onChange={(e) => setSessionString(e.target.value)}
+                  placeholder="1BQAN…"
+                  rows={3}
+                  className={`${INPUT} resize-none py-3 font-mono text-[13px] leading-relaxed`}
+                />
+              </Field>
+              <InfoNote>
+                Сессия шифруется перед записью в базу — в открытом виде не хранится.
+                .session-файл конвертируется в StringSession на сервере. Аккаунт сразу
+                попадёт в пул, код подтверждения не нужен.
+              </InfoNote>
+            </div>
+          )}
         </Stepper>
       )}
 
@@ -186,13 +256,15 @@ export function NewAccountFlow() {
             <Check className="h-7 w-7" strokeWidth={2.4} aria-hidden />
           </div>
           <p className="text-[17px] font-semibold text-text-primary">Аккаунт подключён</p>
-          <p className="mt-1 text-[13px] text-text-secondary">Начался прогрев.</p>
+          <p className="mt-1 text-[13px] text-text-secondary">
+            {method === "session" ? "Сессия импортирована, аккаунт в пуле." : "Начался прогрев."}
+          </p>
         </div>
       )}
 
       {/* Липкая кнопка снизу */}
       <StickyBar>
-        {step === "phone" && (
+        {step === "phone" && method === "code" && (
           <CapsuleButton
             disabled={!phone.trim() || proxyId == null}
             onClick={() => {
@@ -201,6 +273,22 @@ export function NewAccountFlow() {
             }}
           >
             Далее
+          </CapsuleButton>
+        )}
+        {step === "phone" && method === "session" && (
+          <CapsuleButton
+            disabled={
+              !phone.trim() ||
+              proxyId == null ||
+              (!sessionFile && !sessionString.trim()) ||
+              importSession.isPending
+            }
+            onClick={() => {
+              setError(null);
+              importSession.mutate();
+            }}
+          >
+            {importSession.isPending ? "Импортируем…" : "Импортировать сессию"}
           </CapsuleButton>
         )}
         {step === "persona" && (

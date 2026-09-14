@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
@@ -113,6 +113,53 @@ async def create_account(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
     await task_queue.enqueue(TaskName.ACCOUNT_LOGIN_START, account.id)
+    return AccountRead.model_validate(account)
+
+
+@router.post(
+    "/import-session", response_model=AccountRead, status_code=status.HTTP_201_CREATED
+)
+async def import_session_account(
+    phone: str = Form(...),
+    proxy_id: int = Form(...),
+    persona_id: Optional[int] = Form(None),
+    warming_profile: WarmingProfile = Form(WarmingProfile.MEDIUM),
+    session_string: Optional[str] = Form(None),
+    session_file: Optional[UploadFile] = File(None),
+    session: Session = Depends(get_session),
+) -> AccountRead:
+    """Импорт аккаунта из готовой сессии: StringSession-строкой или .session-файлом.
+
+    Сессия конвертируется (файл → строка, офлайн) и шифруется перед записью в БД
+    (``session_enc``). Аккаунт сразу попадает в пул — код не требуется."""
+    string = (session_string or "").strip()
+    if not string and session_file is not None:
+        try:
+            string = accounts_service.session_file_to_string(await session_file.read())
+        except accounts_service.SessionImportError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 - битый файл → понятная 422
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"не удалось прочитать session-файл: {exc}",
+            ) from exc
+    if not string:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "нужна session-строка или .session-файл",
+        )
+
+    try:
+        account = accounts_service.import_account_from_session(
+            session,
+            phone=phone,
+            proxy_id=proxy_id,
+            persona_id=persona_id,
+            warming_profile=warming_profile,
+            session_string=string,
+        )
+    except accounts_service.ProxyNotFoundError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     return AccountRead.model_validate(account)
 
 
