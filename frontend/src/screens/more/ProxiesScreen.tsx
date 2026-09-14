@@ -62,7 +62,7 @@ export function ProxiesScreen() {
   });
   const checkAll = useMutation({
     mutationFn: proxiesApi.checkAll,
-    onSuccess: (n) => setToast(`Проверка ${n} прокси поставлена`),
+    onSuccess: () => setToast("Проверка прокси поставлена"),
   });
 
   const valid = host.trim() !== "" && Number(port) > 0;

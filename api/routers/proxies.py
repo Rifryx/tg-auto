@@ -66,6 +66,15 @@ def delete_proxy(proxy_id: int, session: Session = Depends(get_session)) -> None
     session.commit()
 
 
+@router.post("/check-all", status_code=status.HTTP_202_ACCEPTED)
+async def check_all_proxies(
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> dict[str, str]:
+    """Ставит проверку живости ВСЕХ прокси (та же задача, что и cron)."""
+    job_id = await task_queue.enqueue(TaskName.HEALTH_CHECK_PROXIES)
+    return {"job_id": job_id}
+
+
 @router.post("/{proxy_id}/check", status_code=status.HTTP_202_ACCEPTED)
 async def check_proxy(
     proxy_id: int,

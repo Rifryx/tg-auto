@@ -89,6 +89,33 @@ async def test_hub_ignores_payload_without_account_id():
     assert queue.empty()
 
 
+# --- 2b. MonitoringEventHub: глобальный fan-out доменных событий (#9) ---------
+
+
+@pytest.mark.asyncio
+async def test_monitoring_hub_fanout_all_channels():
+    from api.services.events import MonitoringEventHub
+
+    hub = MonitoringEventHub("redis://x")
+    q1 = hub.subscribe()
+    q2 = hub.subscribe()
+
+    hub._fanout("health_alert", {"account_id": 5, "event_type": "spam_block", "severity": "critical"})
+    hub._fanout("account_status", {"account_id": 5, "to": "banned"})
+
+    # оба подписчика получают КАЖДОЕ событие (глобальный fan-out)
+    for q in (q1, q2):
+        a = await q.get()
+        b = await q.get()
+        assert a["type"] == "health_alert" and a["severity"] == "critical"
+        assert b["type"] == "account_status" and b["to"] == "banned"
+
+    hub.unsubscribe(q2)
+    hub._fanout("warming_progress", {"account_id": 5, "status": "done"})
+    assert (await q1.get())["type"] == "warming_progress"
+    assert q2.empty()  # отписанный больше не получает
+
+
 # --- 3. health-алерты: severity + payload ------------------------------------
 
 

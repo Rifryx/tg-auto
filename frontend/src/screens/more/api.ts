@@ -27,11 +27,7 @@ export const proxiesApi = {
   list: () => api.get<Proxy[]>("/proxies"),
   create: (body: ProxyBody) => api.post<Proxy>("/proxies", body),
   remove: (id: number) => api.del<void>(`/proxies/${id}`),
-  check: (id: number) => api.post<{ status?: string }>(`/proxies/${id}/check`),
-  // Бэкенд не имеет /proxies/check-all — «проверить всё» ставит проверку по каждому.
-  checkAll: async () => {
-    const all = await proxiesApi.list();
-    await Promise.all(all.map((p) => proxiesApi.check(p.id).catch(() => null)));
-    return all.length;
-  },
+  check: (id: number) => api.post<{ job_id?: string }>(`/proxies/${id}/check`),
+  // Одна задача проверяет все прокси (backend: POST /proxies/check-all).
+  checkAll: () => api.post<{ job_id?: string }>("/proxies/check-all"),
 };
