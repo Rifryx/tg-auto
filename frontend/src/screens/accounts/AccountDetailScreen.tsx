@@ -45,6 +45,8 @@ export function AccountDetailScreen() {
     queryFn: () => catalogApi.proxy(acc!.proxy_id!),
     enabled: acc?.proxy_id != null,
   });
+  const personasList = useQuery({ queryKey: ["personas"], queryFn: catalogApi.personas });
+  const proxiesList = useQuery({ queryKey: ["proxies"], queryFn: catalogApi.proxies });
   const persona = useQuery({
     queryKey: ["persona", acc?.persona_id],
     queryFn: () => catalogApi.personas().then((all) => all.find((p) => p.id === acc!.persona_id) ?? null),
@@ -173,12 +175,10 @@ export function AccountDetailScreen() {
         </div>
       </Section>
 
-      {/* 3. Прокси */}
+      {/* 3. Прокси — read-инфо + смена через селект */}
       <Section title="Прокси">
-        {acc.proxy_id == null ? (
-          <Muted>Прокси не привязан.</Muted>
-        ) : proxy.data ? (
-          <div className="flex items-center justify-between">
+        {acc.proxy_id != null && proxy.data && (
+          <div className="mb-3 flex items-center justify-between">
             <div>
               <p className="text-[14px] text-text-primary nums">
                 {maskHost(proxy.data.host)}:{proxy.data.port}
@@ -195,9 +195,19 @@ export function AccountDetailScreen() {
               {proxy.data.status === "alive" ? "жив" : proxy.data.status === "dead" ? "мёртв" : "не пров."}
             </div>
           </div>
-        ) : (
-          <Muted>Загрузка…</Muted>
         )}
+        <PickerSelect
+          value={acc.proxy_id ?? ""}
+          onChange={(v) => patchProfile.mutate({ proxy_id: v === "" ? null : Number(v) })}
+          disabled={patchProfile.isPending}
+        >
+          <option value="">Без прокси</option>
+          {proxiesList.data?.map((p) => (
+            <option key={p.id} value={p.id}>
+              {maskHost(p.host)}:{p.port} · {p.type.toUpperCase()} · {p.status}
+            </option>
+          ))}
+        </PickerSelect>
       </Section>
 
       {/* 4. Фингерпринт — read-only, приглушённый, иммутабельный */}
@@ -214,12 +224,10 @@ export function AccountDetailScreen() {
         </div>
       </Section>
 
-      {/* 5. Персона */}
+      {/* 5. Персона — смена/снятие через селект */}
       <Section title="Персона">
-        {acc.persona_id == null ? (
-          <Muted>Персона не назначена.</Muted>
-        ) : persona.data ? (
-          <div className="flex items-center gap-3">
+        {acc.persona_id != null && persona.data && (
+          <div className="mb-3 flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-[15px] font-semibold text-text-secondary">
               {persona.data.name.slice(0, 1).toUpperCase()}
             </div>
@@ -230,8 +238,23 @@ export function AccountDetailScreen() {
               </p>
             </div>
           </div>
-        ) : (
-          <Muted>Загрузка…</Muted>
+        )}
+        <PickerSelect
+          value={acc.persona_id ?? ""}
+          onChange={(v) => patchProfile.mutate({ persona_id: v === "" ? null : Number(v) })}
+          disabled={patchProfile.isPending}
+        >
+          <option value="">Без персоны (голый промпт)</option>
+          {personasList.data?.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </PickerSelect>
+        {personasList.data && personasList.data.length === 0 && (
+          <p className="mt-2 text-[12px] text-text-tertiary">
+            Персон пока нет — создать можно в разделе «Ещё».
+          </p>
         )}
       </Section>
 
@@ -342,6 +365,30 @@ function FpRow({ label, value }: { label: string; value: string }) {
 
 function Muted({ children }: { children: React.ReactNode }) {
   return <p className="text-[13px] text-text-tertiary">{children}</p>;
+}
+
+/* Нативный select в стиле полей (смена прокси/персоны без перезагрузки). */
+function PickerSelect({
+  value,
+  onChange,
+  disabled,
+  children,
+}: {
+  value: string | number;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full min-h-[48px] rounded-chip border border-hairline bg-surface-1 px-4 text-[15px] text-text-primary outline-none focus:border-strong disabled:opacity-50"
+    >
+      {children}
+    </select>
+  );
 }
 
 /* Аватар + юзернейм над полями профиля. */
