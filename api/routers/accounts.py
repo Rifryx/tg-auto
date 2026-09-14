@@ -208,6 +208,16 @@ def retire_account(
     return _transition(session, publisher, account_id, AccountEvent.RETIRE)
 
 
+@router.post("/{account_id}/actions/restore", response_model=AccountRead)
+def restore_account(
+    account_id: int,
+    session: Session = Depends(get_session),
+    publisher: Optional[Publisher] = Depends(get_publisher),
+) -> AccountRead:
+    """Возврат выведенного аккаунта в пул (RETIRED → POOL)."""
+    return _transition(session, publisher, account_id, AccountEvent.RESTORE)
+
+
 @router.post("/{account_id}/actions/acknowledge_ban", response_model=AccountRead)
 def acknowledge_ban(
     account_id: int,

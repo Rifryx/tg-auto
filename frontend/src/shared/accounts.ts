@@ -38,6 +38,7 @@ export const accountsApi = {
   setProfile: (id: number, profile: WarmingProfile) =>
     api.patch<Account>(`/accounts/${id}/warming`, { profile }),
   retire: (id: number) => api.post<Account>(`/accounts/${id}/actions/retire`),
+  restore: (id: number) => api.post<Account>(`/accounts/${id}/actions/restore`),
   remove: (id: number) => api.del<void>(`/accounts/${id}`),
   loginState: (id: number) => api.get<LoginStateResponse>(`/accounts/${id}/login/state`),
   confirmCode: (id: number, code: string) =>

@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Camera, Check, HeartPulse, Lock, Radio, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { accountsApi, catalogApi, channelsApi, detachFromCampaign } from "../../shared/accounts";
+import { accountsApi, catalogApi, channelsApi } from "../../shared/accounts";
+import { Select } from "../../shared/Select";
+import { commentingApi } from "../../modules/commenting/api";
 import { formatDateTime, maskHost, maskPhone, timeAgo } from "../../shared/format";
 import { PROFILE_LABEL, STATUS_LABEL, statusDotClass } from "../../shared/status";
 import { haptic } from "../../shared/tg";
@@ -47,6 +49,7 @@ export function AccountDetailScreen() {
   });
   const personasList = useQuery({ queryKey: ["personas"], queryFn: catalogApi.personas });
   const proxiesList = useQuery({ queryKey: ["proxies"], queryFn: catalogApi.proxies });
+  const campaignsList = useQuery({ queryKey: ["campaigns"], queryFn: commentingApi.list });
   const persona = useQuery({
     queryKey: ["persona", acc?.persona_id],
     queryFn: () => catalogApi.personas().then((all) => all.find((p) => p.id === acc!.persona_id) ?? null),
@@ -79,9 +82,29 @@ export function AccountDetailScreen() {
       navigate("/accounts");
     },
   });
-  const detach = useMutation({
-    mutationFn: () => detachFromCampaign(acc!.assigned_container_id!, accountId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["account", accountId] }),
+  const restore = useMutation({
+    mutationFn: () => accountsApi.restore(accountId),
+    onSuccess: () => {
+      haptic("light");
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["account", accountId] });
+    },
+  });
+  // Перемещение между кампаниями одним действием: снять из текущей + добавить в
+  // новую (state machine требует POOL между привязками).
+  const currentCampaignId =
+    acc?.assigned_container_type === "commenting" ? acc?.assigned_container_id ?? null : null;
+  const moveCampaign = useMutation({
+    mutationFn: async (target: number | null) => {
+      if (currentCampaignId != null) await commentingApi.detach(currentCampaignId, accountId);
+      if (target != null) await commentingApi.attach(target, accountId);
+    },
+    onSuccess: () => {
+      haptic("light");
+      qc.invalidateQueries({ queryKey: ["account", accountId] });
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["campaigns"] });
+    },
   });
 
   if (account.isLoading) return <DetailSkeleton />;
@@ -92,11 +115,6 @@ export function AccountDetailScreen() {
         <p className="mt-8 text-center text-[14px] text-status-critical">Аккаунт не найден.</p>
       </div>
     );
-
-  const canDetach =
-    acc.status === "assigned" &&
-    acc.assigned_container_type === "commenting" &&
-    acc.assigned_container_id != null;
 
   return (
     <div className="pt-1">
@@ -219,18 +237,18 @@ export function AccountDetailScreen() {
             </div>
           </div>
         )}
-        <PickerSelect
-          value={acc.proxy_id ?? ""}
+        <Select
+          value={acc.proxy_id != null ? String(acc.proxy_id) : ""}
           onChange={(v) => patchProfile.mutate({ proxy_id: v === "" ? null : Number(v) })}
           disabled={patchProfile.isPending}
-        >
-          <option value="">Без прокси</option>
-          {proxiesList.data?.map((p) => (
-            <option key={p.id} value={p.id}>
-              {maskHost(p.host)}:{p.port} · {p.type.toUpperCase()} · {p.status}
-            </option>
-          ))}
-        </PickerSelect>
+          options={[
+            { value: "", label: "Без прокси" },
+            ...(proxiesList.data ?? []).map((p) => ({
+              value: String(p.id),
+              label: `${maskHost(p.host)}:${p.port} · ${p.type.toUpperCase()} · ${p.status}`,
+            })),
+          ]}
+        />
       </Section>
 
       {/* 4. Фингерпринт — read-only, приглушённый, иммутабельный */}
@@ -262,24 +280,48 @@ export function AccountDetailScreen() {
             </div>
           </div>
         )}
-        <PickerSelect
-          value={acc.persona_id ?? ""}
+        <Select
+          value={acc.persona_id != null ? String(acc.persona_id) : ""}
           onChange={(v) => patchProfile.mutate({ persona_id: v === "" ? null : Number(v) })}
           disabled={patchProfile.isPending}
-        >
-          <option value="">Без персоны (голый промпт)</option>
-          {personasList.data?.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </PickerSelect>
+          options={[
+            { value: "", label: "Без персоны (голый промпт)" },
+            ...(personasList.data ?? []).map((p) => ({
+              value: String(p.id),
+              label: p.name,
+            })),
+          ]}
+        />
         {personasList.data && personasList.data.length === 0 && (
           <p className="mt-2 text-[12px] text-text-tertiary">
             Персон пока нет — создать можно в разделе «Ещё».
           </p>
         )}
       </Section>
+
+      {/* Кампания — перемещение между кампаниями одним действием. */}
+      {(acc.status === "pool" || acc.status === "assigned") && (
+        <Section title="Кампания">
+          <Select
+            value={currentCampaignId != null ? String(currentCampaignId) : ""}
+            onChange={(v) => moveCampaign.mutate(v === "" ? null : Number(v))}
+            disabled={moveCampaign.isPending}
+            placeholder="Не в кампании"
+            options={[
+              { value: "", label: "Не в кампании" },
+              ...(campaignsList.data ?? []).map((c) => ({ value: String(c.id), label: c.name })),
+            ]}
+          />
+          {moveCampaign.isPending && (
+            <p className="mt-2 text-[12px] text-text-tertiary">Перемещаем…</p>
+          )}
+          {moveCampaign.isError && (
+            <p className="mt-2 text-[12px] text-status-critical">
+              Не удалось переместить (аккаунт должен быть свободен).
+            </p>
+          )}
+        </Section>
+      )}
 
       {/* Каналы мониторинга — свой список каналов у каждого аккаунта. */}
       <ChannelsSection accountId={accountId} />
@@ -321,13 +363,9 @@ export function AccountDetailScreen() {
 
       {/* Действия — в потоке, не плавающие */}
       <div className="mt-2 flex flex-col gap-2 pb-4">
-        {canDetach && (
-          <CapsuleButton
-            variant="secondary"
-            onClick={() => detach.mutate()}
-            disabled={detach.isPending}
-          >
-            Отвязать от кампании
+        {acc.status === "retired" && (
+          <CapsuleButton onClick={() => restore.mutate()} disabled={restore.isPending}>
+            {restore.isPending ? "Возвращаем…" : "Вернуть в пул"}
           </CapsuleButton>
         )}
         {acc.status !== "retired" && (
@@ -390,29 +428,6 @@ function Muted({ children }: { children: React.ReactNode }) {
   return <p className="text-[13px] text-text-tertiary">{children}</p>;
 }
 
-/* Нативный select в стиле полей (смена прокси/персоны без перезагрузки). */
-function PickerSelect({
-  value,
-  onChange,
-  disabled,
-  children,
-}: {
-  value: string | number;
-  onChange: (v: string) => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <select
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full min-h-[48px] rounded-chip border border-hairline bg-surface-1 px-4 text-[15px] text-text-primary outline-none focus:border-strong disabled:opacity-50"
-    >
-      {children}
-    </select>
-  );
-}
 
 /* Аватар + юзернейм над полями профиля. */
 /* Уменьшает выбранное фото до 512px и возвращает data-URL (JPEG) —

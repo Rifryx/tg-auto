@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { accountsApi } from "../../shared/accounts";
+import { Select } from "../../shared/Select";
 import { haptic } from "../../shared/tg";
 import { commentingApi } from "./api";
 import { AccountPickRow } from "./components/AccountPickRow";
@@ -130,17 +131,11 @@ export function NewCampaignScreen() {
           </Field>
         </div>
         <Field label="Часовой пояс">
-          <select
+          <Select
             value={tz}
-            onChange={(e) => setTz(e.target.value)}
-            className="w-full min-h-[48px] rounded-chip border border-hairline bg-surface-1 px-4 text-[16px] text-text-primary outline-none focus:border-strong"
-          >
-            {TZ_OPTIONS.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
+            onChange={setTz}
+            options={TZ_OPTIONS.map((t) => ({ value: t, label: t }))}
+          />
         </Field>
       </Section>
 

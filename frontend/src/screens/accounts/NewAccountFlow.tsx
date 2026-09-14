@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { accountsApi, catalogApi } from "../../shared/accounts";
 import { subscribeStream } from "../../shared/api";
+import { Select } from "../../shared/Select";
 import { haptic } from "../../shared/tg";
 import type { LoginState, Proxy, WarmingProfile } from "../../shared/types";
 import { CapsuleButton } from "./components/ui";
@@ -103,18 +104,15 @@ export function NewAccountFlow() {
             />
           </Field>
           <Field label="Прокси">
-            <select
-              value={proxyId ?? ""}
-              onChange={(e) => setProxyId(e.target.value ? Number(e.target.value) : null)}
-              className={INPUT}
-            >
-              <option value="">Выберите прокси</option>
-              {proxies.data?.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.host}:{p.port} · {p.geo ?? "—"} · {p.status}
-                </option>
-              ))}
-            </select>
+            <Select
+              value={proxyId != null ? String(proxyId) : ""}
+              onChange={(v) => setProxyId(v ? Number(v) : null)}
+              placeholder="Выберите прокси"
+              options={(proxies.data ?? []).map((p) => ({
+                value: String(p.id),
+                label: `${p.host}:${p.port} · ${p.geo ?? "—"} · ${p.status}`,
+              }))}
+            />
           </Field>
           <AddProxyInline
             onCreated={(p) => {

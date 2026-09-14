@@ -42,6 +42,7 @@ class AccountEvent(str, Enum):
     HEALTH_INCIDENT = "health.incident"
     COOLDOWN_EXPIRED = "cooldown.expired"
     RETIRE = "account.retire"
+    RESTORE = "account.restore"
     BAN_DETECTED = "health.ban_detected"
     ACKNOWLEDGE_BAN = "account.acknowledge_ban"
 
@@ -184,6 +185,13 @@ _TRANSITIONS: tuple[_Transition, ...] = (
         AccountEvent.ACKNOWLEDGE_BAN,
         frozenset({AccountStatus.BANNED}),
         AccountStatus.RETIRED,
+        Initiator.USER,
+    ),
+    # Возврат выведенного аккаунта в пул (пользователь решает попробовать снова).
+    _Transition(
+        AccountEvent.RESTORE,
+        frozenset({AccountStatus.RETIRED}),
+        AccountStatus.POOL,
         Initiator.USER,
     ),
 )
