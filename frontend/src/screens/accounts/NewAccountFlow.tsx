@@ -1,11 +1,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Check, Info } from "lucide-react";
+import { ArrowLeft, Check, Info, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { accountsApi, catalogApi } from "../../shared/accounts";
 import { subscribeStream } from "../../shared/api";
 import { haptic } from "../../shared/tg";
-import type { LoginState, WarmingProfile } from "../../shared/types";
+import type { LoginState, Proxy, WarmingProfile } from "../../shared/types";
 import { CapsuleButton } from "./components/ui";
 
 type Step = "phone" | "persona" | "waiting" | "code" | "password" | "done";
@@ -116,6 +116,12 @@ export function NewAccountFlow() {
               ))}
             </select>
           </Field>
+          <AddProxyInline
+            onCreated={(p) => {
+              proxies.refetch();
+              setProxyId(p.id);
+            }}
+          />
         </Stepper>
       )}
 
@@ -259,6 +265,95 @@ function InfoNote({ children }: { children: React.ReactNode }) {
     <div className="mt-1 flex gap-2.5 rounded-chip border border-hairline bg-surface-1 px-4 py-3">
       <Info className="mt-0.5 h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
       <p className="text-[13px] leading-relaxed text-text-secondary">{children}</p>
+    </div>
+  );
+}
+
+/* Инлайн-добавление прокси прямо в онбординге — прокси уходит в общий пул.
+   login/password («подписать» прокси) — по желанию, не обязательны. */
+function AddProxyInline({ onCreated }: { onCreated: (p: Proxy) => void }) {
+  const [open, setOpen] = useState(false);
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("");
+  const [type, setType] = useState<"socks5" | "http">("socks5");
+  const [login, setLogin] = useState("");
+  const [password, setPassword] = useState("");
+  const [geo, setGeo] = useState("");
+
+  const create = useMutation({
+    mutationFn: () =>
+      catalogApi.createProxy({
+        host: host.trim(),
+        port: Number(port),
+        type,
+        login: login.trim() || null,
+        password: password.trim() || null,
+        geo: geo.trim() || null,
+      }),
+    onSuccess: (p) => {
+      haptic("light");
+      setOpen(false);
+      setHost(""); setPort(""); setLogin(""); setPassword(""); setGeo("");
+      onCreated(p);
+    },
+  });
+
+  const valid = host.trim() !== "" && Number(port) > 0;
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="mb-4 inline-flex items-center gap-1.5 px-1 text-[14px] text-text-secondary active:text-text-primary"
+      >
+        <Plus className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+        Добавить новый прокси
+      </button>
+    );
+  }
+
+  return (
+    <div className="mb-4 rounded-card border border-hairline bg-surface-1 p-4">
+      <div className="mb-3 flex gap-2">
+        <input
+          value={host} onChange={(e) => setHost(e.target.value)}
+          placeholder="host / IP" className={`${INPUT} flex-1`}
+        />
+        <input
+          value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
+          inputMode="numeric" placeholder="port" className={`${INPUT} w-24 nums`}
+        />
+      </div>
+      <div className="mb-3 flex gap-2">
+        {(["socks5", "http"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setType(t)}
+            className={`min-h-[44px] flex-1 rounded-chip border text-[14px] font-medium ${
+              type === t ? "border-strong bg-surface-2 text-text-primary" : "border-hairline text-text-secondary"
+            }`}
+          >
+            {t.toUpperCase()}
+          </button>
+        ))}
+      </div>
+      <input value={geo} onChange={(e) => setGeo(e.target.value)} placeholder="Гео (необязательно)" className={`${INPUT} mb-3`} />
+      <p className="mb-2 px-1 text-[12px] text-text-tertiary">Авторизация (необязательно)</p>
+      <div className="mb-3 flex gap-2">
+        <input value={login} onChange={(e) => setLogin(e.target.value)} placeholder="логин" className={`${INPUT} flex-1`} autoComplete="off" />
+        <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="пароль" type="password" className={`${INPUT} flex-1`} autoComplete="off" />
+      </div>
+      {create.isError && (
+        <p className="mb-2 text-[13px] text-status-critical">Не удалось добавить прокси.</p>
+      )}
+      <div className="flex gap-2">
+        <CapsuleButton variant="secondary" onClick={() => setOpen(false)}>
+          Отмена
+        </CapsuleButton>
+        <CapsuleButton disabled={!valid || create.isPending} onClick={() => create.mutate()}>
+          {create.isPending ? "Добавляем…" : "Добавить в пул"}
+        </CapsuleButton>
+      </div>
     </div>
   );
 }

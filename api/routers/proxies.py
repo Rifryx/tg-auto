@@ -5,16 +5,31 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
 from api.deps.queue import get_task_queue
-from core.enums import ProxyStatus
+from core.crypto import encrypt_password
+from core.enums import ProxyStatus, ProxyType
 from core.queue import TaskQueue
 from core.queue.task_names import TaskName
 from core.repositories.proxy import ProxyRepository
 from core.schemas.proxy import ProxyCreate, ProxyRead, ProxyUpdate
+
+
+class ProxyCreateRequest(BaseModel):
+    """Создание прокси из UI: пароль — плейнтекст, шифруется на сервере.
+
+    login/password опциональны («подписывать» прокси не обязательно)."""
+
+    host: str
+    port: int
+    type: ProxyType
+    login: Optional[str] = None
+    password: Optional[str] = None
+    geo: Optional[str] = None
 
 router = APIRouter(
     prefix="/proxies", tags=["proxies"], dependencies=[Depends(require_user)]
@@ -41,9 +56,18 @@ def get_proxy(proxy_id: int, session: Session = Depends(get_session)) -> ProxyRe
 
 @router.post("", response_model=ProxyRead, status_code=status.HTTP_201_CREATED)
 def create_proxy(
-    body: ProxyCreate, session: Session = Depends(get_session)
+    body: ProxyCreateRequest, session: Session = Depends(get_session)
 ) -> ProxyRead:
-    proxy = ProxyRepository(session).create(body)
+    pwd_enc = encrypt_password(body.password.encode()) if body.password else None
+    create = ProxyCreate(
+        host=body.host.strip(),
+        port=body.port,
+        type=body.type,
+        login=(body.login.strip() or None) if body.login else None,
+        password_enc=pwd_enc,
+        geo=(body.geo.strip() or None) if body.geo else None,
+    )
+    proxy = ProxyRepository(session).create(create)
     session.commit()
     return ProxyRead.model_validate(proxy)
 

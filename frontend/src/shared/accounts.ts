@@ -62,6 +62,14 @@ export const channelsApi = {
 export const catalogApi = {
   proxies: () => api.get<Proxy[]>("/proxies"),
   proxy: (id: number) => api.get<Proxy>(`/proxies/${id}`),
+  createProxy: (body: {
+    host: string;
+    port: number;
+    type: "socks5" | "http";
+    login?: string | null;
+    password?: string | null;
+    geo?: string | null;
+  }) => api.post<Proxy>("/proxies", body),
   personas: () => api.get<Persona[]>("/personas"),
 };
 
