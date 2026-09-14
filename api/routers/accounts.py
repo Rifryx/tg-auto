@@ -114,6 +114,16 @@ async def create_account(
     return AccountRead.model_validate(account)
 
 
+@router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+def delete_account(
+    account_id: int,
+    session: Session = Depends(get_session),
+) -> None:
+    """Полное удаление аккаунта (в т.ч. выведенного) со всеми зависимостями."""
+    if not accounts_service.delete_account(session, account_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"account {account_id} not found")
+
+
 @router.patch("/{account_id}", response_model=AccountRead)
 def patch_account(
     account_id: int,

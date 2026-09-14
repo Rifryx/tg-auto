@@ -38,16 +38,31 @@ export function DashboardScreen() {
 
       {data && (
         <>
-          {data.alerts.length > 0 && (
-            <section className="mb-8">
-              <SectionTitle>Алерты</SectionTitle>
-              <div className="flex flex-col gap-2">
-                {data.alerts.map((a) => (
-                  <AlertCard key={a.id} alert={a} />
-                ))}
-              </div>
-            </section>
-          )}
+          {(() => {
+            // Схлопываем повторы: один алерт на пару (аккаунт, тип), самый свежий,
+            // со счётчиком — иначе один мёртвый прокси заваливает весь экран.
+            const byKey = new Map<string, { alert: (typeof data.alerts)[number]; count: number }>();
+            for (const a of data.alerts) {
+              const key = `${a.account_id}:${a.event_type}`;
+              const prev = byKey.get(key);
+              if (!prev) byKey.set(key, { alert: a, count: 1 });
+              else {
+                prev.count += 1;
+                if ((a.created_at ?? "") > (prev.alert.created_at ?? "")) prev.alert = a;
+              }
+            }
+            const grouped = [...byKey.values()];
+            return grouped.length > 0 ? (
+              <section className="mb-8">
+                <SectionTitle>Алерты</SectionTitle>
+                <div className="flex flex-col gap-2">
+                  {grouped.map(({ alert, count }) => (
+                    <AlertCard key={`${alert.account_id}:${alert.event_type}`} alert={alert} count={count} />
+                  ))}
+                </div>
+              </section>
+            ) : null;
+          })()}
 
           <section className="mb-8">
             <SectionTitle>Аккаунты по стадиям</SectionTitle>

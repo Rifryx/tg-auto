@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check, Info } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { accountsApi, catalogApi } from "../../shared/accounts";
@@ -37,7 +37,9 @@ export function NewAccountFlow() {
       accountsApi.create({ phone, proxy_id: proxyId!, persona_id: personaId, warming_profile: profile }),
     onSuccess: (acc) => {
       accountIdRef.current = acc.id;
-      setStep("waiting");
+      // Сразу показываем поле ввода кода: не ждём SSE, чтобы пользователь не
+      // застревал на пустом экране, если событие waiting_code задержится.
+      setStep("code");
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -47,7 +49,7 @@ export function NewAccountFlow() {
     const id = accountIdRef.current;
     if (id == null || step === "phone" || step === "persona" || step === "done") return;
     const apply = (state: LoginState | null) => {
-      if (state === "waiting_code") setStep((s) => (s === "waiting" ? "code" : s));
+      if (state === "waiting_code") setStep((s) => (s === "waiting" || s === "code" ? "code" : s));
       else if (state === "waiting_password") setStep("password");
       else if (state === "success") setStep("done");
       else if (state === "failed") setError("Логин не удался. Попробуйте заново.");
@@ -140,27 +142,23 @@ export function NewAccountFlow() {
         </Stepper>
       )}
 
-      {step === "waiting" && (
-        <Stepper title="Запрашиваем код" subtitle="Telegram отправит код подтверждения">
-          <div className="flex flex-col gap-2">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="h-12 animate-pulse rounded-chip bg-surface-2" />
-            ))}
-          </div>
-        </Stepper>
-      )}
-
       {step === "code" && (
-        <Stepper title="Введите код" subtitle="Код из Telegram">
+        <Stepper title="Введите код" subtitle="Telegram отправил код подтверждения">
           <Field label="Код подтверждения">
             <input
               value={code}
               onChange={(e) => setCode(e.target.value)}
               inputMode="numeric"
+              autoFocus
               placeholder="12345"
-              className={`${INPUT} nums tracking-[0.3em]`}
+              className={`${INPUT} nums text-[22px] tracking-[0.4em]`}
             />
           </Field>
+          <InfoNote>
+            Код приходит <b>внутри приложения Telegram</b> (в чат «Telegram»), а не по
+            SMS. Не приходит? Проверьте, что номер введён верно и на нём есть активная
+            сессия Telegram, подождите до минуты и попробуйте ещё раз.
+          </InfoNote>
         </Stepper>
       )}
 
@@ -252,6 +250,16 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="mb-1.5 block px-1 text-[13px] text-text-tertiary">{label}</span>
       {children}
     </label>
+  );
+}
+
+/* Информационная подсказка (что делать, если код не приходит и т.п.). */
+function InfoNote({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mt-1 flex gap-2.5 rounded-chip border border-hairline bg-surface-1 px-4 py-3">
+      <Info className="mt-0.5 h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
+      <p className="text-[13px] leading-relaxed text-text-secondary">{children}</p>
+    </div>
   );
 }
 

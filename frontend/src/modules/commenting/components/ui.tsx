@@ -67,19 +67,19 @@ export function Toggle({
 }) {
   return (
     <button
+      type="button"
       role="switch"
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative h-[31px] w-[51px] shrink-0 rounded-pill transition-colors ${
-        checked ? "bg-accent" : "bg-surface-2 border border-hairline"
+      className={`relative inline-flex h-[31px] w-[51px] shrink-0 items-center rounded-full border transition-colors ${
+        checked ? "border-transparent bg-status-active" : "border-hairline bg-surface-2"
       }`}
     >
       <span
-        className={`absolute top-[3px] h-[25px] w-[25px] rounded-full bg-accent-on transition-transform ${
-          checked ? "translate-x-[23px]" : "translate-x-[3px]"
+        className={`inline-block h-[25px] w-[25px] rounded-full bg-white shadow-sm transition-transform duration-200 ${
+          checked ? "translate-x-[23px]" : "translate-x-[2px]"
         }`}
-        style={checked ? undefined : { background: "var(--text-primary)" }}
       />
     </button>
   );

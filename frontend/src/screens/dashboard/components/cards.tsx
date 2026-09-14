@@ -34,7 +34,7 @@ const EVENT_LABEL: Record<string, string> = {
 };
 
 /* Карточка алерта: левая цветная полоса 4px по severity (§7), иконка, аккаунт. */
-export function AlertCard({ alert }: { alert: Alert }) {
+export function AlertCard({ alert, count = 1 }: { alert: Alert; count?: number }) {
   const Icon = EVENT_ICON[alert.event_type] ?? AlertTriangle;
   const bar = alert.severity === "critical" ? "bg-status-critical" : "bg-status-warning";
   const tone = alert.severity === "critical" ? "text-status-critical" : "text-status-warning";
@@ -53,6 +53,12 @@ export function AlertCard({ alert }: { alert: Alert }) {
           {alert.phone ? maskPhone(alert.phone) : `Аккаунт #${alert.account_id}`}
         </p>
       </div>
+      {count > 1 && (
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[12px] font-semibold tabular-nums ${tone}`}
+          style={{ background: "color-mix(in srgb, currentColor 16%, transparent)" }}>
+          ×{count}
+        </span>
+      )}
       <ChevronRight className="h-4 w-4 text-text-tertiary" strokeWidth={1.8} aria-hidden />
     </Link>
   );

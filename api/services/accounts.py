@@ -83,3 +83,14 @@ def update_account(session: Session, account_id: int, data: AccountUpdate) -> Op
     if account is not None:
         session.commit()
     return account
+
+
+def delete_account(session: Session, account_id: int) -> bool:
+    """Полностью удаляет аккаунт. Зависимые строки (история, health, прогрев,
+    каналы, привязка к кампании, логи) снимаются через ON DELETE CASCADE."""
+    account = AccountRepository(session).get(account_id)
+    if account is None:
+        return False
+    session.delete(account)
+    session.commit()
+    return True

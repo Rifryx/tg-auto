@@ -22,6 +22,7 @@ export function AccountDetailScreen() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [confirmRetire, setConfirmRetire] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const account = useQuery({
     queryKey: ["account", accountId],
@@ -64,6 +65,13 @@ export function AccountDetailScreen() {
   });
   const retire = useMutation({
     mutationFn: () => accountsApi.retire(accountId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+      navigate("/accounts");
+    },
+  });
+  const remove = useMutation({
+    mutationFn: () => accountsApi.remove(accountId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["accounts"] });
       navigate("/accounts");
@@ -276,8 +284,13 @@ export function AccountDetailScreen() {
             Отвязать от кампании
           </CapsuleButton>
         )}
-        <CapsuleButton variant="danger" onClick={() => setConfirmRetire(true)}>
-          Вывести аккаунт
+        {acc.status !== "retired" && (
+          <CapsuleButton variant="secondary" onClick={() => setConfirmRetire(true)}>
+            Вывести аккаунт
+          </CapsuleButton>
+        )}
+        <CapsuleButton variant="danger" onClick={() => setConfirmDelete(true)}>
+          Удалить безвозвратно
         </CapsuleButton>
       </div>
 
@@ -290,6 +303,17 @@ export function AccountDetailScreen() {
         busy={retire.isPending}
         onConfirm={() => retire.mutate()}
         onCancel={() => setConfirmRetire(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Удалить аккаунт?"
+        message="Аккаунт и все его данные (история, прогрев, каналы, привязка к кампании) будут удалены безвозвратно."
+        confirmLabel="Удалить"
+        danger
+        busy={remove.isPending}
+        onConfirm={() => remove.mutate()}
+        onCancel={() => setConfirmDelete(false)}
       />
     </div>
   );
