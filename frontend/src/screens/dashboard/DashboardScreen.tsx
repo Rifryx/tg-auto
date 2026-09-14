@@ -1,0 +1,113 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
+import { MONITORING_STREAM, useSse } from "../../shared/sse";
+import type { AccountStatus } from "../../shared/types";
+import { dashboardApi } from "./api";
+import { ActivityRow, AlertCard, ModuleCard, StageCard } from "./components/cards";
+
+// Порядок стадий в KPI-скролле (сначала операционно важные).
+const STAGES: AccountStatus[] = [
+  "pool",
+  "warming",
+  "assigned",
+  "cooldown",
+  "banned",
+  "created",
+  "retired",
+];
+
+export function DashboardScreen() {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["dashboard"],
+    queryFn: dashboardApi.get,
+    refetchInterval: 30_000, // фолбэк-обновление
+  });
+
+  // Живое обновление: на событие account_status/health_alert — сразу перезапрос.
+  const onLive = useCallback(() => {
+    qc.invalidateQueries({ queryKey: ["dashboard"] });
+  }, [qc]);
+  useSse(MONITORING_STREAM, onLive);
+
+  return (
+    <div className="min-h-full">
+      <h1 className="screen-title mb-6 mt-1">Обзор</h1>
+
+      {isLoading && <DashboardSkeleton />}
+
+      {data && (
+        <>
+          {data.alerts.length > 0 && (
+            <section className="mb-8">
+              <SectionTitle>Алерты</SectionTitle>
+              <div className="flex flex-col gap-2">
+                {data.alerts.map((a) => (
+                  <AlertCard key={a.id} alert={a} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="mb-8">
+            <SectionTitle>Аккаунты по стадиям</SectionTitle>
+            {/* overflow-hint: последняя карточка подглядывает справа за счёт скролла */}
+            <div className="-mx-5 flex gap-3 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {STAGES.map((s) => (
+                <StageCard key={s} status={s} count={data.accounts_summary[s]} />
+              ))}
+            </div>
+          </section>
+
+          {data.modules_summary.length > 0 && (
+            <section className="mb-8">
+              <SectionTitle>Модули</SectionTitle>
+              <div className="flex flex-col gap-3">
+                {data.modules_summary.map((m) => (
+                  <ModuleCard key={m.module} module={m} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="mb-4">
+            <SectionTitle>Активность</SectionTitle>
+            {data.recent_activity.length > 0 ? (
+              <div className="card px-4 py-1">
+                {data.recent_activity.slice(0, 20).map((item, i) => (
+                  <div key={i} className={i > 0 ? "border-t border-hairline" : ""}>
+                    <ActivityRow item={item} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="px-1 text-[13px] text-text-tertiary">Пока тихо.</p>
+            )}
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="mb-2.5 px-1 text-[13px] font-semibold uppercase tracking-wide text-text-tertiary">
+      {children}
+    </h2>
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex gap-3">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-24 w-[128px] shrink-0 animate-pulse rounded-card bg-surface-2" />
+        ))}
+      </div>
+      <div className="card h-28 animate-pulse bg-surface-2" />
+      <div className="card h-40 animate-pulse bg-surface-2" />
+    </div>
+  );
+}

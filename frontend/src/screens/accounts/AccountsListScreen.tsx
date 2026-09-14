@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Users } from "lucide-react";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { EmptyState } from "../../components/EmptyState";
 import { accountsApi } from "../../shared/accounts";
@@ -9,9 +9,16 @@ import { AccountRow } from "./components/AccountRow";
 import { FilterPills, type AccountFilter } from "./components/FilterPills";
 import { CapsuleButton } from "./components/ui";
 
+const FILTER_VALUES = ["all", "pool", "assigned", "warming", "cooldown", "banned"];
+
 export function AccountsListScreen() {
   const navigate = useNavigate();
-  const [filter, setFilter] = useState<AccountFilter>("all");
+  // Начальный фильтр из ?status=X (переход с KPI-карточки дашборда).
+  const [params] = useSearchParams();
+  const initial = params.get("status");
+  const [filter, setFilter] = useState<AccountFilter>(
+    initial && FILTER_VALUES.includes(initial) ? (initial as AccountFilter) : "all",
+  );
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["accounts", filter],
