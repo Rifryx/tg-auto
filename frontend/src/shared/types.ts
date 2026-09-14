@@ -55,6 +55,24 @@ export interface Account {
   updated_at: string;
 }
 
+export type MonitoredChannelStatus = "pending" | "working" | "paused" | "failed";
+
+export interface MonitoredChannel {
+  id: number;
+  account_id: number;
+  input_ref: string;
+  is_folder: boolean;
+  channel_ref: string | null;
+  channel_tg_id: number | null;
+  title: string | null;
+  discussion_group_id: number | null;
+  status: MonitoredChannelStatus;
+  subscribed: boolean;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface StatusHistoryRecord {
   id: number;
   account_id: number;

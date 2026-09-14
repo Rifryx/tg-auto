@@ -120,6 +120,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   busy,
+  children,
 }: {
   open: boolean;
   title: string;
@@ -129,6 +130,7 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
   busy?: boolean;
+  children?: ReactNode;
 }) {
   if (!open) return null;
   return (
@@ -142,6 +144,7 @@ export function ConfirmDialog({
       >
         <h3 className="text-[18px] font-semibold text-text-primary">{title}</h3>
         <p className="mt-1.5 text-[14px] text-text-secondary">{message}</p>
+        {children}
         <div className="mt-5 flex flex-col gap-2">
           <CapsuleButton
             variant={danger ? "danger" : "accent"}

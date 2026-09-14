@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, HeartPulse, Lock } from "lucide-react";
+import { ArrowLeft, Check, HeartPulse, Lock, Radio, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { accountsApi, catalogApi, detachFromCampaign } from "../../shared/accounts";
+import { accountsApi, catalogApi, channelsApi, detachFromCampaign } from "../../shared/accounts";
 import { formatDateTime, maskHost, maskPhone, timeAgo } from "../../shared/format";
 import { PROFILE_LABEL, STATUS_LABEL, statusDotClass } from "../../shared/status";
 import { haptic } from "../../shared/tg";
-import type { WarmingProfile } from "../../shared/types";
-import { Field, TextArea, TextInput } from "../../modules/commenting/components/ui";
+import type { MonitoredChannel, MonitoredChannelStatus, WarmingProfile } from "../../shared/types";
+import { Field, TextArea, TextInput, Toggle } from "../../modules/commenting/components/ui";
 import { CapsuleButton, ConfirmDialog, Section, SegmentedControl, StatusBadge } from "./components/ui";
 
 const PROFILE_OPTIONS: { value: WarmingProfile; label: string }[] = [
@@ -227,6 +227,9 @@ export function AccountDetailScreen() {
         )}
       </Section>
 
+      {/* Каналы мониторинга — свой список каналов у каждого аккаунта. */}
+      <ChannelsSection accountId={accountId} />
+
       {/* 6. Пресет прогрева — сегмент-контрол → PATCH без перезагрузки */}
       <Section title="Пресет прогрева">
         <SegmentedControl
@@ -375,6 +378,157 @@ function AutoField({
         <TextInput value={v} onChange={(e) => setV(e.target.value)} onBlur={commit} placeholder={placeholder} />
       )}
     </Field>
+  );
+}
+
+const CH_STATUS: Record<MonitoredChannelStatus, { label: string; dot: string }> = {
+  pending: { label: "в очереди", dot: "bg-status-neutral" },
+  working: { label: "в работе", dot: "bg-status-active" },
+  paused: { label: "пауза", dot: "bg-status-warning" },
+  failed: { label: "ошибка", dot: "bg-status-critical" },
+};
+
+/* Каналы аккаунта: добавление по ссылкам/папке + список со снятием с работы. */
+function ChannelsSection({ accountId }: { accountId: number }) {
+  const qc = useQueryClient();
+  const [refs, setRefs] = useState("");
+  const [isFolder, setIsFolder] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<MonitoredChannel | null>(null);
+  const [alsoUnsub, setAlsoUnsub] = useState(false);
+
+  const channels = useQuery({
+    queryKey: ["account", accountId, "channels"],
+    queryFn: () => channelsApi.list(accountId),
+    refetchInterval: 15_000, // pending → working обновляется воркером
+  });
+
+  const invalidate = () =>
+    qc.invalidateQueries({ queryKey: ["account", accountId, "channels"] });
+
+  const add = useMutation({
+    mutationFn: (list: string[]) => channelsApi.add(accountId, list, isFolder),
+    onSuccess: () => {
+      haptic("light");
+      setRefs("");
+      setIsFolder(false);
+      invalidate();
+    },
+  });
+  const remove = useMutation({
+    mutationFn: ({ id, unsub }: { id: number; unsub: boolean }) =>
+      channelsApi.remove(accountId, id, unsub),
+    onSuccess: () => {
+      setRemoveTarget(null);
+      setAlsoUnsub(false);
+      invalidate();
+    },
+  });
+
+  const parsed = refs
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const rows = channels.data ?? [];
+
+  return (
+    <Section title="Каналы мониторинга">
+      <div className="mb-4 border-b border-hairline pb-4">
+        <Field
+          label={isFolder ? "Ссылка на папку (addlist)" : "Ссылки или @юзернеймы каналов"}
+        >
+          <TextArea
+            value={refs}
+            onChange={(e) => setRefs(e.target.value)}
+            placeholder={
+              isFolder
+                ? "https://t.me/addlist/AbCdEf…"
+                : "https://t.me/durov, @telegram — по одному в строке или через запятую"
+            }
+          />
+        </Field>
+        <label className="mb-4 flex items-center justify-between px-1">
+          <span className="text-[14px] text-text-secondary">Это папка каналов</span>
+          <Toggle checked={isFolder} onChange={setIsFolder} label="Папка каналов" />
+        </label>
+        <CapsuleButton
+          onClick={() => add.mutate(parsed)}
+          disabled={parsed.length === 0 || add.isPending}
+        >
+          {add.isPending
+            ? "Добавляю…"
+            : parsed.length > 1
+              ? `Добавить (${parsed.length})`
+              : "Добавить в работу"}
+        </CapsuleButton>
+      </div>
+
+      {channels.isLoading ? (
+        <Muted>Загрузка…</Muted>
+      ) : rows.length === 0 ? (
+        <Muted>Каналы не добавлены. Аккаунт пока ничего не мониторит.</Muted>
+      ) : (
+        <ul className="flex flex-col">
+          {rows.map((ch, i) => {
+            const meta = CH_STATUS[ch.status];
+            return (
+              <li
+                key={ch.id}
+                className={`flex items-center gap-3 py-2.5 ${i > 0 ? "border-t border-hairline" : ""}`}
+              >
+                <Radio className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.6} aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[14px] text-text-primary">
+                    {ch.title ?? ch.channel_ref ?? ch.input_ref}
+                    {ch.is_folder && (
+                      <span className="ml-1.5 text-[12px] text-text-tertiary">· папка</span>
+                    )}
+                  </p>
+                  <p className="flex items-center gap-1.5 text-[12px] text-text-tertiary">
+                    <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} aria-hidden />
+                    {meta.label}
+                    {ch.subscribed && <span>· подписан</span>}
+                    {ch.error && <span className="text-status-critical">· {ch.error}</span>}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setAlsoUnsub(false);
+                    setRemoveTarget(ch);
+                  }}
+                  aria-label="Снять канал с работы"
+                  className="shrink-0 rounded-full p-1.5 text-text-tertiary active:text-status-critical"
+                >
+                  <X className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <ConfirmDialog
+        open={removeTarget !== null}
+        title="Снять канал с работы?"
+        message={
+          removeTarget
+            ? `«${removeTarget.title ?? removeTarget.input_ref}» перестанет мониториться. Подписка в Telegram по умолчанию сохраняется.`
+            : ""
+        }
+        confirmLabel={alsoUnsub ? "Снять и отписаться" : "Снять с работы"}
+        danger={alsoUnsub}
+        busy={remove.isPending}
+        onConfirm={() =>
+          removeTarget && remove.mutate({ id: removeTarget.id, unsub: alsoUnsub })
+        }
+        onCancel={() => setRemoveTarget(null)}
+      >
+        <label className="mt-3 flex items-center justify-between">
+          <span className="text-[14px] text-text-secondary">Отписаться в Telegram</span>
+          <Toggle checked={alsoUnsub} onChange={setAlsoUnsub} label="Отписаться в Telegram" />
+        </label>
+      </ConfirmDialog>
+    </Section>
   );
 }
 

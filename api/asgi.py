@@ -202,6 +202,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     # переиспользовать/тестировать, не таща весь граф на импорте asgi.
     from api.routers import accounts, login, monitoring, personas, proxies
     from modules.commenting.api import router as commenting_router
+    from modules.commenting.api.channels import router as channels_router
 
     app = FastAPI(
         title="Neuro-commenting API",
@@ -223,6 +224,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(proxies.router)
     app.include_router(personas.router)
     app.include_router(commenting_router)
+    app.include_router(channels_router)
     return app
 
 

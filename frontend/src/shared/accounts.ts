@@ -2,6 +2,7 @@ import { api } from "./api";
 import type {
   Account,
   LoginStateResponse,
+  MonitoredChannel,
   Persona,
   Proxy,
   StatusHistoryRecord,
@@ -40,6 +41,21 @@ export const accountsApi = {
     api.post<LoginStateResponse>(`/accounts/${id}/login/confirm`, { code }),
   confirmPassword: (id: number, password: string) =>
     api.post<LoginStateResponse>(`/accounts/${id}/login/password`, { password }),
+};
+
+/* Каналы, которые мониторит аккаунт (modules/commenting/api/channels.py). */
+export const channelsApi = {
+  list: (accountId: number) =>
+    api.get<MonitoredChannel[]>(`/accounts/${accountId}/channels`),
+  add: (accountId: number, refs: string[], isFolder: boolean) =>
+    api.post<MonitoredChannel[]>(`/accounts/${accountId}/channels`, {
+      refs,
+      is_folder: isFolder,
+    }),
+  remove: (accountId: number, channelId: number, unsubscribe = false) =>
+    api.del<void>(
+      `/accounts/${accountId}/channels/${channelId}?unsubscribe=${unsubscribe}`,
+    ),
 };
 
 export const catalogApi = {
