@@ -20,6 +20,7 @@ class CampaignCreate(BaseModel):
     posting_delay_min_sec: int
     posting_delay_max_sec: int
     discussion_group_id: Optional[int] = None
+    persona_id: Optional[int] = None
     enabled: bool = True
 
 
@@ -34,6 +35,7 @@ class CampaignUpdate(BaseModel):
     posting_delay_min_sec: Optional[int] = None
     posting_delay_max_sec: Optional[int] = None
     discussion_group_id: Optional[int] = None
+    persona_id: Optional[int] = None
     enabled: Optional[bool] = None
 
 
@@ -43,6 +45,7 @@ class CampaignRead(ORMModel):
     target_channel: Optional[str]
     discussion_group_id: Optional[int]
     base_system_prompt: str
+    persona_id: Optional[int]
     llm_provider: LLMProvider
     active_hours_start: time
     active_hours_end: time

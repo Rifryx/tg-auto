@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { accountsApi } from "../../shared/accounts";
+import { accountsApi, catalogApi } from "../../shared/accounts";
 import { Select } from "../../shared/Select";
 import { haptic } from "../../shared/tg";
 import { commentingApi } from "./api";
@@ -55,9 +55,11 @@ export function NewCampaignScreen() {
   const [tz, setTz] = useState("Europe/Kiev");
   const [delayMin, setDelayMin] = useState(30);
   const [delayMax, setDelayMax] = useState(120);
+  const [personaId, setPersonaId] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
 
   const pool = useQuery({ queryKey: ["accounts", "pool"], queryFn: () => accountsApi.list("pool") });
+  const personas = useQuery({ queryKey: ["personas"], queryFn: catalogApi.personas });
 
   const valid = name.trim() !== "" && prompt.trim() !== "" && delayMin <= delayMax;
 
@@ -66,6 +68,7 @@ export function NewCampaignScreen() {
       const camp = await commentingApi.create({
         name: name.trim(),
         base_system_prompt: prompt.trim(),
+        persona_id: personaId,
         llm_provider: llm,
         active_hours_start: `${start}:00`,
         active_hours_end: `${end}:00`,
@@ -111,6 +114,22 @@ export function NewCampaignScreen() {
 
       <Section title="Модель">
         <SegmentedControl options={LLM_OPTIONS} value={llm} onChange={setLlm} />
+      </Section>
+
+      <Section title="Персона (необязательно)">
+        <Select
+          value={personaId != null ? String(personaId) : ""}
+          onChange={(v) => setPersonaId(v === "" ? null : Number(v))}
+          placeholder="Без персоны (голый промпт)"
+          options={[
+            { value: "", label: "Без персоны (голый промпт)" },
+            ...(personas.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
+          ]}
+        />
+        <p className="mt-1.5 px-1 text-[12px] text-text-tertiary">
+          Персона добавляется в промпт (имя + черты). Применяется к аккаунтам без
+          собственной персоны — у аккаунта своя перекрывает.
+        </p>
       </Section>
 
       <Section title="Промпт">

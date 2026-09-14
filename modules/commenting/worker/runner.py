@@ -106,8 +106,11 @@ def _build_system_prompt(session, campaign, account) -> str:
     override = CampaignAccountRepository(session).get(campaign.id, account.id)
     prompt = (override.override_prompt if override and override.override_prompt else None)
     prompt = prompt or campaign.base_system_prompt
-    if account.persona_id is not None:
-        persona = PersonaRepository(session).get(account.persona_id)
+    # Персона аккаунта перекрывает персону кампании; кампания — дефолт для тех,
+    # у кого своей нет.
+    persona_id = account.persona_id or getattr(campaign, "persona_id", None)
+    if persona_id is not None:
+        persona = PersonaRepository(session).get(persona_id)
         if persona is not None:
             tags = ", ".join(persona.personality_tags or [])
             prompt = f"{prompt}\n\nТы — {persona.name}. Черты: {tags}."

@@ -9,6 +9,7 @@ export interface Campaign {
   target_channel: string | null;
   discussion_group_id: number | null;
   base_system_prompt: string;
+  persona_id: number | null;
   llm_provider: LLMProvider;
   active_hours_start: string; // "HH:MM:SS"
   active_hours_end: string;
@@ -44,6 +45,7 @@ export interface CampaignCreateBody {
   name: string;
   target_channel?: string | null;
   base_system_prompt: string;
+  persona_id?: number | null;
   llm_provider: LLMProvider;
   active_hours_start: string;
   active_hours_end: string;

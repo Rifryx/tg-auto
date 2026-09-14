@@ -12,6 +12,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    ForeignKey,
     Integer,
     String,
     Time,
@@ -41,6 +42,11 @@ class Campaign(Base, TimestampMixin):
     target_channel: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     discussion_group_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     base_system_prompt: Mapped[str] = mapped_column(String, nullable=False)
+    # Персона по умолчанию для аккаунтов кампании (у аккаунта своя персона
+    # перекрывает). При удалении персоны — SET NULL, кампания продолжает работу.
+    persona_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("personas.id", ondelete="SET NULL"), nullable=True
+    )
     llm_provider: Mapped[str] = mapped_column(String, nullable=False)
     active_hours_start: Mapped[time] = mapped_column(Time, nullable=False)
     active_hours_end: Mapped[time] = mapped_column(Time, nullable=False)

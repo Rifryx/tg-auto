@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check, Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { accountsApi } from "../../shared/accounts";
+import { accountsApi, catalogApi } from "../../shared/accounts";
+import { Select } from "../../shared/Select";
 import { maskPhone } from "../../shared/format";
 import { statusDotClass } from "../../shared/status";
 import { haptic } from "../../shared/tg";
@@ -47,6 +48,7 @@ export function CampaignDetailScreen() {
     queryFn: () => commentingApi.accounts(campaignId),
   });
   const allAccounts = useQuery({ queryKey: ["accounts", "all"], queryFn: () => accountsApi.list() });
+  const personas = useQuery({ queryKey: ["personas"], queryFn: catalogApi.personas });
   const logs = useQuery({
     queryKey: ["campaign", campaignId, "logs"],
     queryFn: () => commentingApi.logs(campaignId),
@@ -131,6 +133,18 @@ export function CampaignDetailScreen() {
               options={LLM_OPTIONS}
               value={c.llm_provider}
               onChange={(v) => save.mutate({ llm_provider: v })}
+            />
+          </div>
+          <div className="mb-4">
+            <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">Персона (по умолчанию)</p>
+            <Select
+              value={c.persona_id != null ? String(c.persona_id) : ""}
+              onChange={(v) => save.mutate({ persona_id: v === "" ? null : Number(v) })}
+              placeholder="Без персоны"
+              options={[
+                { value: "", label: "Без персоны (голый промпт)" },
+                ...(personas.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
+              ]}
             />
           </div>
           <AutoText

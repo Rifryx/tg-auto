@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { MessagesSquare, Plus } from "lucide-react";
+import { MessagesSquare } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { EmptyState } from "../../components/EmptyState";
@@ -37,29 +37,20 @@ export function CampaignsScreen() {
       )}
 
       {data && data.length === 0 && (
-        <>
-          <EmptyState
-            icon={MessagesSquare}
-            title="Пока нет кампаний"
-            hint="Создайте кампанию комментирования и привяжите аккаунты из пула."
-          />
-          <div className="mt-6">
-            <CapsuleButton onClick={() => navigate("/modules/commenting/campaigns/new")}>
-              Создать кампанию
-            </CapsuleButton>
-          </div>
-        </>
+        <EmptyState
+          icon={MessagesSquare}
+          title="Пока нет кампаний"
+          hint="Создайте кампанию комментирования и привяжите аккаунты из пула."
+        />
       )}
 
-      {/* FAB — плавает над капсульным навбаром, снизу справа. */}
-      <button
-        onClick={() => navigate("/modules/commenting/campaigns/new")}
-        aria-label="Создать кампанию"
-        className="fixed right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-accent-on shadow-none active:opacity-70"
-        style={{ bottom: "calc(env(safe-area-inset-bottom) + 92px)" }}
-      >
-        <Plus className="h-6 w-6" strokeWidth={2.2} aria-hidden />
-      </button>
+      {data && (
+        <div className="mt-6">
+          <CapsuleButton onClick={() => navigate("/modules/commenting/campaigns/new")}>
+            Создать кампанию
+          </CapsuleButton>
+        </div>
+      )}
     </div>
   );
 }
