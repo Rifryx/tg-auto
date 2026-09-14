@@ -14,6 +14,16 @@ export const accountsApi = {
   list: (status?: string) =>
     api.get<Account[]>(`/accounts${status && status !== "all" ? `?status=${status}` : ""}`),
   get: (id: number) => api.get<Account>(`/accounts/${id}`),
+  patch: (
+    id: number,
+    body: Partial<{
+      username: string | null;
+      bio: string | null;
+      avatar_url: string | null;
+      persona_id: number | null;
+      proxy_id: number | null;
+    }>,
+  ) => api.patch<Account>(`/accounts/${id}`, body),
   create: (body: {
     phone: string;
     proxy_id: number;

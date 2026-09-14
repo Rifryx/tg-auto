@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, HeartPulse, Lock } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, Check, HeartPulse, Lock } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { accountsApi, catalogApi, detachFromCampaign } from "../../shared/accounts";
 import { formatDateTime, maskHost, maskPhone, timeAgo } from "../../shared/format";
 import { PROFILE_LABEL, STATUS_LABEL, statusDotClass } from "../../shared/status";
 import { haptic } from "../../shared/tg";
 import type { WarmingProfile } from "../../shared/types";
+import { Field, TextArea, TextInput } from "../../modules/commenting/components/ui";
 import { CapsuleButton, ConfirmDialog, Section, SegmentedControl, StatusBadge } from "./components/ui";
 
 const PROFILE_OPTIONS: { value: WarmingProfile; label: string }[] = [
@@ -56,6 +57,11 @@ export function AccountDetailScreen() {
       qc.invalidateQueries({ queryKey: ["account", accountId] });
     },
   });
+  const patchProfile = useMutation({
+    mutationFn: (body: Parameters<typeof accountsApi.patch>[1]) =>
+      accountsApi.patch(accountId, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["account", accountId] }),
+  });
   const retire = useMutation({
     mutationFn: () => accountsApi.retire(accountId),
     onSuccess: () => {
@@ -89,6 +95,32 @@ export function AccountDetailScreen() {
         <h1 className="screen-title nums">{maskPhone(acc.phone)}</h1>
         <StatusBadge status={acc.status} />
       </div>
+
+      {/* Профиль — редактируемый (автосохранение onBlur). */}
+      <Section title="Профиль">
+        <div className="card p-4">
+          <ProfileHeader avatarUrl={acc.avatar_url} username={acc.username} />
+          <AutoField
+            label="Юзернейм"
+            value={acc.username ?? ""}
+            placeholder="username"
+            onSave={(v) => patchProfile.mutateAsync({ username: v || null })}
+          />
+          <AutoField
+            label="Описание"
+            value={acc.bio ?? ""}
+            placeholder="Био профиля"
+            textarea
+            onSave={(v) => patchProfile.mutateAsync({ bio: v || null })}
+          />
+          <AutoField
+            label="Аватар (URL)"
+            value={acc.avatar_url ?? ""}
+            placeholder="https://…"
+            onSave={(v) => patchProfile.mutateAsync({ avatar_url: v || null })}
+          />
+        </div>
+      </Section>
 
       {/* 1. Статус + таймлайн переходов */}
       <Section title="Статус">
@@ -283,6 +315,67 @@ function FpRow({ label, value }: { label: string; value: string }) {
 
 function Muted({ children }: { children: React.ReactNode }) {
   return <p className="text-[13px] text-text-tertiary">{children}</p>;
+}
+
+/* Аватар + юзернейм над полями профиля. */
+function ProfileHeader({ avatarUrl, username }: { avatarUrl: string | null; username: string | null }) {
+  return (
+    <div className="mb-4 flex items-center gap-3">
+      {avatarUrl ? (
+        <img src={avatarUrl} alt="" className="h-12 w-12 rounded-full object-cover" />
+      ) : (
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-[18px] font-semibold text-text-secondary">
+          {(username ?? "?").slice(0, 1).toUpperCase()}
+        </div>
+      )}
+      <span className="text-[15px] text-text-primary">
+        {username ? `@${username}` : "без юзернейма"}
+      </span>
+    </div>
+  );
+}
+
+/* Поле профиля с автосохранением onBlur + галочка «Сохранено» на 1.5 сек. */
+function AutoField({
+  label,
+  value,
+  placeholder,
+  textarea,
+  onSave,
+}: {
+  label: string;
+  value: string;
+  placeholder?: string;
+  textarea?: boolean;
+  onSave: (v: string) => Promise<unknown>;
+}) {
+  const [v, setV] = useState(value);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => setV(value), [value]);
+
+  const commit = async () => {
+    if (v.trim() === value.trim()) return;
+    await onSave(v.trim());
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  };
+
+  const hint = saved ? (
+    <span className="inline-flex items-center gap-0.5 text-text-tertiary">
+      <Check className="h-3 w-3" strokeWidth={2} aria-hidden />
+      Сохранено
+    </span>
+  ) : undefined;
+
+  return (
+    <Field label={label} hint={hint}>
+      {textarea ? (
+        <TextArea value={v} onChange={(e) => setV(e.target.value)} onBlur={commit} placeholder={placeholder} />
+      ) : (
+        <TextInput value={v} onChange={(e) => setV(e.target.value)} onBlur={commit} placeholder={placeholder} />
+      )}
+    </Field>
+  );
 }
 
 function DetailSkeleton() {

@@ -1,16 +1,22 @@
 import { ExternalLink } from "lucide-react";
 import type { ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 import { isBrowserDev, isTelegram } from "../../shared/tg";
 import { BottomNav } from "./BottomNav";
 
 /* Каркас экрана: прокручиваемый контент + плавающая капсула навбара снизу.
-   Нижний паддинг оставляет место под капсулу, чтобы контент не заезжал под неё. */
+   На flow-экранах (онбординг аккаунта, новая кампания — фокус «одно действие»
+   с липкой кнопкой снизу) навбар скрыт, чтобы кнопка не пряталась под ним. */
 export function AppLayout({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
+  const chromeless = pathname.endsWith("/new");
   return (
     <div className="mx-auto flex min-h-full max-w-[440px] flex-col bg-bg-base">
       {isBrowserDev && !isTelegram && <DevBar />}
-      <main className="flex flex-1 flex-col px-5 pb-32 pt-3">{children}</main>
-      <BottomNav />
+      <main className={`flex flex-1 flex-col px-5 pt-3 ${chromeless ? "pb-6" : "pb-32"}`}>
+        {children}
+      </main>
+      {!chromeless && <BottomNav />}
     </div>
   );
 }
