@@ -26,7 +26,14 @@ from worker.login import (
     login_password_impl,
     login_start_impl,
 )
-from worker.tasks.commenting import on_new_post_impl, post_comment_impl
+from worker.tasks.commenting import (
+    leave_channel_impl,
+    on_channel_post_impl,
+    on_new_post_impl,
+    post_channel_comment_impl,
+    post_comment_impl,
+    resolve_channel_impl,
+)
 from worker.tasks.dispatch import task
 from worker.tasks.health import check_proxies_impl
 from worker.tasks.logging import get_logger
@@ -86,6 +93,13 @@ check_proxies = task(TaskName.HEALTH_CHECK_PROXIES.value)(check_proxies_impl)
 # Модуль commenting (§5): тела в modules/commenting/worker/runner.
 on_new_post = task(TaskName.COMMENTING_ON_NEW_POST.value)(on_new_post_impl)
 post_comment = task(TaskName.COMMENTING_POST_COMMENT.value)(post_comment_impl)
+# Аккаунт-центричный мониторинг каналов (тела в .../channels и .../runner).
+resolve_channel = task(TaskName.COMMENTING_RESOLVE_CHANNEL.value)(resolve_channel_impl)
+leave_channel = task(TaskName.COMMENTING_LEAVE_CHANNEL.value)(leave_channel_impl)
+on_channel_post = task(TaskName.COMMENTING_ON_CHANNEL_POST.value)(on_channel_post_impl)
+post_channel_comment = task(TaskName.COMMENTING_POST_CHANNEL_COMMENT.value)(
+    post_channel_comment_impl
+)
 
 # Логин-флоу (§3.2/§11): тела в worker/login, здесь только регистрация.
 login_start = task(TaskName.ACCOUNT_LOGIN_START.value)(login_start_impl)
@@ -104,6 +118,14 @@ TASK_FUNCTIONS = [
     ),
     func(on_new_post, name=TaskName.COMMENTING_ON_NEW_POST.value, max_tries=3),
     func(post_comment, name=TaskName.COMMENTING_POST_COMMENT.value, max_tries=3),
+    func(resolve_channel, name=TaskName.COMMENTING_RESOLVE_CHANNEL.value, max_tries=3),
+    func(leave_channel, name=TaskName.COMMENTING_LEAVE_CHANNEL.value, max_tries=2),
+    func(on_channel_post, name=TaskName.COMMENTING_ON_CHANNEL_POST.value, max_tries=3),
+    func(
+        post_channel_comment,
+        name=TaskName.COMMENTING_POST_CHANNEL_COMMENT.value,
+        max_tries=3,
+    ),
     func(login_start, name=TaskName.ACCOUNT_LOGIN_START.value, max_tries=3),
     func(login_confirm, name=TaskName.ACCOUNT_LOGIN_CONFIRM.value, max_tries=3),
     func(login_password, name=TaskName.ACCOUNT_LOGIN_PASSWORD.value, max_tries=3),

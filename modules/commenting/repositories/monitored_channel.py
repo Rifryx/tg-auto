@@ -52,6 +52,53 @@ class MonitoredChannelRepository(BaseRepository[MonitoredChannel]):
         )
         return list(self.session.execute(stmt).scalars().all())
 
+    def list_all_working(self) -> list[MonitoredChannel]:
+        """Все каналы в работе (для стартовой загрузки слушателей)."""
+        stmt = select(MonitoredChannel).where(MonitoredChannel.status == "working")
+        return list(self.session.execute(stmt).scalars().all())
+
+    def list_by_discussion_group(
+        self, discussion_group_id: int
+    ) -> list[MonitoredChannel]:
+        """Working-каналы с данной discussion-группой (у разных аккаунтов)."""
+        stmt = select(MonitoredChannel).where(
+            MonitoredChannel.discussion_group_id == discussion_group_id,
+            MonitoredChannel.status == "working",
+        )
+        return list(self.session.execute(stmt).scalars().all())
+
+    def mark_working(
+        self,
+        id_: int,
+        *,
+        channel_ref: Optional[str],
+        channel_tg_id: Optional[int],
+        title: Optional[str],
+        discussion_group_id: Optional[int],
+        subscribed: bool = True,
+    ) -> Optional[MonitoredChannel]:
+        ch = self.get(id_)
+        if ch is None:
+            return None
+        ch.channel_ref = channel_ref
+        ch.channel_tg_id = channel_tg_id
+        ch.title = title
+        ch.discussion_group_id = discussion_group_id
+        ch.subscribed = subscribed
+        ch.status = "working"
+        ch.error = None
+        self.session.flush()
+        return ch
+
+    def mark_failed(self, id_: int, error: str) -> Optional[MonitoredChannel]:
+        ch = self.get(id_)
+        if ch is None:
+            return None
+        ch.status = "failed"
+        ch.error = error[:500]
+        self.session.flush()
+        return ch
+
     def delete(self, id_: int) -> bool:
         ch = self.get(id_)
         if ch is None:

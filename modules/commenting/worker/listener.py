@@ -47,6 +47,41 @@ def make_new_post_handler(
     return handler
 
 
+def make_channel_post_handler(
+    account_id: int,
+    monitored_channel_id: int,
+    task_queue: TaskQueue,
+    *,
+    channel_tg_id: int,
+) -> Callable[[Any], Any]:
+    """Handler для аккаунт-центричного мониторинга: пост канала → on_channel_post.
+
+    Ловит ТОЛЬКО авто-реплей самого канала в discussion-группе (sender_id ==
+    channel_tg_id) и ставит ``commenting.on_channel_post`` для аккаунта-владельца.
+    Человеческие комментарии игнорируются — но именно здесь будущая фича «ответить
+    на чей-то коммент» подключит свою ветку (у нас есть и группа, и id поста).
+    """
+
+    async def handler(event: Any) -> None:
+        message = getattr(event, "message", event)
+        if getattr(message, "sender_id", None) != channel_tg_id:
+            return
+        await task_queue.enqueue(
+            TaskName.COMMENTING_ON_CHANNEL_POST,
+            account_id,
+            monitored_channel_id,
+            message.id,
+        )
+        get_logger().info(
+            "commenting.channel_listener.new_post",
+            account_id=account_id,
+            monitored_channel_id=monitored_channel_id,
+            channel_msg_id=message.id,
+        )
+
+    return handler
+
+
 async def round_robin_account(session, campaign_id: int, cursor: dict) -> Any:
     """Следующий assigned-аккаунт кампании по кругу (или None, если таких нет)."""
     links = CampaignAccountRepository(session).list_by_campaign(campaign_id)

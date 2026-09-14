@@ -97,15 +97,19 @@ async def test_startup_logs_all_registered_functions(monkeypatch):
 
     monkeypatch.setattr(worker_main, "ListenerRegistry", _FakeRegistry)
     monkeypatch.setattr(worker_main, "CampaignLifecycleListener", _FakeLifecycle)
+    # Аккаунт-центричные слушатели каналов изолируем тем же способом.
+    monkeypatch.setattr(worker_main, "ChannelListenerRegistry", _FakeRegistry)
+    monkeypatch.setattr(worker_main, "ChannelLifecycleListener", _FakeLifecycle)
 
     ctx: dict = {"redis": object()}
     with capture_logs() as logs:
         await worker_main.startup(ctx)
 
-    # фоновую задачу гасим, чтобы не текла между тестами
-    task = ctx.get("campaign_lifecycle_task")
-    if task is not None:
-        task.cancel()
+    # фоновые задачи гасим, чтобы не текли между тестами
+    for key in ("campaign_lifecycle_task", "channel_lifecycle_task"):
+        task = ctx.get(key)
+        if task is not None:
+            task.cancel()
 
     startup_events = [e for e in logs if e["event"] == "worker.startup"]
     assert startup_events, "нет события worker.startup"

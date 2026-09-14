@@ -231,14 +231,20 @@ async def test_step1_client_pool_ready_before_load_all(monkeypatch):
     async def noop_run(self):  # не поднимаем реальную подписку на Redis
         return None
 
+    async def noop_load_all(self, ctx):  # аккаунт-центричные слушатели каналов
+        return []
+
     monkeypatch.setattr(reg.ListenerRegistry, "load_all", spy_load_all)
     monkeypatch.setattr(reg.CampaignLifecycleListener, "run", noop_run)
+    monkeypatch.setattr(reg.ChannelListenerRegistry, "load_all", noop_load_all)
+    monkeypatch.setattr(reg.ChannelLifecycleListener, "run", noop_run)
 
     ctx: dict = {"redis": object()}
     await wm.startup(ctx)
-    task = ctx.get("campaign_lifecycle_task")
-    if task is not None:
-        task.cancel()
+    for key in ("campaign_lifecycle_task", "channel_lifecycle_task"):
+        task = ctx.get(key)
+        if task is not None:
+            task.cancel()
 
     assert seen.get("pool_ready") is True  # порядок: пул раньше слушателей
     assert isinstance(ctx["client_pool"], ClientPool)

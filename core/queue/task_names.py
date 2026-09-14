@@ -25,6 +25,11 @@ class TaskName(str, Enum):
     # --- Модуль commenting ---
     COMMENTING_ON_NEW_POST = "commenting.on_new_post"
     COMMENTING_POST_COMMENT = "commenting.post_comment"
+    # Аккаунт-центричный мониторинг каналов (у каждого аккаунта свои каналы):
+    COMMENTING_RESOLVE_CHANNEL = "commenting.resolve_channel"
+    COMMENTING_LEAVE_CHANNEL = "commenting.leave_channel"
+    COMMENTING_ON_CHANNEL_POST = "commenting.on_channel_post"
+    COMMENTING_POST_CHANNEL_COMMENT = "commenting.post_channel_comment"
 
 
 class QueueName(str, Enum):

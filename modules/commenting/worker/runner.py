@@ -26,12 +26,16 @@ from modules.commenting.repositories import (
     CampaignAccountRepository,
     CampaignRepository,
     CommentLogRepository,
+    MonitoredChannelRepository,
 )
 from modules.commenting.schemas import CommentLogCreate
+import structlog
+
 from worker.client_pool import ClientPool
 from worker.health import Governor, around_telethon_call
 from worker.llm import Message, StyleRandomizer, get_provider
-from worker.tasks.logging import get_logger
+
+get_logger = structlog.get_logger
 
 # --- параметры (§5) ----------------------------------------------------------
 MIN_ACCOUNTS_PER_POST = 2
@@ -307,5 +311,196 @@ async def maybe_continue_thread(
         campaign_id=campaign_id,
         in_reply_to=comment_msg_id,
         next_depth=thread_depth + 1,
+    )
+    return True
+
+
+# --- аккаунт-центричный мониторинг (у каждого аккаунта свои каналы) -----------
+#
+# Отличие от campaign-центричного on_new_post: пост в отслеживаемом канале
+# комментирует ИМЕННО тот аккаунт, у которого этот канал в работе (эффект
+# «сообщества» возникает, когда один канал мониторят несколько аккаунтов — у
+# каждого свой слушатель и свой коммент). Discussion-группа берётся из строки
+# MonitoredChannel, а не из кампании.
+#
+# Задел на будущее: on_channel_post уже получает discussion_group_id и id поста,
+# поэтому будущая задача «ответить на чужой (человеческий) коммент под постом»
+# сможет читать ветку этой же группы и отвечать по теме поста + теме коммента
+# (см. параметр in_reply_to, который прокидывается насквозь в post_channel_comment).
+
+
+def _account_campaign(session, account_id: int):
+    """Кампания аккаунта (через CampaignAccount) или (None, None)."""
+    link = CampaignAccountRepository(session).get_by_account(account_id)
+    if link is None:
+        return None, None
+    return link.campaign_id, CampaignRepository(session).get(link.campaign_id)
+
+
+async def on_channel_post(
+    ctx: dict,
+    account_id: int,
+    monitored_channel_id: int,
+    channel_msg_id: int,
+    in_reply_to: Optional[int] = None,
+    thread_depth: int = 0,
+) -> int:
+    """Пост в канале аккаунта → запланировать ОДИН коммент этим аккаунтом."""
+    now = _now(ctx)
+    rng = _rng(ctx)
+    session_factory = ctx["session_factory"]
+    task_queue = _task_queue(ctx)
+    log = get_logger()
+
+    with session_factory() as session:
+        account = AccountRepository(session).get(account_id)
+        if account is None or account.status != "assigned":
+            log.info("commenting.on_channel_post.skip", account_id=account_id, reason="not_assigned")
+            return 0
+        campaign_id, campaign = _account_campaign(session, account_id)
+        if campaign is None or not campaign.enabled:
+            log.info("commenting.on_channel_post.skip", account_id=account_id, reason="no_campaign")
+            return 0
+        if not is_within_active_hours(now, campaign):
+            log.info("commenting.on_channel_post.skip", account_id=account_id, reason="inactive_hours")
+            return 0
+
+        ch = MonitoredChannelRepository(session).get(monitored_channel_id)
+        if ch is None or ch.status != "working" or ch.discussion_group_id is None:
+            log.info("commenting.on_channel_post.skip", account_id=account_id, reason="channel_not_working")
+            return 0
+        discussion_group_id = ch.discussion_group_id
+
+        reply_target = in_reply_to if in_reply_to is not None else channel_msg_id
+        provider = ctx.get("llm_provider") or get_provider(campaign.llm_provider)
+        style = _style(ctx)
+        system = _build_system_prompt(session, campaign, account)
+        context = _thread_context(session, campaign_id, channel_msg_id)
+        raw = await provider.generate(system, context)
+        text = style.randomize(raw, _persona_for(session, account))
+        delay = rng.uniform(campaign.posting_delay_min_sec, campaign.posting_delay_max_sec)
+
+    run_at = now + timedelta(seconds=delay)
+    await task_queue.schedule(
+        TaskName.COMMENTING_POST_CHANNEL_COMMENT,
+        run_at,
+        account_id,
+        campaign_id,
+        discussion_group_id,
+        text,
+        channel_msg_id,
+        reply_target,
+        thread_depth=thread_depth,
+    )
+    log.info(
+        "commenting.on_channel_post.scheduled",
+        account_id=account_id, channel_msg_id=channel_msg_id, thread_depth=thread_depth,
+    )
+    return 1
+
+
+async def post_channel_comment(
+    ctx: dict,
+    account_id: int,
+    campaign_id: int,
+    discussion_group_id: int,
+    text: str,
+    channel_msg_id: int,
+    in_reply_to_message_id: int,
+    thread_depth: int = 0,
+) -> Optional[int]:
+    """Постит коммент аккаунта в discussion-группу его канала (+ governor)."""
+    now = _now(ctx)
+    session_factory = ctx["session_factory"]
+    publisher = ctx.get("publisher")
+    task_queue = _task_queue(ctx)
+    log = get_logger()
+
+    if not await _governor(ctx).check_and_reserve(account_id, "comment"):
+        run_at = now + timedelta(minutes=GOVERNOR_RETRY_MINUTES)
+        await task_queue.schedule(
+            TaskName.COMMENTING_POST_CHANNEL_COMMENT,
+            run_at,
+            account_id,
+            campaign_id,
+            discussion_group_id,
+            text,
+            channel_msg_id,
+            in_reply_to_message_id,
+            thread_depth=thread_depth,
+        )
+        log.info("commenting.post_channel_comment.rate_limited", account_id=account_id)
+        return None
+
+    pool = _pool(ctx)
+    client = await pool.get(account_id)
+    try:
+        sent = await around_telethon_call(
+            lambda: client.send_message(
+                discussion_group_id, text, reply_to=in_reply_to_message_id
+            ),
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+            now=now,
+        )
+    finally:
+        await pool.release(account_id)
+
+    posted_message_id = getattr(sent, "id", None)
+    with session_factory() as session:
+        CommentLogRepository(session).create(
+            CommentLogCreate(
+                campaign_id=campaign_id,
+                account_id=account_id,
+                post_channel_msg_id=channel_msg_id,
+                comment_text=text,
+                status=CommentStatus.POSTED,
+                posted_message_id=posted_message_id,
+                in_reply_to_message_id=in_reply_to_message_id,
+            )
+        )
+        session.commit()
+
+    log.info(
+        "commenting.post_channel_comment.posted",
+        account_id=account_id, posted_message_id=posted_message_id, thread_depth=thread_depth,
+    )
+    await maybe_continue_channel_thread(
+        ctx, account_id, channel_msg_id, posted_message_id, thread_depth
+    )
+    return posted_message_id
+
+
+async def maybe_continue_channel_thread(
+    ctx: dict,
+    account_id: int,
+    channel_msg_id: int,
+    comment_msg_id: Optional[int],
+    thread_depth: int,
+) -> bool:
+    """Тред-симуляция для аккаунт-центричной ветки (ответ на свой же коммент)."""
+    if comment_msg_id is None or thread_depth >= MAX_THREAD_DEPTH:
+        return False
+    if _rng(ctx).random() >= THREAD_CONTINUE_PROB:
+        return False
+    # monitored_channel_id не нужен для повторного матчинга: on_channel_post
+    # сам возьмёт discussion-группу по working-каналу аккаунта; но здесь мы уже
+    # знаем discussion-группу — переиспользуем on_channel_post по каналу.
+    with ctx["session_factory"]() as session:
+        working = MonitoredChannelRepository(session).list_working_by_account(account_id)
+    if not working:
+        return False
+    await _task_queue(ctx).enqueue(
+        TaskName.COMMENTING_ON_CHANNEL_POST,
+        account_id,
+        working[0].id,
+        channel_msg_id,
+        in_reply_to=comment_msg_id,
+        thread_depth=thread_depth + 1,
+    )
+    get_logger().info(
+        "commenting.channel_thread.continue",
+        account_id=account_id, in_reply_to=comment_msg_id, next_depth=thread_depth + 1,
     )
     return True
