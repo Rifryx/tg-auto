@@ -3,6 +3,8 @@ import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { maskHost } from "../../shared/format";
+import { LimitBanner } from "../../shared/LimitBanner";
+import { useLimit } from "../../shared/limits";
 import type { Proxy, ProxyType } from "../../shared/types";
 import {
   CapsuleButton,
@@ -66,6 +68,8 @@ export function ProxiesScreen() {
   });
 
   const valid = host.trim() !== "" && Number(port) > 0;
+  const limit = useLimit("proxies_max");
+  const blocked = limit?.atLimit ?? false;
 
   return (
     <div className="pb-6 pt-1">
@@ -112,6 +116,7 @@ export function ProxiesScreen() {
       </Section>
 
       <Section title="Новый прокси">
+        <LimitBanner feature="proxies_max" />
         <div className="card p-4">
           <div className="flex gap-2">
             <div className="flex-[2]">
@@ -133,11 +138,18 @@ export function ProxiesScreen() {
             <TextInput value={geo} onChange={(e) => setGeo(e.target.value)} placeholder="DE" />
           </Field>
           <CapsuleButton
-            variant={valid ? "accent" : "secondary"}
-            disabled={!valid || create.isPending}
-            onClick={() => create.mutate()}
+            variant={!blocked && valid ? "accent" : "secondary"}
+            disabled={blocked || !valid || create.isPending}
+            onClick={() => {
+              if (blocked) return navigate("/billing");
+              create.mutate();
+            }}
           >
-            {create.isPending ? "Добавляем…" : "Добавить прокси"}
+            {blocked
+              ? "Лимит достигнут"
+              : create.isPending
+                ? "Добавляем…"
+                : "Добавить прокси"}
           </CapsuleButton>
         </div>
       </Section>

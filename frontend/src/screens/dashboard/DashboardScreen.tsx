@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
+import { TopBar } from "../../app/layout/TopBar";
 import { MONITORING_STREAM, useSse } from "../../shared/sse";
 import type { AccountStatus } from "../../shared/types";
 import { dashboardApi } from "./api";
@@ -18,7 +19,7 @@ const STAGES: AccountStatus[] = [
 
 export function DashboardScreen() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["dashboard"],
     queryFn: dashboardApi.get,
     refetchInterval: 30_000, // фолбэк-обновление
@@ -32,9 +33,27 @@ export function DashboardScreen() {
 
   return (
     <div className="min-h-full">
+      <TopBar />
       <h1 className="screen-title mb-6 mt-1">Обзор</h1>
 
       {isLoading && <DashboardSkeleton />}
+
+      {isError && !data && (
+        <div className="card p-5 text-[13.5px] leading-snug text-text-primary">
+          <p className="mb-1 font-semibold">Не удалось загрузить обзор</p>
+          <p className="mb-4 text-text-secondary">
+            {(error as Error | null)?.message ?? "Сервер API не отвечает."} Проверьте,
+            что backend поднят на <span className="nums">localhost:8000</span>.
+          </p>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            className="rounded-pill border border-hairline bg-surface-2 px-4 py-2 text-[13px] font-semibold text-text-primary active:opacity-80"
+          >
+            Повторить
+          </button>
+        </div>
+      )}
 
       {data && (
         <>
@@ -114,15 +133,17 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 function DashboardSkeleton() {
+  // На светлой теме surface-2 близок к bg — оборачиваем каждую плашку в
+  // «card» (hairline-обводка), чтобы скелетон был виден, а не сливался.
   return (
     <div className="flex flex-col gap-6">
       <div className="flex gap-3">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="h-24 w-[128px] shrink-0 animate-pulse rounded-card bg-surface-2" />
+          <div key={i} className="card h-24 w-[128px] shrink-0 animate-pulse" />
         ))}
       </div>
-      <div className="card h-28 animate-pulse bg-surface-2" />
-      <div className="card h-40 animate-pulse bg-surface-2" />
+      <div className="card h-28 animate-pulse" />
+      <div className="card h-40 animate-pulse" />
     </div>
   );
 }

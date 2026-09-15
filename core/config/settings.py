@@ -48,8 +48,23 @@ class Settings(BaseSettings):
     # --- Режим ---
     dev_mode: bool = False
 
+    # --- Telegram Bot (Mini App auth + чат-бот) ---
+    telegram_bot_token: Optional[str] = None
+
+    # --- Админы: CSV числовых Telegram user_id владельца/сотрудников.
+    # НИКОГДА не хранится в БД; только в ENV — чтобы SQL-инъекция или получение
+    # доступа к БД не давали admin-права. Сравнение делается по строке. ---
+    admin_user_ids: str = ""
+
     # --- CORS: origin Telegram Mini App (вне DEV_MODE). Несколько — через запятую. ---
     webapp_origin: Optional[str] = None
+
+    @property
+    def admin_ids(self) -> frozenset[str]:
+        """Множество Telegram user_id, у которых есть права админа."""
+        return frozenset(
+            x.strip() for x in self.admin_user_ids.split(",") if x.strip()
+        )
 
     @property
     def cors_allow_origins(self) -> list[str]:

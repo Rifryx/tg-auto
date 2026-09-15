@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check, Pencil, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { LimitBanner } from "../../shared/LimitBanner";
+import { useLimit } from "../../shared/limits";
 import type { Persona } from "../../shared/types";
 import {
   CapsuleButton,
@@ -44,28 +46,41 @@ export function PersonasScreen() {
     },
   });
 
+  const limit = useLimit("personas_max");
+  const blocked = limit?.atLimit ?? false;
+
   return (
     <div className="pb-6 pt-1">
       <BackHeader title="Персоны" onBack={() => navigate("/more")} />
 
       <Section title="Новая персона">
+        <LimitBanner feature="personas_max" />
         <div className="card p-4">
           <Field label="Имя">
-            <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Алекс" />
+            <TextInput
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Алекс"
+              disabled={blocked}
+            />
           </Field>
           <Field label="Теги (через запятую)">
             <TextInput
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               placeholder="дружелюбный, ироничный"
+              disabled={blocked}
             />
           </Field>
           <CapsuleButton
-            variant={name.trim() ? "accent" : "secondary"}
-            disabled={!name.trim() || create.isPending}
-            onClick={() => create.mutate()}
+            variant={!blocked && name.trim() ? "accent" : "secondary"}
+            disabled={blocked || !name.trim() || create.isPending}
+            onClick={() => {
+              if (blocked) return navigate("/billing");
+              create.mutate();
+            }}
           >
-            {create.isPending ? "Добавляем…" : "Добавить"}
+            {blocked ? "Лимит достигнут" : create.isPending ? "Добавляем…" : "Добавить"}
           </CapsuleButton>
         </div>
       </Section>

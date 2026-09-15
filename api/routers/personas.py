@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
+from api.deps.limits import enforce_limit
 from core.repositories.persona import PersonaRepository
 from core.schemas.persona import PersonaCreate, PersonaRead, PersonaUpdate
 
@@ -31,7 +32,9 @@ def get_persona(persona_id: int, session: Session = Depends(get_session)) -> Per
 
 @router.post("", response_model=PersonaRead, status_code=status.HTTP_201_CREATED)
 def create_persona(
-    body: PersonaCreate, session: Session = Depends(get_session)
+    body: PersonaCreate,
+    session: Session = Depends(get_session),
+    _limit: None = Depends(enforce_limit("personas_max")),
 ) -> PersonaRead:
     persona = PersonaRepository(session).create(body)
     session.commit()

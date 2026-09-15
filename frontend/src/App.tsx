@@ -13,6 +13,8 @@ import { SettingsScreen } from "./screens/more/SettingsScreen";
 import { CampaignDetailScreen } from "./modules/commenting/CampaignDetailScreen";
 import { CampaignsScreen } from "./modules/commenting/CampaignsScreen";
 import { NewCampaignScreen } from "./modules/commenting/NewCampaignScreen";
+import { AdminScreen } from "./screens/admin/AdminScreen";
+import { BillingScreen } from "./screens/billing/BillingScreen";
 
 export function App() {
   return (
@@ -33,6 +35,8 @@ export function App() {
         <Route path="/more/audit" element={<AuditScreen />} />
         <Route path="/more/settings" element={<SettingsScreen />} />
         <Route path="/more/about" element={<AboutScreen />} />
+        <Route path="/billing" element={<BillingScreen />} />
+        <Route path="/admin" element={<AdminScreen />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppLayout>

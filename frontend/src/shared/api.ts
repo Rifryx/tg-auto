@@ -15,13 +15,15 @@ const BASE_URL = (import.meta.env.VITE_API_BASE ?? "http://localhost:8000").repl
 );
 
 export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
+  /** Разобранное тело `detail` из FastAPI, если оно объект (напр. 402 limit-exceeded). */
+  public detail: unknown;
+  constructor(status: number, message: string, detail?: unknown) {
     super(message);
+    this.status = status;
+    this.detail = detail;
     this.name = "ApiError";
   }
+  public status: number;
 }
 
 function authHeaders(): Record<string, string> {
@@ -53,14 +55,21 @@ export async function apiFetch<T = unknown>(
   });
 
   if (!res.ok) {
-    let detail = res.statusText;
+    let message = res.statusText;
+    let detail: unknown = undefined;
     try {
-      const body = (await res.json()) as { detail?: string; error?: string };
-      detail = body.detail ?? body.error ?? detail;
+      const body = (await res.json()) as { detail?: unknown; error?: string };
+      detail = body.detail ?? body.error;
+      if (typeof detail === "string") message = detail;
+      else if (detail && typeof detail === "object") {
+        // Структурный detail (напр. 402 {reason,feature,limit,...}) — держим
+        // читаемый message для логов, а объект — в поле detail.
+        message = JSON.stringify(detail);
+      }
     } catch {
       /* тело не JSON — оставляем statusText */
     }
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, message, detail);
   }
 
   if (res.status === 204) return undefined as T;

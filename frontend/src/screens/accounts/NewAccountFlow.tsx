@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { accountsApi, catalogApi } from "../../shared/accounts";
 import { subscribeStream } from "../../shared/api";
+import { useLimit } from "../../shared/limits";
 import { Select } from "../../shared/Select";
 import { haptic } from "../../shared/tg";
 import type { LoginState, Proxy, WarmingProfile } from "../../shared/types";
@@ -20,6 +21,11 @@ const INPUT =
    бэкендом автоматически; состояние логина приходит по SSE. */
 export function NewAccountFlow() {
   const navigate = useNavigate();
+  // Гард против прямого захода на /accounts/new при исчерпанном лимите.
+  const limit = useLimit("accounts_max");
+  useEffect(() => {
+    if (limit?.atLimit) navigate("/billing", { replace: true });
+  }, [limit?.atLimit, navigate]);
   const [method, setMethod] = useState<"code" | "session">("code");
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
+from api.deps.limits import enforce_limit
 from api.deps.queue import get_task_queue
 from core.crypto import encrypt_password
 from core.enums import ProxyStatus, ProxyType
@@ -56,7 +57,9 @@ def get_proxy(proxy_id: int, session: Session = Depends(get_session)) -> ProxyRe
 
 @router.post("", response_model=ProxyRead, status_code=status.HTTP_201_CREATED)
 def create_proxy(
-    body: ProxyCreateRequest, session: Session = Depends(get_session)
+    body: ProxyCreateRequest,
+    session: Session = Depends(get_session),
+    _limit: None = Depends(enforce_limit("proxies_max")),
 ) -> ProxyRead:
     pwd_enc = encrypt_password(body.password.encode()) if body.password else None
     create = ProxyCreate(

@@ -1,8 +1,9 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { accountsApi, catalogApi } from "../../shared/accounts";
+import { useLimit } from "../../shared/limits";
 import { Select } from "../../shared/Select";
 import { haptic } from "../../shared/tg";
 import { commentingApi } from "./api";
@@ -47,6 +48,10 @@ const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
 
 export function NewCampaignScreen() {
   const navigate = useNavigate();
+  const limit = useLimit("campaigns_active_max");
+  useEffect(() => {
+    if (limit?.atLimit) navigate("/billing", { replace: true });
+  }, [limit?.atLimit, navigate]);
   const [name, setName] = useState("");
   const [llm, setLlm] = useState<LLMProvider>("deepseek");
   const [prompt, setPrompt] = useState("");

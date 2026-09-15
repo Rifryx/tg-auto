@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
+from api.deps.limits import enforce_limit
 from api.deps.queue import get_publisher, get_task_queue
 from api.services import accounts as accounts_service
 from core.enums import AccountStatus, Initiator, WarmingProfile
@@ -100,6 +101,7 @@ async def create_account(
     body: AccountCreateRequest,
     session: Session = Depends(get_session),
     task_queue: TaskQueue = Depends(get_task_queue),
+    _limit: None = Depends(enforce_limit("accounts_max")),
 ) -> AccountRead:
     try:
         account = accounts_service.create_account(
@@ -127,6 +129,7 @@ async def import_session_account(
     session_string: Optional[str] = Form(None),
     session_file: Optional[UploadFile] = File(None),
     session: Session = Depends(get_session),
+    _limit: None = Depends(enforce_limit("accounts_max")),
 ) -> AccountRead:
     """Импорт аккаунта из готовой сессии: StringSession-строкой или .session-файлом.
 

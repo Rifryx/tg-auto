@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
+from api.deps.limits import enforce_limit
 from api.deps.queue import get_publisher
 from core.enums import CommentStatus
 from core.queue.publisher import Publisher
@@ -66,7 +67,9 @@ def get_campaign(campaign_id: int, session: Session = Depends(get_session)) -> C
 
 @router.post("/campaigns", response_model=CampaignRead, status_code=status.HTTP_201_CREATED)
 def create_campaign(
-    body: CampaignCreate, session: Session = Depends(get_session)
+    body: CampaignCreate,
+    session: Session = Depends(get_session),
+    _limit: None = Depends(enforce_limit("campaigns_active_max")),
 ) -> CampaignRead:
     campaign = CampaignRepository(session).create(body)
     session.commit()

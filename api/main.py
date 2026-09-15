@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from api.routers import accounts, login, monitoring, personas, proxies
+from api.routers import accounts, admin, billing, login, monitoring, personas, proxies
 from modules.commenting.api import router as commenting_router
 from modules.commenting.api.channels import router as channels_router
 
@@ -34,5 +34,7 @@ app.include_router(login.router)
 app.include_router(monitoring.router)
 app.include_router(proxies.router)
 app.include_router(personas.router)
+app.include_router(billing.router)
+app.include_router(admin.router)
 app.include_router(commenting_router)
 app.include_router(channels_router)

@@ -1,6 +1,10 @@
+import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { PlanBadge } from "../../shared/PlanBadge";
 import { PROFILE_LABEL } from "../../shared/status";
+import { useCurrentPlan } from "../../shared/store";
+import { hapticSelection } from "../../shared/tg";
 import type { WarmingProfile } from "../../shared/types";
 import { Field, Section, SegmentedControl, TextInput } from "../../modules/commenting/components/ui";
 import { BackHeader } from "./PersonasScreen";
@@ -38,9 +42,35 @@ export function SettingsScreen() {
   const [start, setStart] = useLocalSetting<string>("default_hours_start", "09:00");
   const [end, setEnd] = useLocalSetting<string>("default_hours_end", "23:00");
 
+  const plan = useCurrentPlan();
+
   return (
     <div className="pb-6 pt-1">
       <BackHeader title="Настройки" onBack={() => navigate("/more")} />
+
+      <Section title="Тариф">
+        <button
+          type="button"
+          onClick={() => {
+            hapticSelection();
+            navigate("/billing");
+          }}
+          className="card flex w-full items-center gap-3 px-4 py-3.5 text-left active:bg-surface-2"
+        >
+          <PlanBadge size="md" />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <span className="text-[15px] font-semibold text-text-primary">
+              {plan.id === "pro" ? "Pro активна" : "План Free"}
+            </span>
+            <span className="text-[12px] text-text-tertiary">
+              {plan.id === "pro"
+                ? "Весь функционал без ограничений"
+                : "Перейти на Pro, чтобы снять лимиты"}
+            </span>
+          </div>
+          <ChevronRight className="h-4 w-4 text-text-tertiary" strokeWidth={1.8} aria-hidden />
+        </button>
+      </Section>
 
       <Section title="Прогрев по умолчанию">
         <div className="card p-4">

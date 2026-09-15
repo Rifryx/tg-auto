@@ -4,6 +4,10 @@ import os
 from pathlib import Path
 
 import pytest
+
+# Гейт лимитов (api/services/billing.py) отключён в тестах: один тест создаёт
+# несколько сущностей подряд под dev-user, а free-план даёт по 1 каждой.
+os.environ.setdefault("BILLING_BYPASS_LIMITS", "1")
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, text

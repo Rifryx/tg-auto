@@ -26,6 +26,8 @@ dependencies = [
     "gunicorn>=22.0",
     # Реальный SOCKS5-хендшейк в health.check_proxies (аудит #3).
     "python-socks>=2.4",
+    # Telegram-бот (чат-команды владельца сервиса, /admin26).
+    "aiogram>=3.13",
 ]
 
 [project.optional-dependencies]
@@ -43,7 +45,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 # Пакуем все рантайм-пакеты, иначе `pip install .` не поставит worker/api/modules
 # (и импорт worker.llm.* в чистом venv упадёт — аудит #6).
-include = ["core*", "api*", "worker*", "modules*"]
+include = ["core*", "api*", "worker*", "modules*", "bot*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

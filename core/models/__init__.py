@@ -10,6 +10,7 @@ from core.models.commenting import (
 from core.models.health_event import HealthEvent
 from core.models.persona import Persona
 from core.models.proxy import Proxy
+from core.models.subscription import Subscription
 from core.models.warming_activity import WarmingActivity
 
 __all__ = [
@@ -24,5 +25,6 @@ __all__ = [
     "HealthEvent",
     "Persona",
     "Proxy",
+    "Subscription",
     "WarmingActivity",
 ]
