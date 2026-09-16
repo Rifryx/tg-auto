@@ -20,7 +20,16 @@ import redis.asyncio as aioredis
 from core.config import get_settings
 
 # Каналы, которые публикует воркер/state machine (промпт 23).
-MONITORING_CHANNELS = ("account_status", "health_alert", "warming_progress")
+# ``health.snapshot_updated`` (этап 4 УТП) везёт score после каждой пробы, чтобы
+# карточки аккаунтов и виджет at-risk обновлялись в mini-app без ручного refetch.
+MONITORING_CHANNELS = (
+    "account_status",
+    "health_alert",
+    "warming_progress",
+    "health.snapshot_updated",
+    # bulk-операции (этап 5 УТП): mini-app держит live-прогресс bulk-job'ов.
+    "bulk.progress",
+)
 
 
 class MonitoringEventHub:

@@ -23,10 +23,12 @@ from core.enums import (
     WarmingActivityKind,
     WarmingActivityStatus,
 )
-from core.models import HealthEvent, WarmingActivity
+from core.models import AccountHealth, HealthEvent, WarmingActivity
 from core.queue import TaskQueue
 from core.queue.task_names import TaskName
 from core.repositories.account import AccountRepository
+from core.repositories.account_health import AccountHealthRepository
+from core.repositories.persona import PersonaRepository
 from core.repositories.warming_activity import WarmingActivityRepository
 from core.schemas.warming import WarmingActivityCreate
 from core.state_machine import AccountEvent, AccountStateMachine
@@ -130,12 +132,28 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
             log.warning("warming.tick.no_account", account_id=account_id)
             return None
         status = account.status
+        persona = (
+            PersonaRepository(session).get(account.persona_id)
+            if account.persona_id is not None
+            else None
+        )
+        health = AccountHealthRepository(session).get(account_id)
+        health_score = health.health_score if health is not None else None
 
     if status not in _ACTIVE_WARMING_STATUSES:
         log.info("warming.tick.skipped", account_id=account_id, reason="status", status=status)
         return "skipped"
 
-    if not is_within_active_window(now):
+    # УТП: at-risk аккаунты (score=0 fatal) в прогреве бессмысленны и опасны —
+    # не запускаем tick вовсе.
+    if health_score is not None and health_score == 0:
+        log.info(
+            "warming.tick.skipped",
+            account_id=account_id, reason="unhealthy_zero", score=health_score,
+        )
+        return "skipped"
+
+    if not is_within_active_window(now, persona=persona):
         # Вне окна активности действие не выполняется и НЕ записывается (§3).
         log.info("warming.tick.skipped", account_id=account_id, reason="inactive_window")
         return "skipped"
@@ -145,7 +163,7 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
         if status == AccountStatus.WARMING.value
         else WarmingActivityKind.MAINTENANCE
     )
-    action_type = choose_action(rng)
+    action_type = choose_action(rng, persona, health_score=health_score)
 
     pool = _pool(ctx)
     client = await pool.get(account_id)
@@ -209,10 +227,13 @@ async def maintenance_scheduler_impl(ctx: dict, *args: Any, **kwargs: Any) -> li
     with session_factory() as session:
         accounts = AccountRepository(session).list_by_status(AccountStatus.POOL)
         wa_repo = WarmingActivityRepository(session)
+        h_repo = AccountHealthRepository(session)
         for account in accounts:
             recent = wa_repo.list_by_account(account.id, limit=1)
             last_at = recent[0].created_at if recent else None
-            interval = due_interval(account.warming_profile)
+            health = h_repo.get(account.id)
+            score = health.health_score if health is not None else None
+            interval = due_interval(account.warming_profile, health_score=score)
             if last_at is None or (now - last_at) >= interval:
                 due.append(account.id)
 

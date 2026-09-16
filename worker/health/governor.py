@@ -24,6 +24,9 @@ LIMITS: dict[str, tuple[tuple[str, int, int], ...]] = {
     "comment": (("hour", 20, _HOUR), ("day", 100, _DAY)),
     "warming": (("hour", 30, _HOUR), ("day", 200, _DAY)),
     "login": (("hour", 5, _HOUR),),
+    # health.check_account: не даём заспамить одну и ту же карточку — 6/час,
+    # 20/сутки достаточно и для ручного «Проверить», и для periodic-планировщика.
+    "health_check": (("hour", 6, _HOUR), ("day", 20, _DAY)),
 }
 
 

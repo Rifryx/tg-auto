@@ -106,3 +106,12 @@ class Account(Base, TimestampMixin):
     meta: Mapped[dict] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
+
+    # 2FA-пароль (шифруется тем же ``core.crypto.encrypt_password``, что и
+    # пароли прокси). Хранится, чтобы worker мог логиниться после установки
+    # и/или менять/снимать пароль bulk-операцией. Plaintext в БД не попадает
+    # ни на одном пути (bulk-job API шифрует до записи).
+    two_factor_password_enc: Mapped[Optional[bytes]] = mapped_column(
+        LargeBinary, nullable=True
+    )
+    two_factor_hint: Mapped[Optional[str]] = mapped_column(String, nullable=True)

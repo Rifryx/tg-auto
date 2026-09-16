@@ -200,7 +200,16 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     # Импорт роутеров здесь (не на уровне модуля): фабрику можно частично
     # переиспользовать/тестировать, не таща весь граф на импорте asgi.
-    from api.routers import accounts, admin, billing, login, monitoring, personas, proxies
+    from api.routers import (
+        accounts,
+        admin,
+        billing,
+        bulk_jobs,
+        login,
+        monitoring,
+        personas,
+        proxies,
+    )
     from modules.commenting.api import router as commenting_router
     from modules.commenting.api.channels import router as channels_router
 
@@ -224,6 +233,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(proxies.router)
     app.include_router(personas.router)
     app.include_router(billing.router)
+    app.include_router(bulk_jobs.router)
     app.include_router(admin.router)
     app.include_router(commenting_router)
     app.include_router(channels_router)

@@ -19,6 +19,11 @@ class TaskName(str, Enum):
     WARMING_MAINTENANCE_SCHEDULER = "warming.maintenance_scheduler"
     HEALTH_CHECK_PROXIES = "health.check_proxies"
     HEALTH_COOLDOWN_RETURN = "health.cooldown_return"
+    HEALTH_CHECK_ACCOUNT = "health.check_account"
+    HEALTH_CHECK_ACCOUNTS_PERIODIC = "health.check_accounts_periodic"
+    HEALTH_RECOMPUTE_SCORE = "health.recompute_score"
+    BULK_DISPATCH = "bulk.dispatch"
+    BULK_ITEM = "bulk.item"
     ACCOUNT_RETIRE = "account.retire"
     ACCOUNT_ACKNOWLEDGE_BAN = "account.acknowledge_ban"
 
