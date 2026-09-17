@@ -1,0 +1,61 @@
+/* Design tokens — ЕДИНСТВЕННЫЙ источник цвета (UI-DESIGN-BRIEF.md §2).
+   Компоненты не хардкодят hex: используют tailwind-классы (bg-surface-1,
+   text-secondary, border-hairline …), смэппенные на эти переменные.
+
+   Темы:
+   - :root — базовая (тёмная), поведение по умолчанию.
+   - [data-theme="dark"] — форс тёмной (для повторения при смене темы).
+   - [data-theme="light"] — светлая тема (переопределяет переменные). */
+:root,
+[data-theme="dark"] {
+  /* Фон */
+  --bg-base: #050505;        /* истинно чёрный, не #000 */
+  --bg-elevated: #0f0f11;    /* второй уровень — модалки, дровер */
+
+  /* Поверхности карточек */
+  --surface-1: #141416;      /* базовая карточка / капсула навбара */
+  --surface-2: #1c1c1f;      /* карточка внутри карточки / активная пилюля */
+  --surface-border: rgba(255, 255, 255, 0.07);        /* hairline вместо тени */
+  --surface-border-strong: rgba(255, 255, 255, 0.14);
+
+  /* Текст */
+  --text-primary: #f5f5f7;   /* тёплый почти-белый */
+  --text-secondary: #8e8e93; /* iOS system gray */
+  --text-tertiary: #636366;
+
+  /* Функциональные цвета — ТОЛЬКО статусы, нигде как декор */
+  --status-active: #34c759;   /* pool/assigned */
+  --status-warning: #ff9f0a;  /* warming/cooldown */
+  --status-critical: #ff453a; /* banned / health-алерт */
+  --status-neutral: #636366;  /* created/retired */
+
+  /* Единственный акцент — точечно: главная кнопка, активный таб */
+  --accent: #f5f5f7;         /* белый на чёрном (референсы 2, 6) */
+  --accent-on: #050505;      /* текст/иконка НА акцентной поверхности */
+}
+
+[data-theme="light"] {
+  /* Слоновая кость (ivory) — приглушённый тёплый крем, а не глянцевый белый.
+     Оттенок «состаренной бумаги», чтобы глаз не резало при долгой работе.
+     Карточки заметно светлее фона + чуть сильнее hairline — иначе на кремовом
+     фоне surface-1 сливается с bg-base и экран выглядит пустым. */
+  --bg-base: #ddd3ba;         /* холст — тёплая слоновая кость (чуть глубже) */
+  --bg-elevated: #f4ecd6;
+
+  --surface-1: #f4ecd6;       /* карточки — заметно светлее холста */
+  --surface-2: #e5dbc0;       /* вложенные капсулы/пилюли */
+  --surface-border: rgba(60, 44, 20, 0.22);
+  --surface-border-strong: rgba(60, 44, 20, 0.34);
+
+  --text-primary: #1e1c0d;    /* тёплый почти-чёрный */
+  --text-secondary: #4d4835;
+  --text-tertiary: #7a7259;   /* приглушённо, но читабельно на bg */
+
+  --status-active: #256b2f;
+  --status-warning: #8f5308;
+  --status-critical: #952720;
+  --status-neutral: #7a7259;
+
+  --accent: #1e1c0d;
+  --accent-on: #f4ecd6;
+}

@@ -1,26 +1,123 @@
+# Production-ready стек Neuro-Commenting.
+#   docker compose up -d            → postgres, redis, api, worker, frontend
+#   docker compose --profile test up -d   → добавит postgres_test/redis_test для pytest
+#
+# Миграции накатывает ТОЛЬКО api (deploy/entrypoint-api.sh). Воркер — один
+# инстанс (инвариант «один Telethon-пул на процесс», system-design.md §12):
+# не добавляй deploy.replicas > 1.
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: neuro_postgres
     environment:
-      POSTGRES_USER: neuro
-      POSTGRES_PASSWORD: neuro
-      POSTGRES_DB: neuro
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      # Хост-порт 5434, чтобы не конфликтовать с другим локальным Postgres на 5432.
-      # Внутри сети контейнеров порт остаётся 5432.
-      - "5434:5432"
+      - "5434:5432" # хост-порт для локального доступа/тестов (в сети — 5432)
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U neuro"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 3s
       timeout: 3s
       retries: 20
+    restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    container_name: neuro_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: neuro_api
+    env_file: .env
+    environment:
+      # Внутри compose-сети сервисы адресуются по имени.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # /health учитывает lifespan-проверки коннектов (промпт 21).
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=3).status==200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 45s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: neuro_worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      # Воркер зависит от БД и Redis напрямую, НЕ от api (нет циклического ожидания).
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import os,redis; redis.Redis.from_url(os.environ['REDIS_URL']).ping()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: neuro_frontend
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "3000:80"
+    healthcheck:
+      # 127.0.0.1 (не localhost): nginx слушает IPv4, а busybox wget идёт в ::1.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  # --- Тестовая инфраструктура (только для pytest; не стартует по умолчанию) ---
   postgres_test:
     image: postgres:16-alpine
-    container_name: neuro_postgres_test
+    profiles: ["test"]
     environment:
       POSTGRES_USER: neuro
       POSTGRES_PASSWORD: neuro
@@ -35,22 +132,9 @@ services:
       timeout: 3s
       retries: 20
 
-  redis:
-    image: redis:7-alpine
-    container_name: neuro_redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 3s
-      timeout: 3s
-      retries: 20
-
   redis_test:
     image: redis:7-alpine
-    container_name: neuro_redis_test
+    profiles: ["test"]
     ports:
       - "6380:6379"
     tmpfs:

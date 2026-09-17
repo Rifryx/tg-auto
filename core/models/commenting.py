@@ -6,6 +6,11 @@
 существующих импортов.
 """
 
-from modules.commenting.models import Campaign, CampaignAccount, CommentLog
+from modules.commenting.models import (
+    Campaign,
+    CampaignAccount,
+    CommentLog,
+    MonitoredChannel,
+)
 
-__all__ = ["Campaign", "CampaignAccount", "CommentLog"]
+__all__ = ["Campaign", "CampaignAccount", "CommentLog", "MonitoredChannel"]

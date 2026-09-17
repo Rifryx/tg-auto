@@ -7,7 +7,10 @@ Telethon обёрнуты в try/except (см. :func:`worker.warming.actions.bas
 
 from __future__ import annotations
 
-from core.enums import WarmingActionType
+from datetime import datetime
+from typing import Any, Callable, Optional
+
+from core.enums import WarmingActionType, WarmingActivityStatus
 from core.models import Account
 from worker.warming.actions import (
     idle_online,
@@ -30,12 +33,43 @@ ACTIONS = {
     WarmingActionType.UPDATE_PROFILE: update_profile.execute,
 }
 
+# action_type для лимитера прогрева (см. worker/health/governor.py::LIMITS).
+_WARMING_ACTION = "warming"
+
 
 async def execute_action(
-    action_type: WarmingActionType, client, account: Account
+    action_type: WarmingActionType,
+    client,
+    account: Account,
+    *,
+    governor: Any = None,
+    session_factory: Optional[Callable[[], Any]] = None,
+    publisher: Any = None,
+    now: Optional[datetime] = None,
 ) -> WarmingActionResult:
-    """Выполняет действие данного типа над клиентом аккаунта."""
-    return await ACTIONS[action_type](client, account)
+    """Выполняет действие данного типа над клиентом аккаунта.
+
+    Перед реальным вызовом — резерв слота в governor (лимит ``warming``): если
+    исчерпан, действие НЕ выполняется и возвращается ``status=skipped``
+    (``reason=rate_limited``) — это не ошибка прогрева, клиент не трогается
+    (аудит #7). Сам вызов Telethon внутри действия обёрнут в
+    ``around_telethon_call`` (health-события, аудит #8).
+    """
+    if governor is not None and not await governor.check_and_reserve(
+        account.id, _WARMING_ACTION
+    ):
+        return WarmingActionResult(
+            action_type,
+            WarmingActivityStatus.SKIPPED,
+            meta={"reason": "rate_limited"},
+        )
+    return await ACTIONS[action_type](
+        client,
+        account,
+        session_factory=session_factory,
+        publisher=publisher,
+        now=now,
+    )
 
 
 __all__ = ["ACTIONS", "WarmingActionResult", "execute_action"]

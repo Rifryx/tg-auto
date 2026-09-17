@@ -1,20 +1,23 @@
 """Авторизация Telegram Mini App по ``initData`` (PROJECT-STAGES §6, §10).
 
-Валидация подписи ``initData`` идёт по алгоритму Telegram WebApp: секрет —
-``HMAC_SHA256("WebAppData", bot_token)``, затем сверяется ``HMAC_SHA256(secret,
-data_check_string)`` с полем ``hash``. Bot-token берётся из окружения
-(``TELEGRAM_BOT_TOKEN``) — это конфиг именно API-слоя, в core он не заводится.
+Единственный доверенный источник ``user_id`` — поле ``user`` из initData,
+подписанного секретом бота (``HMAC_SHA256("WebAppData", bot_token)``).
+Клиент не может подменить user_id: любая правка ломает подпись.
 
-В ``DEV_MODE`` (из ``core.config``) проверка отключается: пропускаем всё,
-идентификатор пользователя берём из заголовка ``X-Dev-User`` (заглушка для
-локальной разработки без реального Telegram).
+Возвращаемое значение — строковое числовое ``id`` Telegram-пользователя
+(например ``"12345678"``). Именно оно используется как PK подписок и для
+проверки админ-прав. Никогда не принимаем user_id из заголовка/тела запроса.
+
+В ``DEV_MODE`` (из ``core.config``) подпись не проверяется, id берётся из
+``X-Dev-User`` — так удобно тестировать локально без Mini App. **DEV_MODE
+запрещено включать в проде**: он превращает недоверенный заголовок в личность.
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
-import os
+import json
 from typing import Optional
 from urllib.parse import parse_qsl
 
@@ -45,12 +48,30 @@ def _parse_and_verify(init_data: str, bot_token: str) -> Optional[dict[str, str]
     return pairs
 
 
+def _extract_user_id(fields: dict[str, str]) -> Optional[str]:
+    """Достаёт числовой id из JSON-поля ``user``. Возвращает str или None."""
+    raw = fields.get("user")
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    uid = payload.get("id") if isinstance(payload, dict) else None
+    if not isinstance(uid, (int, str)):
+        return None
+    return str(uid)
+
+
 async def require_user(
     x_telegram_init_data: Optional[str] = Header(default=None, alias=_INIT_DATA_HEADER),
     x_dev_user: Optional[str] = Header(default=None, alias=_DEV_USER_HEADER),
 ) -> str:
-    """Возвращает идентификатор пользователя Mini App или бросает 401."""
-    if get_settings().dev_mode:
+    """Возвращает Telegram user_id из подписанного initData или бросает 401."""
+    settings = get_settings()
+
+    if settings.dev_mode:
+        # DEV_MODE=true в проде — критическая уязвимость. Никогда не включать.
         return x_dev_user or "dev-user"
 
     if not x_telegram_init_data:
@@ -58,7 +79,7 @@ async def require_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing Telegram initData",
         )
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    bot_token = settings.telegram_bot_token
     if not bot_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -70,4 +91,10 @@ async def require_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Telegram initData",
         )
-    return fields.get("user", "")
+    user_id = _extract_user_id(fields)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="initData missing user id",
+        )
+    return user_id

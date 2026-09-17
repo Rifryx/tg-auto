@@ -9,7 +9,9 @@ from core.schemas.base import ORMModel
 
 class CampaignCreate(BaseModel):
     name: str
-    target_channel: str
+    # Легаси: каналы теперь живут на аккаунтах, кампания — просто папка. Поле
+    # оставлено опциональным для обратной совместимости старого слушателя.
+    target_channel: Optional[str] = None
     base_system_prompt: str
     llm_provider: LLMProvider
     active_hours_start: time
@@ -18,6 +20,7 @@ class CampaignCreate(BaseModel):
     posting_delay_min_sec: int
     posting_delay_max_sec: int
     discussion_group_id: Optional[int] = None
+    persona_id: Optional[int] = None
     enabled: bool = True
 
 
@@ -32,15 +35,17 @@ class CampaignUpdate(BaseModel):
     posting_delay_min_sec: Optional[int] = None
     posting_delay_max_sec: Optional[int] = None
     discussion_group_id: Optional[int] = None
+    persona_id: Optional[int] = None
     enabled: Optional[bool] = None
 
 
 class CampaignRead(ORMModel):
     id: int
     name: str
-    target_channel: str
+    target_channel: Optional[str]
     discussion_group_id: Optional[int]
     base_system_prompt: str
+    persona_id: Optional[int]
     llm_provider: LLMProvider
     active_hours_start: time
     active_hours_end: time

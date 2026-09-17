@@ -83,3 +83,78 @@ def update_account(session: Session, account_id: int, data: AccountUpdate) -> Op
     if account is not None:
         session.commit()
     return account
+
+
+class SessionImportError(Exception):
+    """Не удалось разобрать переданную сессию (строка/файл повреждены)."""
+
+
+def session_file_to_string(file_bytes: bytes) -> str:
+    """Конвертирует Telethon ``.session`` (SQLite) в StringSession — офлайн,
+    без сети и api_id (читаем auth_key/dc локально)."""
+    import os
+    import tempfile
+
+    from telethon.sessions import SQLiteSession, StringSession
+
+    with tempfile.TemporaryDirectory() as d:
+        base = os.path.join(d, "import")
+        with open(base + ".session", "wb") as f:
+            f.write(file_bytes)
+        sqlite = SQLiteSession(base)
+        try:
+            if sqlite.auth_key is None:
+                raise SessionImportError("session-файл без auth_key (не авторизован)")
+            return StringSession.save(sqlite)
+        finally:
+            sqlite.close()
+
+
+def import_account_from_session(
+    session: Session,
+    *,
+    phone: str,
+    proxy_id: int,
+    persona_id: Optional[int],
+    warming_profile: WarmingProfile,
+    session_string: str,
+) -> Account:
+    """Создаёт аккаунт из готовой (авторизованной) StringSession.
+
+    Сессия шифруется (``session_enc``); аккаунт сразу попадает в пул — логин по
+    коду не нужен. Валидность сессии проверит воркер при первом использовании."""
+    proxy = ProxyRepository(session).get(proxy_id)
+    if proxy is None:
+        raise ProxyNotFoundError(f"proxy {proxy_id} not found")
+
+    accounts = AccountRepository(session)
+    fingerprint = FingerprintGenerator(accounts).generate(proxy.geo)
+    account = accounts.create(
+        AccountCreate(
+            phone=phone,
+            session_enc=encrypt_session(session_string.encode()),
+            proxy_id=proxy_id,
+            persona_id=persona_id,
+            warming_profile=warming_profile,
+            device_model=fingerprint.device_model,
+            system_version=fingerprint.system_version,
+            app_version=fingerprint.app_version,
+            lang_code=fingerprint.lang_code,
+            system_lang_code=fingerprint.system_lang_code,
+        )
+    )
+    # Импортированная сессия уже авторизована → начальный статус «в пуле».
+    account.status = AccountStatus.POOL.value
+    session.commit()
+    return account
+
+
+def delete_account(session: Session, account_id: int) -> bool:
+    """Полностью удаляет аккаунт. Зависимые строки (история, health, прогрев,
+    каналы, привязка к кампании, логи) снимаются через ON DELETE CASCADE."""
+    account = AccountRepository(session).get(account_id)
+    if account is None:
+        return False
+    session.delete(account)
+    session.commit()
+    return True

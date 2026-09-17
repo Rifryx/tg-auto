@@ -14,6 +14,22 @@ dependencies = [
     "structlog>=24.1",
     "telethon>=1.36",
     "fastapi>=0.115",
+    # HTTP-клиент DeepSeek-адаптера (worker/llm/deepseek.py) — рантайм, не dev.
+    "httpx>=0.27",
+    # Gemini-адаптер (worker/llm/gemini.py, ленивый импорт google.generativeai).
+    "google-generativeai>=0.8",
+    # Redis: используется напрямую (api/services/*, api/routers/monitoring.py,
+    # pub/sub). Объявляем явно, не полагаясь на транзитив через arq.
+    "redis>=5.0",
+    # ASGI-сервер(ы) для прод-запуска api.asgi:app.
+    "uvicorn[standard]>=0.30",
+    "gunicorn>=22.0",
+    # Обработка form-данных в FastAPI (требуется для File/Form параметров).
+    "python-multipart>=0.0.6",
+    # Реальный SOCKS5-хендшейк в health.check_proxies (аудит #3).
+    "python-socks>=2.4",
+    # Telegram-бот (чат-команды владельца сервиса, /admin26).
+    "aiogram>=3.13",
 ]
 
 [project.optional-dependencies]
@@ -22,7 +38,6 @@ dev = [
     "pytest-postgresql>=6.1.1",
     "fakeredis>=2.20",
     "pytest-asyncio>=0.23",
-    "httpx>=0.27",
 ]
 
 [build-system]
@@ -30,7 +45,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["core*"]
+# Пакуем все рантайм-пакеты, иначе `pip install .` не поставит worker/api/modules
+# (и импорт worker.llm.* в чистом venv упадёт — аудит #6).
+include = ["core*", "api*", "worker*", "modules*", "bot*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

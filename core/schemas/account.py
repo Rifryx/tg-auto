@@ -16,6 +16,8 @@ class AccountCreate(BaseModel):
     app_version: str
     lang_code: str
     system_lang_code: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     username: Optional[str] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
@@ -29,6 +31,8 @@ class AccountUpdate(BaseModel):
     не входят — статус меняется только через AccountStateMachine (инвариант §0.5)."""
 
     phone: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     username: Optional[str] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
@@ -47,6 +51,8 @@ class AccountUpdate(BaseModel):
 class AccountRead(ORMModel):
     id: int
     phone: str
+    first_name: Optional[str]
+    last_name: Optional[str]
     username: Optional[str]
     bio: Optional[str]
     avatar_url: Optional[str]

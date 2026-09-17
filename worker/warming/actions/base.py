@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Awaitable, Callable, Optional, Union
 
 from core.enums import WarmingActionType, WarmingActivityStatus
@@ -30,14 +31,40 @@ _ActionBody = Callable[..., Awaitable[Union[str, None]]]
 def action(action_type: WarmingActionType) -> Callable[[_ActionBody], _ActionBody]:
     """Оборачивает тело действия: успех → done, любое исключение → failed.
 
-    Ни одно сетевое исключение Telethon не пробрасывается наружу — действие
-    прогрева не должно ронять tick; неуспех фиксируется как ``status=failed``.
+    Тело действия выполняется через :func:`around_telethon_call` — health-ошибки
+    Telethon (бан/spam/session_revoked) фиксируются как ``HealthEvent`` и (где
+    применимо) переводят аккаунт через state machine, ПОСЛЕ чего исключение
+    пробрасывается и ловится тут же → ``status=failed``. Таким образом ни одно
+    сетевое исключение не роняет tick, но health-события больше не теряются
+    (аудит #8). ``session_factory``/``publisher``/``now`` приходят из ctx tick'а.
     """
 
     def decorator(body: _ActionBody):
-        async def execute(client, account: Account) -> WarmingActionResult:
+        async def execute(
+            client,
+            account: Account,
+            *,
+            session_factory: Optional[Callable[[], Any]] = None,
+            publisher: Any = None,
+            now: Optional[datetime] = None,
+        ) -> WarmingActionResult:
+            # Ленивый импорт: worker.health → worker.tasks.logging, а обратная
+            # дуга (login/warming → worker.health) должна оставаться ленивой,
+            # иначе цикл при импорте worker.health раньше worker.tasks.
+            from worker.health import around_telethon_call
+
             try:
-                target = await body(client, account)
+                if session_factory is None:
+                    # Без ctx (напр. прямой вызов в старых тестах) — без health-обёртки.
+                    target = await body(client, account)
+                else:
+                    target = await around_telethon_call(
+                        lambda: body(client, account),
+                        account_id=account.id,
+                        session_factory=session_factory,
+                        publisher=publisher,
+                        now=now,
+                    )
                 return WarmingActionResult(
                     action_type, WarmingActivityStatus.DONE, target=target
                 )

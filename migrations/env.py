@@ -13,9 +13,26 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# Приоритет URL БД:
+#   1) DATABASE_URL из окружения — явный override;
+#   2) sqlalchemy.url, если его ЯВНО задали в конфиге (напр. тестовый conftest);
+#   3) иначе (в alembic.ini лежит дефолт-заглушка) — из конфигурации приложения
+#      (core.config читает .env), чтобы bare `alembic upgrade head` ходил в ту же
+#      БД, что API/воркер, а не в localhost:5432 из alembic.ini.
+_INI_DEFAULT_URL = "postgresql+psycopg://neuro:neuro@localhost:5432/neuro"
+
 db_url_env = os.getenv("DATABASE_URL")
 if db_url_env:
     config.set_main_option("sqlalchemy.url", db_url_env)
+else:
+    current = config.get_main_option("sqlalchemy.url")
+    if not current or current == _INI_DEFAULT_URL:
+        try:
+            from core.config import get_settings
+
+            config.set_main_option("sqlalchemy.url", get_settings().database_url)
+        except Exception:  # noqa: BLE001 - падать на резолве URL нельзя, оставим ini
+            pass
 
 target_metadata = Base.metadata
 

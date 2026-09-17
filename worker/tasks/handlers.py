@@ -26,15 +26,35 @@ from worker.login import (
     login_password_impl,
     login_start_impl,
 )
-from worker.tasks.commenting import on_new_post_impl, post_comment_impl
+from worker.tasks.commenting import (
+    leave_channel_impl,
+    on_channel_post_impl,
+    on_new_post_impl,
+    post_channel_comment_impl,
+    post_comment_impl,
+    resolve_channel_impl,
+)
+from worker.tasks.bulk import dispatch_impl as bulk_dispatch_impl, item_impl as bulk_item_impl
 from worker.tasks.dispatch import task
-from worker.tasks.health import check_proxies_impl
+from worker.tasks.health import (
+    check_account_impl,
+    check_accounts_periodic_impl,
+    check_proxies_impl,
+    recompute_score_impl,
+)
+from worker.tasks.predictor import (
+    predict_ban_risk_batch_impl,
+    predict_ban_risk_impl,
+)
 from worker.tasks.logging import get_logger
-from worker.tasks.warming import maintenance_scheduler_impl, warming_tick_impl
+from worker.tasks.warming import (
+    initial_start_impl,
+    maintenance_scheduler_impl,
+    warming_tick_impl,
+)
 
 # Задачи, которые пока заглушки (реальная реализация — на своих этапах).
 _STUB_TASKS = [
-    TaskName.ACCOUNT_START_WARMING,
     TaskName.ACCOUNT_RETIRE,
     TaskName.ACCOUNT_ACKNOWLEDGE_BAN,
 ]
@@ -72,13 +92,41 @@ maintenance_scheduler = task(TaskName.WARMING_MAINTENANCE_SCHEDULER.value)(
     maintenance_scheduler_impl
 )
 warming_tick = task(TaskName.WARMING_TICK.value)(warming_tick_impl)
+# Стартер первичного прогрева: enqueue'ится напрямую из login/flow.py::_finish_login
+# сразу после перехода created → warming (промежуточная задача-обёртка удалена
+# как лишний слой индирекции — прямой enqueue надёжнее).
+warming_initial_start = task(TaskName.WARMING_INITIAL_START.value)(initial_start_impl)
 
 # Health (§5.3): проверка прокси — cron каждые 10 минут.
 check_proxies = task(TaskName.HEALTH_CHECK_PROXIES.value)(check_proxies_impl)
+# Health (§5.3, этап 4): активные пробы аккаунтов + периодический планировщик.
+check_account = task(TaskName.HEALTH_CHECK_ACCOUNT.value)(check_account_impl)
+check_accounts_periodic = task(TaskName.HEALTH_CHECK_ACCOUNTS_PERIODIC.value)(
+    check_accounts_periodic_impl
+)
+recompute_score = task(TaskName.HEALTH_RECOMPUTE_SCORE.value)(recompute_score_impl)
+
+# Anti-Ban Predictor (этап 11).
+predict_ban_risk = task(TaskName.HEALTH_PREDICT_BAN_RISK.value)(predict_ban_risk_impl)
+predict_ban_risk_batch = task(TaskName.HEALTH_PREDICT_BAN_RISK_BATCH.value)(
+    predict_ban_risk_batch_impl
+)
+
+# Bulk-операции (§5.5 — этап 5 УТП). dispatch распределяет по item'ам, item —
+# сам исполнитель одного действия для одного аккаунта.
+bulk_dispatch = task(TaskName.BULK_DISPATCH.value)(bulk_dispatch_impl)
+bulk_item = task(TaskName.BULK_ITEM.value)(bulk_item_impl)
 
 # Модуль commenting (§5): тела в modules/commenting/worker/runner.
 on_new_post = task(TaskName.COMMENTING_ON_NEW_POST.value)(on_new_post_impl)
 post_comment = task(TaskName.COMMENTING_POST_COMMENT.value)(post_comment_impl)
+# Аккаунт-центричный мониторинг каналов (тела в .../channels и .../runner).
+resolve_channel = task(TaskName.COMMENTING_RESOLVE_CHANNEL.value)(resolve_channel_impl)
+leave_channel = task(TaskName.COMMENTING_LEAVE_CHANNEL.value)(leave_channel_impl)
+on_channel_post = task(TaskName.COMMENTING_ON_CHANNEL_POST.value)(on_channel_post_impl)
+post_channel_comment = task(TaskName.COMMENTING_POST_CHANNEL_COMMENT.value)(
+    post_channel_comment_impl
+)
 
 # Логин-флоу (§3.2/§11): тела в worker/login, здесь только регистрация.
 login_start = task(TaskName.ACCOUNT_LOGIN_START.value)(login_start_impl)
@@ -90,13 +138,34 @@ TASK_FUNCTIONS = [
     for name in _STUB_TASKS
 ] + [
     func(warming_tick, name=TaskName.WARMING_TICK.value, max_tries=3),
+    func(
+        warming_initial_start,
+        name=TaskName.WARMING_INITIAL_START.value,
+        max_tries=3,
+    ),
     func(on_new_post, name=TaskName.COMMENTING_ON_NEW_POST.value, max_tries=3),
     func(post_comment, name=TaskName.COMMENTING_POST_COMMENT.value, max_tries=3),
+    func(resolve_channel, name=TaskName.COMMENTING_RESOLVE_CHANNEL.value, max_tries=3),
+    func(leave_channel, name=TaskName.COMMENTING_LEAVE_CHANNEL.value, max_tries=2),
+    func(on_channel_post, name=TaskName.COMMENTING_ON_CHANNEL_POST.value, max_tries=3),
+    func(
+        post_channel_comment,
+        name=TaskName.COMMENTING_POST_CHANNEL_COMMENT.value,
+        max_tries=3,
+    ),
     func(login_start, name=TaskName.ACCOUNT_LOGIN_START.value, max_tries=3),
     func(login_confirm, name=TaskName.ACCOUNT_LOGIN_CONFIRM.value, max_tries=3),
     func(login_password, name=TaskName.ACCOUNT_LOGIN_PASSWORD.value, max_tries=3),
     # cooldown_return: max_tries=1 — при сбое повторится по крону
     func(cooldown_return, name=TaskName.HEALTH_COOLDOWN_RETURN.value, max_tries=1),
+    func(check_account, name=TaskName.HEALTH_CHECK_ACCOUNT.value, max_tries=2),
+    func(recompute_score, name=TaskName.HEALTH_RECOMPUTE_SCORE.value, max_tries=2),
+    func(bulk_dispatch, name=TaskName.BULK_DISPATCH.value, max_tries=2),
+    # bulk.item: 1 попытка. Failed item'ы возвращаются пользователем через
+    # retry-failed endpoint — иначе повторы прячут проблемы (напр., мёртвая
+    # сессия) под max_tries.
+    func(bulk_item, name=TaskName.BULK_ITEM.value, max_tries=1),
+    func(predict_ban_risk, name=TaskName.HEALTH_PREDICT_BAN_RISK.value, max_tries=2),
 ]
 
 CRON_JOBS = [
@@ -111,6 +180,24 @@ CRON_JOBS = [
         check_proxies,
         name=TaskName.HEALTH_CHECK_PROXIES.value,
         minute=set(range(0, 60, 10)),
+        run_at_startup=False,
+        max_tries=1,
+    ),
+    # health.check_accounts_periodic: раз в 3 часа шедулит check_account для
+    # аккаунтов, у которых пришло время (адаптивно: 3ч для at-risk, 12ч базово).
+    cron(
+        check_accounts_periodic,
+        name=TaskName.HEALTH_CHECK_ACCOUNTS_PERIODIC.value,
+        hour=set(range(0, 24, 3)),
+        minute={5},
+        run_at_startup=False,
+        max_tries=1,
+    ),
+    # Anti-Ban Predictor batch: раз в 15 минут обновляет риск для всех активных.
+    cron(
+        predict_ban_risk_batch,
+        name=TaskName.HEALTH_PREDICT_BAN_RISK_BATCH.value,
+        minute=set(range(0, 60, 15)),
         run_at_startup=False,
         max_tries=1,
     ),

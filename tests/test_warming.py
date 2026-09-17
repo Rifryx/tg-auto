@@ -16,14 +16,21 @@ from sqlalchemy import func, select, text
 
 from core.config import get_settings
 
+from core.crypto import reset_cache
 from core.enums import WarmingActionType, WarmingProfile
-from core.models import Account, WarmingActivity
+from core.models import Account, HealthEvent, WarmingActivity
+from core.queue.task_names import TaskName
 from core.repositories.account import AccountRepository
 from worker.tasks.warming import (
+    WARMING_PROGRESS_CHANNEL,
     initial_start_impl,
     maintenance_scheduler_impl,
     warming_tick_impl,
 )
+# worker.login импортируется ПОСЛЕ worker.tasks: flow.py тянет
+# worker.tasks.dispatch, поэтому пакет worker.tasks должен инициализироваться
+# первым (иначе циклический импорт handlers ↔ login).
+from worker.login import login_confirm_impl
 
 pytestmark = pytest.mark.asyncio
 
@@ -47,6 +54,7 @@ _TABLES = (
     "warming_activities",
     "health_events",
     "account_status_history",
+    "ban_risk_snapshots",
     '"commenting".campaign_accounts',
     '"commenting".comment_logs',
 )
@@ -94,6 +102,9 @@ class _FixedRng:
     def choice(self, seq):
         return self._action
 
+    def choices(self, population, *, weights=None, k=1):
+        return [self._action] * k
+
     def randint(self, a, b):
         return a
 
@@ -125,15 +136,33 @@ def _make_account(session, *, status, profile=WarmingProfile.MEDIUM, warming_sta
     return acc.id
 
 
-def _ctx(session, *, now, rng=None, client=None, task_queue=None):
+def _ctx(session, *, now, rng=None, client=None, task_queue=None, governor=None, publisher=None):
     return {
         "session_factory": lambda: _Ctx(session),
         "now": now,
         "rng": rng,
         "client_pool": _FakePool(client) if client is not None else None,
         "task_queue": task_queue,
-        "publisher": None,
+        "governor": governor,
+        "publisher": publisher,
     }
+
+
+class _Req:
+    pass
+
+
+class _SpyPublisher:
+    def __init__(self):
+        self.events: list[tuple[str, dict]] = []
+
+    def publish(self, channel, payload):
+        self.events.append((channel, dict(payload)))
+
+
+class _DenyGovernor:
+    async def check_and_reserve(self, account_id, action_type):
+        return False
 
 
 def _activity_count(session, account_id, **filters) -> int:
@@ -266,3 +295,146 @@ async def test_reaction_on_missing_post_records_failed(session):
     client.get_messages = AsyncMock(return_value=[type("M", (), {"id": 1})()])
     ctx["rng"] = _FixedRng(WarmingActionType.IDLE_ONLINE)
     assert await warming_tick_impl(ctx, account_id) == "done"
+
+
+# --- 5. e2e: login_confirm → warming → (ускоренный прогон) → pool -------------
+
+
+async def test_login_confirm_to_pool_without_manual_initial_start(session):
+    """created→warming→pool целиком от login_confirm, БЕЗ ручного initial_start.
+
+    Регрессия на #1/#2/#11: раньше путь заводился только ручным вызовом
+    initial_start_impl в тесте. Теперь login_confirm сам ставит прогрев в
+    очередь (проверяем spy), а аккаунт доходит до pool на ускоренной серии
+    tick'ов.
+    """
+    reset_cache()
+    _clean(session)
+
+    # Аккаунт в 'created' с pending-логином (phone_code_hash в meta).
+    account_id = _make_account(session, status="created", warming_started_at=None)
+    account = AccountRepository(session).get(account_id)
+    account.meta = {"phone_code_hash": "HASH123"}
+    session.commit()
+
+    # Один фейковый клиент обслуживает и логин (connect/sign_in/session.save),
+    # и прогрев (client(UpdateStatusRequest) через IDLE_ONLINE).
+    client = AsyncMock()
+    client.session.save = lambda: "e2e-session-string"
+    spy = _SpyTaskQueue()
+    ctx = _ctx(
+        session,
+        now=NOW_INSIDE,
+        rng=_FixedRng(WarmingActionType.IDLE_ONLINE),
+        client=client,
+        task_queue=spy,
+    )
+
+    # 1) Логин: код без 2FA → created→warming, прогрев поставлен В ОЧЕРЕДЬ.
+    await login_confirm_impl(ctx, account_id, "12345")
+    assert AccountRepository(session).get(account_id).status == "warming"
+    initial = [args for name, args in spy.enqueued if name == TaskName.WARMING_INITIAL_START]
+    assert initial == [(account_id,)]
+
+    # 2) Ускоренная серия tick'ов — initial_start_impl вручную НЕ вызывается.
+    for _ in range(50):
+        await warming_tick_impl(ctx, account_id)
+
+    assert AccountRepository(session).get(account_id).status == "pool"
+    assert _activity_count(session, account_id, kind="initial") == 50
+
+
+# --- 6. governor 'warming' исчерпан → действие skipped, клиент не тронут (#7) -
+
+
+async def test_warming_action_skipped_when_rate_limited(session):
+    _clean(session)
+    account_id = _make_account(session, status="warming", warming_started_at=NOW_INSIDE)
+    client = AsyncMock()  # не должен быть вызван
+    ctx = _ctx(
+        session,
+        now=NOW_INSIDE,
+        rng=_FixedRng(WarmingActionType.IDLE_ONLINE),
+        client=client,
+        governor=_DenyGovernor(),
+    )
+
+    result = await warming_tick_impl(ctx, account_id)
+
+    assert result == "skipped"
+    # действие записано как skipped с причиной rate_limited (не failed)
+    acts = session.execute(
+        select(WarmingActivity).where(WarmingActivity.account_id == account_id)
+    ).scalars().all()
+    assert len(acts) == 1
+    assert acts[0].status == "skipped"
+    assert acts[0].meta == {"reason": "rate_limited"}
+    # Telethon-клиент не вызывался
+    assert client.await_count == 0
+    assert client.call_count == 0
+    # аккаунт остаётся в warming
+    assert AccountRepository(session).get(account_id).status == "warming"
+
+
+# --- 7. бан во время прогрева → HealthEvent + banned (#8) --------------------
+
+
+async def test_warming_action_ban_records_health_event_and_bans(session):
+    """UserDeactivatedBan во время warming-действия: раньше был бы просто failed
+    без HealthEvent; теперь — session_revoked + переход в banned."""
+    from telethon.errors import UserDeactivatedBanError
+
+    _clean(session)
+    account_id = _make_account(session, status="warming", warming_started_at=NOW_INSIDE)
+    # client(UpdateStatusRequest(...)) в IDLE_ONLINE бросит бан-ошибку
+    client = AsyncMock(side_effect=UserDeactivatedBanError(request=_Req()))
+    ctx = _ctx(
+        session,
+        now=NOW_INSIDE,
+        rng=_FixedRng(WarmingActionType.IDLE_ONLINE),
+        client=client,
+    )
+
+    result = await warming_tick_impl(ctx, account_id)
+
+    assert result == "failed"
+    # HealthEvent зафиксирован (раньше НЕ создавался — вызов шёл в обход монитора)
+    events = session.execute(
+        select(HealthEvent).where(
+            HealthEvent.account_id == account_id,
+            HealthEvent.event_type == "session_revoked",
+        )
+    ).scalars().all()
+    assert len(events) == 1
+    # аккаунт переведён в banned через state machine
+    assert AccountRepository(session).get(account_id).status == "banned"
+
+
+# --- 8. warming.tick публикует прогресс в pub/sub (#9) -----------------------
+
+
+async def test_warming_tick_publishes_progress(session):
+    _clean(session)
+    account_id = _make_account(session, status="warming", warming_started_at=NOW_INSIDE)
+    client = AsyncMock()
+    pub = _SpyPublisher()
+    ctx = _ctx(
+        session,
+        now=NOW_INSIDE,
+        rng=_FixedRng(WarmingActionType.IDLE_ONLINE),
+        client=client,
+        publisher=pub,
+    )
+
+    result = await warming_tick_impl(ctx, account_id)
+
+    assert result == "done"
+    progress = [p for ch, p in pub.events if ch == WARMING_PROGRESS_CHANNEL]
+    assert progress == [
+        {
+            "account_id": account_id,
+            "action_type": "idle_online",
+            "status": "done",
+            "kind": "initial",
+        }
+    ]

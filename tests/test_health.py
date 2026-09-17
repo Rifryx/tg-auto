@@ -13,7 +13,12 @@ from unittest import mock
 import pytest
 from fakeredis import aioredis as fake_aioredis
 from sqlalchemy import func, select, text
-from telethon.errors import FloodWaitError, SessionRevokedError
+from telethon.errors import (
+    FloodWaitError,
+    PhoneNumberBannedError,
+    SessionRevokedError,
+    UserDeactivatedBanError,
+)
 
 from core.models import Account, HealthEvent, Proxy
 from core.repositories.account import AccountRepository
@@ -39,6 +44,14 @@ _PHONE = iter(range(90_000_000_000, 90_001_000_000))
 
 class _Req:
     pass
+
+
+class _SpyPublisher:
+    def __init__(self):
+        self.events = []
+
+    def publish(self, channel, payload):
+        self.events.append((channel, dict(payload)))
 
 
 def _clean(session):
@@ -155,6 +168,131 @@ async def test_session_revoked_bans_account(session):
 
     assert len(_events(session, account_id, "session_revoked")) == 1
     assert AccountRepository(session).get(account_id).status == "banned"
+
+
+# --- 3b. Бан при логине: PhoneNumberBanned из created → banned (#8) ----------
+
+
+async def test_phone_number_banned_bans_created_account(session):
+    """Бан-ошибка логина фиксирует HealthEvent и банит аккаунт из 'created'.
+
+    Раньше (без обёртки login-вызовов) это падало как generic failed — без
+    HealthEvent и без перехода в banned.
+    """
+    _clean(session)
+    account_id = _make_account(session, status="created")
+
+    async def call():
+        raise PhoneNumberBannedError(request=_Req())
+
+    with pytest.raises(PhoneNumberBannedError):
+        await around_telethon_call(
+            call,
+            account_id=account_id,
+            session_factory=_factory(session),
+            now=NOW,
+            handle_flood_wait=False,
+        )
+
+    assert len(_events(session, account_id, "session_revoked")) == 1
+    assert AccountRepository(session).get(account_id).status == "banned"
+
+
+# --- 3c. Бан при прогреве: UserDeactivatedBan из warming → banned (#8) -------
+
+
+async def test_user_deactivated_ban_bans_warming_account(session):
+    _clean(session)
+    account_id = _make_account(session, status="warming")
+
+    async def call():
+        raise UserDeactivatedBanError(request=_Req())
+
+    with pytest.raises(UserDeactivatedBanError):
+        await around_telethon_call(
+            call, account_id=account_id, session_factory=_factory(session), now=NOW
+        )
+
+    assert len(_events(session, account_id, "session_revoked")) == 1
+    assert AccountRepository(session).get(account_id).status == "banned"
+
+
+# --- 3d. Регрессия #4: handle_flood_wait=False пропускает флудвейт нетронутым -
+
+
+async def test_flood_wait_not_handled_passes_through_without_incident(session):
+    _clean(session)
+    account_id = _make_account(session, status="pool")
+
+    async def call():
+        raise FloodWaitError(request=_Req(), capture=60)
+
+    with pytest.raises(FloodWaitError):
+        await around_telethon_call(
+            call,
+            account_id=account_id,
+            session_factory=_factory(session),
+            now=NOW,
+            handle_flood_wait=False,
+        )
+
+    # ни HealthEvent, ни cooldown — флудвейт разбирает вызывающий (login-flow)
+    assert _events(session, account_id, "flood_wait") == []
+    assert AccountRepository(session).get(account_id).status == "pool"
+
+
+# --- 3e. HealthEvent публикует health_alert в pub/sub (#9) -------------------
+
+
+async def test_incident_publishes_health_alert(session):
+    _clean(session)
+    account_id = _make_account(session, status="pool")
+    pub = _SpyPublisher()
+
+    async def call():
+        raise FloodWaitError(request=_Req(), capture=30)
+
+    with pytest.raises(FloodWaitError):
+        await around_telethon_call(
+            call,
+            account_id=account_id,
+            session_factory=_factory(session),
+            publisher=pub,
+            now=NOW,
+        )
+
+    alerts = [p for ch, p in pub.events if ch == "health_alert"]
+    assert alerts == [
+        {"account_id": account_id, "event_type": "flood_wait", "severity": "warning"}
+    ]
+    # Переход, ИНИЦИИРОВАННЫЙ воркером (health.incident), публикует account_status
+    # РОВНО один раз (acceptance #2: не дублируется, независимо от инициатора).
+    status_events = [p for ch, p in pub.events if ch == "account_status"]
+    assert len(status_events) == 1
+    assert status_events[0]["to"] == "cooldown"
+
+
+async def test_ban_publishes_health_alert(session):
+    _clean(session)
+    account_id = _make_account(session, status="pool")
+    pub = _SpyPublisher()
+
+    async def call():
+        raise SessionRevokedError(request=_Req())
+
+    with pytest.raises(SessionRevokedError):
+        await around_telethon_call(
+            call,
+            account_id=account_id,
+            session_factory=_factory(session),
+            publisher=pub,
+            now=NOW,
+        )
+
+    alerts = [p for ch, p in pub.events if ch == "health_alert"]
+    assert alerts == [
+        {"account_id": account_id, "event_type": "session_revoked", "severity": "critical"}
+    ]
 
 
 # --- 4. governor: 20 ок, 21-й — нет ------------------------------------------

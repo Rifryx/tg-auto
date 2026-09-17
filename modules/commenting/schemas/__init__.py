@@ -9,6 +9,7 @@ from modules.commenting.schemas.campaign_account import (
     CampaignAccountRead,
 )
 from modules.commenting.schemas.comment_log import CommentLogCreate, CommentLogRead
+from modules.commenting.schemas.monitored_channel import AddChannelsRequest, MonitoredChannelRead
 
 __all__ = [
     "AttachAccountRequest",
@@ -19,4 +20,6 @@ __all__ = [
     "CampaignUpdate",
     "CommentLogCreate",
     "CommentLogRead",
+    "AddChannelsRequest",
+    "MonitoredChannelRead",
 ]

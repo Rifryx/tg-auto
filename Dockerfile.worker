@@ -1,0 +1,23 @@
+# Worker-образ: arq-воркер (worker.main.WorkerSettings).
+#
+# Миграции здесь НЕ накатываются — их делает только api-контейнер
+# (deploy/entrypoint-api.sh), чтобы два процесса не мигрировали одновременно.
+# Один инстанс на процесс (инвариант «один Telethon-пул на процесс», §12) —
+# в docker-compose не задавай replicas > 1.
+FROM python:3.12-slim AS base
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+COPY pyproject.toml ./
+COPY core ./core
+COPY worker ./worker
+COPY modules ./modules
+
+RUN pip install .
+
+# Никаких миграций — только запуск воркера очереди.
+CMD ["arq", "worker.main.WorkerSettings"]

@@ -23,14 +23,18 @@ from core.enums import (
     WarmingActivityKind,
     WarmingActivityStatus,
 )
-from core.models import HealthEvent, WarmingActivity
+from core.models import AccountHealth, HealthEvent, WarmingActivity
 from core.queue import TaskQueue
 from core.queue.task_names import TaskName
 from core.repositories.account import AccountRepository
+from core.repositories.account_health import AccountHealthRepository
+from core.repositories.ban_risk import BanRiskRepository
+from core.repositories.persona import PersonaRepository
 from core.repositories.warming_activity import WarmingActivityRepository
 from core.schemas.warming import WarmingActivityCreate
 from core.state_machine import AccountEvent, AccountStateMachine
 from worker.client_pool import ClientPool
+from worker.health import Governor
 from worker.tasks.logging import get_logger
 from worker.warming.actions import execute_action
 from worker.warming.planner import choose_action, due_interval, is_within_active_window
@@ -42,6 +46,9 @@ from worker.warming.presets import (
 )
 
 _ACTIVE_WARMING_STATUSES = (AccountStatus.WARMING.value, AccountStatus.POOL.value)
+
+# Канал pub/sub с прогрессом прогрева (аудит #9).
+WARMING_PROGRESS_CHANNEL = "warming_progress"
 
 
 def _now(ctx: dict) -> datetime:
@@ -62,6 +69,10 @@ def _pool(ctx: dict) -> ClientPool:
 
 def _task_queue(ctx: dict) -> TaskQueue:
     return ctx.get("task_queue") or TaskQueue(redis=ctx.get("redis"))
+
+
+def _governor(ctx: dict) -> Governor:
+    return ctx.get("governor") or Governor(ctx.get("redis"))
 
 
 def _successful_initial_actions(session, account_id: int) -> int:
@@ -122,12 +133,30 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
             log.warning("warming.tick.no_account", account_id=account_id)
             return None
         status = account.status
+        persona = (
+            PersonaRepository(session).get(account.persona_id)
+            if account.persona_id is not None
+            else None
+        )
+        health = AccountHealthRepository(session).get(account_id)
+        health_score = health.health_score if health is not None else None
+        risk_snapshot = BanRiskRepository(session).get(account_id)
+        ban_risk = risk_snapshot.risk_score if risk_snapshot is not None else None
 
     if status not in _ACTIVE_WARMING_STATUSES:
         log.info("warming.tick.skipped", account_id=account_id, reason="status", status=status)
         return "skipped"
 
-    if not is_within_active_window(now):
+    # УТП: at-risk аккаунты (score=0 fatal) в прогреве бессмысленны и опасны —
+    # не запускаем tick вовсе.
+    if health_score is not None and health_score == 0:
+        log.info(
+            "warming.tick.skipped",
+            account_id=account_id, reason="unhealthy_zero", score=health_score,
+        )
+        return "skipped"
+
+    if not is_within_active_window(now, persona=persona):
         # Вне окна активности действие не выполняется и НЕ записывается (§3).
         log.info("warming.tick.skipped", account_id=account_id, reason="inactive_window")
         return "skipped"
@@ -137,12 +166,20 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
         if status == AccountStatus.WARMING.value
         else WarmingActivityKind.MAINTENANCE
     )
-    action_type = choose_action(rng)
+    action_type = choose_action(rng, persona, health_score=health_score, ban_risk=ban_risk)
 
     pool = _pool(ctx)
     client = await pool.get(account_id)
     try:
-        result = await execute_action(action_type, client, account)
+        result = await execute_action(
+            action_type,
+            client,
+            account,
+            governor=_governor(ctx),
+            session_factory=session_factory,
+            publisher=publisher,
+            now=now,
+        )
     finally:
         await pool.release(account_id)
 
@@ -160,6 +197,18 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
         session.commit()
         if kind is WarmingActivityKind.INITIAL:
             _maybe_complete_warming(session, publisher, account_id, now)
+
+    # Прогресс прогрева в pub/sub (аудит #9): фронт сможет показать «живой» тик.
+    if publisher is not None:
+        publisher.publish(
+            WARMING_PROGRESS_CHANNEL,
+            {
+                "account_id": account_id,
+                "action_type": result.action_type.value,
+                "status": result.status.value,
+                "kind": kind.value,
+            },
+        )
 
     log.info(
         "warming.tick.done",
@@ -181,10 +230,15 @@ async def maintenance_scheduler_impl(ctx: dict, *args: Any, **kwargs: Any) -> li
     with session_factory() as session:
         accounts = AccountRepository(session).list_by_status(AccountStatus.POOL)
         wa_repo = WarmingActivityRepository(session)
+        h_repo = AccountHealthRepository(session)
         for account in accounts:
             recent = wa_repo.list_by_account(account.id, limit=1)
             last_at = recent[0].created_at if recent else None
-            interval = due_interval(account.warming_profile)
+            health = h_repo.get(account.id)
+            score = health.health_score if health is not None else None
+            risk_snap = BanRiskRepository(session).get(account.id)
+            b_risk = risk_snap.risk_score if risk_snap is not None else None
+            interval = due_interval(account.warming_profile, health_score=score, ban_risk=b_risk)
             if last_at is None or (now - last_at) >= interval:
                 due.append(account.id)
 

@@ -48,6 +48,42 @@ class Settings(BaseSettings):
     # --- Режим ---
     dev_mode: bool = False
 
+    # --- Telegram Bot (Mini App auth + чат-бот) ---
+    telegram_bot_token: Optional[str] = None
+
+    # --- Админы: CSV числовых Telegram user_id владельца/сотрудников.
+    # НИКОГДА не хранится в БД; только в ENV — чтобы SQL-инъекция или получение
+    # доступа к БД не давали admin-права. Сравнение делается по строке. ---
+    admin_user_ids: str = ""
+
+    # --- CORS: origin Telegram Mini App (вне DEV_MODE). Несколько — через запятую. ---
+    webapp_origin: Optional[str] = None
+
+    @property
+    def admin_ids(self) -> frozenset[str]:
+        """Множество Telegram user_id, у которых есть права админа."""
+        return frozenset(
+            x.strip() for x in self.admin_user_ids.split(",") if x.strip()
+        )
+
+    @property
+    def cors_allow_origins(self) -> list[str]:
+        """Список разрешённых origin'ов для CORS.
+
+        В ``DEV_MODE`` — ``["*"]`` (разрешить всё). Иначе — origin(ы) Mini App из
+        ``WEBAPP_ORIGIN`` (через запятую); пусто, если не задано.
+        """
+        if self.dev_mode:
+            return ["*"]
+        if not self.webapp_origin:
+            return []
+        return [o.strip() for o in self.webapp_origin.split(",") if o.strip()]
+
+    # --- Health-проба прокси (реальный хендшейк, аудит #3) ---
+    # Целевой хост:порт, до которого делается CONNECT через прокси.
+    proxy_check_host: str = "api.telegram.org"
+    proxy_check_port: int = 443
+
     # --- Окна активности по умолчанию ---
     default_active_hours_start: time = time(9, 0)
     default_active_hours_end: time = time(23, 0)

@@ -1,0 +1,21 @@
+# Frontend-образ: сборка Vite → раздача через nginx с прокси /api → api-сервис
+# (Mini App и API на одном origin, чтобы initData-заголовки не спотыкались о CORS).
+# Контекст сборки — корень репозитория (нужен и frontend/, и deploy/nginx.conf).
+
+# --- build ---
+FROM node:20-slim AS build
+WORKDIR /app
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend/ ./
+# Запросы идут на /api → nginx проксирует на api-сервис (см. deploy/nginx.conf).
+ENV VITE_API_BASE=/api
+RUN npm run build
+
+# --- serve ---
+FROM nginx:alpine
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80
