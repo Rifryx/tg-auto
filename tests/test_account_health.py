@@ -126,12 +126,12 @@ async def test_recompute_creates_snapshot_and_returns_score(session, monkeypatch
     snap = AccountHealthRepository(session).get(account_id)
     assert snap is not None
     assert snap.health_score == score
-    assert score == 100  # ни одна проба ещё не давала False
+    assert score == 90  # -10 за age_lt_3d (свежий аккаунт, age_days < 3)
 
     # pub/sub-событие ушло
     assert publisher.events[-1][0] == HEALTH_SNAPSHOT_CHANNEL
     assert publisher.events[-1][1]["account_id"] == account_id
-    assert publisher.events[-1][1]["score"] == 100
+    assert publisher.events[-1][1]["score"] == 90
 
 
 # --- 2. Мёртвая сессия → score 0 ---------------------------------------------
@@ -229,7 +229,7 @@ async def test_dead_proxy_reduces_score(session, monkeypatch):
         "now": NOW,
     }
     score = await recompute_score_impl(ctx, account_id)
-    assert score == 80  # только -20 за proxy_dead
+    assert score == 70  # -20 за proxy_dead, -10 за age_lt_3d
 
 
 # --- 5. Периодический планировщик: at-risk шедулится чаще ---------------------

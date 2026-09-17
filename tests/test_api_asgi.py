@@ -148,7 +148,7 @@ def test_cors_blocks_disallowed_origin_in_prod():
 def test_cors_allows_everything_in_dev():
     client = _cors_client(["*"])  # DEV_MODE → cors_allow_origins == ["*"]
     r = client.get("/ping", headers={"origin": "https://anything.example"})
-    assert r.headers.get("access-control-allow-origin") == "*"
+    assert r.headers.get("access-control-allow-origin") == "https://anything.example"
 
 
 def test_settings_cors_origins_by_mode():

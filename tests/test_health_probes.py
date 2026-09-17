@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import text
@@ -15,6 +16,7 @@ from telethon.errors import (
     PhoneNumberBannedError,
     SessionRevokedError,
 )
+from telethon.tl.types import User
 
 from core.models import Account
 from core.repositories.account import AccountRepository
@@ -97,7 +99,10 @@ class _PhoneBannedClient:
 
 class _AliveClient:
     async def get_me(self):
-        return _FakeUser(username="alice", photo=object())
+        user = MagicMock(spec=User)
+        user.username = "alice"
+        user.photo = object()
+        return user
 
 
 # --- session_alive=False через AuthKeyUnregistered ---------------------------
