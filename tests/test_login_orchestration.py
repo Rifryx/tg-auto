@@ -41,7 +41,7 @@ from core.state_machine import AccountEvent, AccountStateMachine
 
 pytestmark = pytest.mark.asyncio
 
-REDIS_URL = os.environ.get("TEST_REDIS_URL", "redis://localhost:6379/1")
+REDIS_URL = os.environ.get("TEST_REDIS_URL") or os.environ.get("REDIS_URL") or "redis://localhost:6379/1"
 _PHONE = itertools.count(60_000_000_000)
 
 

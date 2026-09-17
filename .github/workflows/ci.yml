@@ -35,10 +35,10 @@ jobs:
           --health-retries 20
 
     env:
-      TEST_DATABASE_URL: postgresql+psycopg://neuro:neuro@localhost:5433/neuro_test
-      TEST_REDIS_URL: redis://localhost:6380/1
-      DATABASE_URL: postgresql+psycopg://neuro:neuro@localhost:5433/neuro_test
-      REDIS_URL: redis://localhost:6380/1
+      TEST_DATABASE_URL: "postgresql+psycopg://neuro:neuro@localhost:5433/neuro_test"
+      TEST_REDIS_URL: "redis://localhost:6380/1"
+      DATABASE_URL: "postgresql+psycopg://neuro:neuro@localhost:5433/neuro_test"
+      REDIS_URL: "redis://localhost:6380/1"
       DEV_MODE: "true"
       ENCRYPTION_KEY: "yWNCwxk9pQfP1Q9ONFvsUpP2QGyLBc5aQvj9k4vX_9M="
 
