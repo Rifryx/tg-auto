@@ -22,6 +22,8 @@ class TaskName(str, Enum):
     HEALTH_CHECK_ACCOUNT = "health.check_account"
     HEALTH_CHECK_ACCOUNTS_PERIODIC = "health.check_accounts_periodic"
     HEALTH_RECOMPUTE_SCORE = "health.recompute_score"
+    HEALTH_PREDICT_BAN_RISK = "health.predict_ban_risk"
+    HEALTH_PREDICT_BAN_RISK_BATCH = "health.predict_ban_risk_batch"
     BULK_DISPATCH = "bulk.dispatch"
     BULK_ITEM = "bulk.item"
     ACCOUNT_RETIRE = "account.retire"

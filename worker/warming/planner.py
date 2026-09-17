@@ -57,17 +57,20 @@ def choose_action(
     persona=None,
     *,
     health_score: Optional[int] = None,
+    ban_risk: Optional[float] = None,
 ) -> WarmingActionType:
-    """Взвешенный случайный выбор действия по тегам персоны и Health Score.
+    """Взвешенный случайный выбор действия по тегам персоны и риску.
 
-    Без ``persona`` и ``health_score`` — равномерное распределение (обратная
-    совместимость с прежним unif-random выбором).
+    Без ``persona`` и ``health_score``/``ban_risk`` — равномерное распределение
+    (обратная совместимость с прежним unif-random выбором).
     """
-    weights = _compute_weights(persona, health_score)
+    weights = _compute_weights(persona, health_score, ban_risk)
     return rng.choices(_ACTION_TYPES, weights=weights, k=1)[0]
 
 
-def _compute_weights(persona, health_score: Optional[int]) -> list[float]:
+def _compute_weights(
+    persona, health_score: Optional[int], ban_risk: Optional[float] = None
+) -> list[float]:
     weights = {a: 1.0 for a in _ACTION_TYPES}
     tags = list(getattr(persona, "personality_tags", None) or []) if persona else []
     for tag in tags:
@@ -76,11 +79,22 @@ def _compute_weights(persona, health_score: Optional[int]) -> list[float]:
             continue
         for action, mult in multipliers.items():
             weights[action] *= mult
-    # Низкий Health Score — гасим агрессивные действия и подкачиваем idle.
-    if health_score is not None and health_score < 40:
+
+    # Anti-Ban Predictor: непрерывная модуляция по ban_risk (этап 11).
+    # ban_risk даёт более гранулярную адаптацию, чем бинарный health_score < 40.
+    if ban_risk is not None and ban_risk > 0.2:
+        # Линейное ослабление агрессивных действий: risk 0.2→1.0 = mult 0.8→0.05.
+        aggressive_mult = max(0.05, 1.0 - ban_risk)
+        idle_mult = 1.0 + ban_risk
+        for action in _AGGRESSIVE_ACTIONS:
+            weights[action] *= aggressive_mult
+        weights[WarmingActionType.IDLE_ONLINE] *= idle_mult
+    elif health_score is not None and health_score < 40:
+        # Fallback на бинарный health_score, если ban_risk ещё не рассчитан.
         for action in _AGGRESSIVE_ACTIONS:
             weights[action] *= 0.25
         weights[WarmingActionType.IDLE_ONLINE] *= 1.5
+
     return [weights[a] for a in _ACTION_TYPES]
 
 
@@ -118,29 +132,51 @@ def _window(persona, settings: Settings) -> tuple[str, time, time]:
     )
 
 
+def _risk_multiplier(
+    health_score: Optional[int] = None,
+    ban_risk: Optional[float] = None,
+) -> float:
+    """Вычисляет множитель замедления по ban_risk или health_score.
+
+    ban_risk (непрерывный, 0–1) имеет приоритет: даёт плавное замедление
+    1.0x при risk=0 → 3.0x при risk=1.0. Fallback на бинарный health_score.
+    """
+    if ban_risk is not None and ban_risk > 0.2:
+        return 1.0 + ban_risk * 2.5  # 0.2→1.5x, 0.5→2.25x, 1.0→3.5x
+    if health_score is not None and health_score < 40:
+        return 2.0
+    return 1.0
+
+
 def next_interval(
-    profile: str, rng: random.Random, *, health_score: Optional[int] = None
+    profile: str,
+    rng: random.Random,
+    *,
+    health_score: Optional[int] = None,
+    ban_risk: Optional[float] = None,
 ) -> timedelta:
     """Интервал до следующего действия: диапазон пресета + джиттер ±30%.
 
-    ``health_score``: <40 → х2 (замедляем прогрев рискованного акка). >=71 →
-    без изменений (акк здоров, не тормозим).
+    ``ban_risk`` (этап 11): плавное замедление пропорционально риску бана.
+    Fallback на ``health_score`` < 40 → x2.
     """
     low, high = PRESET_INTERVAL_HOURS[profile]
     base_hours = rng.uniform(low, high)
     factor = rng.uniform(1.0 - JITTER_FRACTION, 1.0 + JITTER_FRACTION)
-    multiplier = 2.0 if (health_score is not None and health_score < 40) else 1.0
+    multiplier = _risk_multiplier(health_score, ban_risk)
     return timedelta(hours=base_hours * factor * multiplier)
 
 
 def due_interval(
-    profile: str, *, health_score: Optional[int] = None
+    profile: str,
+    *,
+    health_score: Optional[int] = None,
+    ban_risk: Optional[float] = None,
 ) -> timedelta:
     """Порог «пора действовать» для планировщика — нижняя граница пресета.
 
-    Аналогично ``next_interval``: score < 40 удваивает нижнюю границу, чтобы
-    at-risk аккаунты чаще попадали в skip, чем в tick.
+    Аналогично ``next_interval``: ban_risk плавно увеличивает порог.
     """
     low, _ = PRESET_INTERVAL_HOURS[profile]
-    multiplier = 2.0 if (health_score is not None and health_score < 40) else 1.0
+    multiplier = _risk_multiplier(health_score, ban_risk)
     return timedelta(hours=low * multiplier)

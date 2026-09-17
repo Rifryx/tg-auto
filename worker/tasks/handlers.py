@@ -42,6 +42,10 @@ from worker.tasks.health import (
     check_proxies_impl,
     recompute_score_impl,
 )
+from worker.tasks.predictor import (
+    predict_ban_risk_batch_impl,
+    predict_ban_risk_impl,
+)
 from worker.tasks.logging import get_logger
 from worker.tasks.warming import (
     initial_start_impl,
@@ -102,6 +106,12 @@ check_accounts_periodic = task(TaskName.HEALTH_CHECK_ACCOUNTS_PERIODIC.value)(
 )
 recompute_score = task(TaskName.HEALTH_RECOMPUTE_SCORE.value)(recompute_score_impl)
 
+# Anti-Ban Predictor (этап 11).
+predict_ban_risk = task(TaskName.HEALTH_PREDICT_BAN_RISK.value)(predict_ban_risk_impl)
+predict_ban_risk_batch = task(TaskName.HEALTH_PREDICT_BAN_RISK_BATCH.value)(
+    predict_ban_risk_batch_impl
+)
+
 # Bulk-операции (§5.5 — этап 5 УТП). dispatch распределяет по item'ам, item —
 # сам исполнитель одного действия для одного аккаунта.
 bulk_dispatch = task(TaskName.BULK_DISPATCH.value)(bulk_dispatch_impl)
@@ -155,6 +165,7 @@ TASK_FUNCTIONS = [
     # retry-failed endpoint — иначе повторы прячут проблемы (напр., мёртвая
     # сессия) под max_tries.
     func(bulk_item, name=TaskName.BULK_ITEM.value, max_tries=1),
+    func(predict_ban_risk, name=TaskName.HEALTH_PREDICT_BAN_RISK.value, max_tries=2),
 ]
 
 CRON_JOBS = [
@@ -179,6 +190,14 @@ CRON_JOBS = [
         name=TaskName.HEALTH_CHECK_ACCOUNTS_PERIODIC.value,
         hour=set(range(0, 24, 3)),
         minute={5},
+        run_at_startup=False,
+        max_tries=1,
+    ),
+    # Anti-Ban Predictor batch: раз в 15 минут обновляет риск для всех активных.
+    cron(
+        predict_ban_risk_batch,
+        name=TaskName.HEALTH_PREDICT_BAN_RISK_BATCH.value,
+        minute=set(range(0, 60, 15)),
         run_at_startup=False,
         max_tries=1,
     ),

@@ -171,6 +171,18 @@ async def check_account_impl(
     _persist_snapshot(session_factory, account_id, payload)
 
     score = _recompute_and_publish(session_factory, publisher, account_id, now)
+
+    # Anti-Ban Predictor: обновляем прогноз риска после пересчёта score.
+    from worker.tasks.predictor import predict_ban_risk_impl
+    try:
+        await predict_ban_risk_impl(ctx, account_id)
+    except Exception:
+        get_logger().warning(
+            "health.predict_ban_risk.error_after_check",
+            account_id=account_id,
+            exc_info=True,
+        )
+
     get_logger().info(
         "health.check_account.done",
         account_id=account_id,

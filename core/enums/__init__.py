@@ -4,6 +4,7 @@ from core.enums.commenting import CommentStatus, LLMProvider
 from core.enums.health import HealthCategory, HealthEventType, PhoneStatus
 from core.enums.history import Initiator
 from core.enums.proxy import ProxyStatus, ProxyType
+from core.enums.risk import RiskLevel
 from core.enums.warming import (
     WarmingActionType,
     WarmingActivityKind,
@@ -23,6 +24,7 @@ __all__ = [
     "LLMProvider",
     "ProxyStatus",
     "ProxyType",
+    "RiskLevel",
     "WarmingActionType",
     "WarmingActivityKind",
     "WarmingActivityStatus",

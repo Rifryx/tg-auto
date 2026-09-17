@@ -54,6 +54,7 @@ _TABLES = (
     "warming_activities",
     "health_events",
     "account_status_history",
+    "ban_risk_snapshots",
     '"commenting".campaign_accounts',
     '"commenting".comment_logs',
 )

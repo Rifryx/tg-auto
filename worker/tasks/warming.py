@@ -28,6 +28,7 @@ from core.queue import TaskQueue
 from core.queue.task_names import TaskName
 from core.repositories.account import AccountRepository
 from core.repositories.account_health import AccountHealthRepository
+from core.repositories.ban_risk import BanRiskRepository
 from core.repositories.persona import PersonaRepository
 from core.repositories.warming_activity import WarmingActivityRepository
 from core.schemas.warming import WarmingActivityCreate
@@ -139,6 +140,8 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
         )
         health = AccountHealthRepository(session).get(account_id)
         health_score = health.health_score if health is not None else None
+        risk_snapshot = BanRiskRepository(session).get(account_id)
+        ban_risk = risk_snapshot.risk_score if risk_snapshot is not None else None
 
     if status not in _ACTIVE_WARMING_STATUSES:
         log.info("warming.tick.skipped", account_id=account_id, reason="status", status=status)
@@ -163,7 +166,7 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
         if status == AccountStatus.WARMING.value
         else WarmingActivityKind.MAINTENANCE
     )
-    action_type = choose_action(rng, persona, health_score=health_score)
+    action_type = choose_action(rng, persona, health_score=health_score, ban_risk=ban_risk)
 
     pool = _pool(ctx)
     client = await pool.get(account_id)
@@ -233,7 +236,9 @@ async def maintenance_scheduler_impl(ctx: dict, *args: Any, **kwargs: Any) -> li
             last_at = recent[0].created_at if recent else None
             health = h_repo.get(account.id)
             score = health.health_score if health is not None else None
-            interval = due_interval(account.warming_profile, health_score=score)
+            risk_snap = BanRiskRepository(session).get(account.id)
+            b_risk = risk_snap.risk_score if risk_snap is not None else None
+            interval = due_interval(account.warming_profile, health_score=score, ban_risk=b_risk)
             if last_at is None or (now - last_at) >= interval:
                 due.append(account.id)
 

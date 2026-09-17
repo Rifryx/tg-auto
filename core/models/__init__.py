@@ -1,6 +1,7 @@
 from core.models.account import Account
 from core.models.account_health import AccountHealth
 from core.models.account_status_history import AccountStatusHistory
+from core.models.ban_risk import BanRiskSnapshot
 from core.models.base import COMMENTING_SCHEMA, Base
 from core.models.bulk_job import BulkJob, BulkJobItem
 from core.models.commenting import (
@@ -19,6 +20,7 @@ __all__ = [
     "Account",
     "AccountHealth",
     "AccountStatusHistory",
+    "BanRiskSnapshot",
     "Base",
     "BulkJob",
     "BulkJobItem",
