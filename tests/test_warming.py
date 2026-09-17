@@ -101,6 +101,9 @@ class _FixedRng:
     def choice(self, seq):
         return self._action
 
+    def choices(self, population, *, weights=None, k=1):
+        return [self._action] * k
+
     def randint(self, a, b):
         return a
 

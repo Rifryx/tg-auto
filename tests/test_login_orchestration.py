@@ -15,6 +15,7 @@ SSE-стрим бесконечный, поэтому HTTP-транспорт ht
 from __future__ import annotations
 
 import asyncio
+import os
 import itertools
 import json
 
@@ -40,7 +41,7 @@ from core.state_machine import AccountEvent, AccountStateMachine
 
 pytestmark = pytest.mark.asyncio
 
-REDIS_URL = "redis://localhost:6379/1"
+REDIS_URL = os.environ.get("TEST_REDIS_URL", "redis://localhost:6379/1")
 _PHONE = itertools.count(60_000_000_000)
 
 
