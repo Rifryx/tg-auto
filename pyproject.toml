@@ -24,6 +24,8 @@ dependencies = [
     # ASGI-сервер(ы) для прод-запуска api.asgi:app.
     "uvicorn[standard]>=0.30",
     "gunicorn>=22.0",
+    # Обработка form-данных в FastAPI (требуется для File/Form параметров).
+    "python-multipart>=0.0.6",
     # Реальный SOCKS5-хендшейк в health.check_proxies (аудит #3).
     "python-socks>=2.4",
     # Telegram-бот (чат-команды владельца сервиса, /admin26).
