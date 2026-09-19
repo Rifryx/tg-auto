@@ -1,4 +1,9 @@
 from core.enums.account import AccountStatus, WarmingProfile
+from core.enums.autopilot import (
+    AutopilotActionStatus,
+    AutopilotActionType,
+    GoalType,
+)
 from core.enums.bulk import BulkActionType, BulkItemStatus, BulkJobStatus
 from core.enums.commenting import CommentStatus, LLMProvider
 from core.enums.health import HealthCategory, HealthEventType, PhoneStatus
@@ -13,6 +18,9 @@ from core.enums.warming import (
 
 __all__ = [
     "AccountStatus",
+    "AutopilotActionStatus",
+    "AutopilotActionType",
+    "GoalType",
     "BulkActionType",
     "BulkItemStatus",
     "BulkJobStatus",

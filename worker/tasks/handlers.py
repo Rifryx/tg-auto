@@ -42,6 +42,7 @@ from worker.tasks.health import (
     check_proxies_impl,
     recompute_score_impl,
 )
+from worker.tasks.autopilot import autopilot_tick_impl
 from worker.tasks.predictor import (
     predict_ban_risk_batch_impl,
     predict_ban_risk_impl,
@@ -111,6 +112,9 @@ predict_ban_risk = task(TaskName.HEALTH_PREDICT_BAN_RISK.value)(predict_ban_risk
 predict_ban_risk_batch = task(TaskName.HEALTH_PREDICT_BAN_RISK_BATCH.value)(
     predict_ban_risk_batch_impl
 )
+
+# Autopilot (этап 12): cron-планировщик действий над парком.
+autopilot_tick = task(TaskName.AUTOPILOT_TICK.value)(autopilot_tick_impl)
 
 # Bulk-операции (§5.5 — этап 5 УТП). dispatch распределяет по item'ам, item —
 # сам исполнитель одного действия для одного аккаунта.
@@ -198,6 +202,14 @@ CRON_JOBS = [
         predict_ban_risk_batch,
         name=TaskName.HEALTH_PREDICT_BAN_RISK_BATCH.value,
         minute=set(range(0, 60, 15)),
+        run_at_startup=False,
+        max_tries=1,
+    ),
+    # Autopilot: раз в 10 минут пересматривает цели и раздаёт задания.
+    cron(
+        autopilot_tick,
+        name=TaskName.AUTOPILOT_TICK.value,
+        minute=set(range(0, 60, 10)),
         run_at_startup=False,
         max_tries=1,
     ),

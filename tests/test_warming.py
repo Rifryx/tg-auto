@@ -50,6 +50,8 @@ NOW_INSIDE = datetime(2026, 9, 12, 10, 0, tzinfo=timezone.utc)
 NOW_OUTSIDE = datetime(2026, 9, 12, 0, 30, tzinfo=timezone.utc)
 
 _TABLES = (
+    "autopilot_actions",
+    "autopilot_goals",
     "accounts",
     "warming_activities",
     "health_events",
