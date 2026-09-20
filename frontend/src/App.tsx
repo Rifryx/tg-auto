@@ -6,6 +6,7 @@ import { NewAccountFlow } from "./screens/accounts/NewAccountFlow";
 import { DashboardScreen } from "./screens/dashboard/DashboardScreen";
 import { AboutScreen } from "./screens/more/AboutScreen";
 import { AuditScreen } from "./screens/more/AuditScreen";
+import { AutopilotScreen } from "./screens/more/AutopilotScreen";
 import { MoreScreen } from "./screens/more/MoreScreen";
 import { PersonasScreen } from "./screens/more/PersonasScreen";
 import { ProxiesScreen } from "./screens/more/ProxiesScreen";
@@ -33,6 +34,7 @@ export function App() {
         <Route path="/more/personas" element={<PersonasScreen />} />
         <Route path="/more/proxies" element={<ProxiesScreen />} />
         <Route path="/more/audit" element={<AuditScreen />} />
+        <Route path="/more/autopilot" element={<AutopilotScreen />} />
         <Route path="/more/settings" element={<SettingsScreen />} />
         <Route path="/more/about" element={<AboutScreen />} />
         <Route path="/billing" element={<BillingScreen />} />
