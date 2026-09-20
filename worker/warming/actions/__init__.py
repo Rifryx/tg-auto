@@ -1,17 +1,20 @@
 """Реестр действий прогрева (PROJECT-STAGES §3).
 
 Каждый ``action_type`` реализован отдельным модулем с публичным
-``async execute(client, account) -> WarmingActionResult``. Реальные вызовы
-Telethon обёрнуты в try/except (см. :func:`worker.warming.actions.base.action`).
+``async execute(client, account, *, persona=None, rng=None) -> WarmingActionResult``.
+Реальные вызовы Telethon обёрнуты в try/except (см.
+:func:`worker.warming.actions.base.action`), а таргеты выбираются через
+:func:`worker.warming.actions.base.pick_target` (persona.interests → fallback).
 """
 
 from __future__ import annotations
 
+import random
 from datetime import datetime
 from typing import Any, Callable, Optional
 
 from core.enums import WarmingActionType, WarmingActivityStatus
-from core.models import Account
+from core.models import Account, Persona
 from worker.warming.actions import (
     idle_online,
     join_group,
@@ -46,6 +49,8 @@ async def execute_action(
     session_factory: Optional[Callable[[], Any]] = None,
     publisher: Any = None,
     now: Optional[datetime] = None,
+    persona: Optional[Persona] = None,
+    rng: Optional[random.Random] = None,
 ) -> WarmingActionResult:
     """Выполняет действие данного типа над клиентом аккаунта.
 
@@ -54,6 +59,9 @@ async def execute_action(
     (``reason=rate_limited``) — это не ошибка прогрева, клиент не трогается
     (аудит #7). Сам вызов Telethon внутри действия обёрнут в
     ``around_telethon_call`` (health-события, аудит #8).
+
+    ``persona`` и ``rng`` пробрасываются в action-тела для persona-based
+    выбора таргета (этап 10, backlog #1).
     """
     if governor is not None and not await governor.check_and_reserve(
         account.id, _WARMING_ACTION
@@ -69,6 +77,8 @@ async def execute_action(
         session_factory=session_factory,
         publisher=publisher,
         now=now,
+        persona=persona,
+        rng=rng,
     )
 
 

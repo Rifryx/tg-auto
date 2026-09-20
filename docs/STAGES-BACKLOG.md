@@ -55,14 +55,6 @@
 
 ## Этап 10. Warmup Engine
 
-### Persona-based targets в warming actions
-* **Триггер:** первая жалоба «все аккаунты подписаны на @telegram/@durov».
-* **Что:** ``worker/warming/actions/*.py`` (7 файлов) сейчас берут target из
-  константы ``DISCOVERY_CHANNELS``/``DISCOVERY_GROUPS``. Надо: helper
-  ``pick_target(rng, persona, kind)`` — читает ``persona.interests`` (если не
-  пусто), fallback на константы. Действие получает persona через декоратор
-  ``@action`` (расширить сигнатуру ``execute(client, account, persona=None)``).
-
 ### Trust-graph: действие ``interact_with_peer``
 * **Триггер:** когда persona-targets свернутся и не будет других приоритетов.
 * **Что:** новое ``WarmingActionType.INTERACT_WITH_PEER``. Реализация: находим
@@ -71,13 +63,6 @@
   общения на общем канале / ставим реакцию. Требует миграции ``warming_activities``
   (расширить CHECK ``action_type``) и обновления enum. Даст УТП второй уровень:
   «аккаунты одного проекта естественно живут вместе».
-
-### Scheduler tick с ошибкой не должен зависать
-* **Триггер:** первый прод-инцидент с ChatWriteForbidden в прогреве.
-* **Что:** ``execute_action`` ловит все Exception → item ``failed``. Некоторые
-  ошибки (``ChatWriteForbidden`` при подписке на закрытый канал) — семантически
-  «повторим на другом канале», а не «прогрев акка сломан». Отдельная категория
-  ошибок в ``WarmingActionResult.meta``.
 
 ---
 
