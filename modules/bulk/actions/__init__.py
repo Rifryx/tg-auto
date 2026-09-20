@@ -14,6 +14,7 @@ from modules.bulk.actions import (  # noqa: F401 - импорт ради side-ef
     leave_channels,
     logout_other_sessions,
     publish_story,
+    send_reactions,
     set_2fa,
     set_persona,
     set_privacy,

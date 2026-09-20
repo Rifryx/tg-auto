@@ -27,26 +27,11 @@
 
 ## Этап 8. Каналы и чаты
 
-### Реюз helper'ов в commenting-модуле
-* **Триггер:** следующий touch файла `modules/commenting/worker/channels.py`.
-* **Что:** после этапа 8 экстрактнутые парсеры лежат в
-  `worker/telegram_refs.py` (`strip_url`, `folder_slug`, `invite_hash`,
-  `public_ref`, `classify_ref`). В `commenting/worker/channels.py` остались
-  локальные копии — заменить на импорт из worker.telegram_refs. Ничего не
-  ломается сейчас (обе версии идентичны), но при следующей правке одной из
-  двух будет дрейф — лучше свернуть заранее.
-
 ### Bulk-действие «сгенерировать канал»
 * **Триггер:** когда пользователь попросит массово создавать проектные каналы.
 * **Что:** action `create_channel` (`channels.CreateChannelRequest`), после —
   `PinMessageRequest` на первом посте. Пожалуй, требует отдельного
   ``project_channels`` учёта, чтобы не потерять созданные каналы.
-
-### Bulk-действие «поставить реакцию»
-* **Триггер:** когда в mini-app появится «реакция-boost» под пост.
-* **Что:** action `send_reactions` (`messages.SendReactionRequest`) на набор
-  ссылок постов. Payload: `{post_urls, emoji}`. Rate-limit governor обязателен —
-  реакции быстро палятся антифродом.
 
 ### Bulk view + folders
 * **Триггер:** когда развернём папки addlist как first-class объект.

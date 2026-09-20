@@ -28,6 +28,7 @@ from core.queue.task_names import TaskName
 from modules.commenting.repositories import MonitoredChannelRepository
 from worker.client_pool import ClientPool
 from worker.health import around_telethon_call
+from worker.telegram_refs import folder_slug, invite_hash, public_ref, strip_url
 
 get_logger = structlog.get_logger
 
@@ -56,42 +57,13 @@ def _task_queue(ctx: dict) -> TaskQueue:
 
 
 # --- разбор пользовательского ввода ------------------------------------------
-
-
-def _strip_url(ref: str) -> str:
-    ref = ref.strip()
-    for prefix in ("https://", "http://"):
-        if ref.startswith(prefix):
-            ref = ref[len(prefix) :]
-    if ref.startswith("t.me/"):
-        ref = ref[len("t.me/") :]
-    elif ref.startswith("telegram.me/"):
-        ref = ref[len("telegram.me/") :]
-    return ref.strip("/")
-
-
-def _folder_slug(ref: str) -> Optional[str]:
-    """Слаг папки-addlist (``t.me/addlist/<slug>``) или None."""
-    body = _strip_url(ref)
-    if body.startswith("addlist/"):
-        return body[len("addlist/") :] or None
-    return None
-
-
-def _invite_hash(ref: str) -> Optional[str]:
-    """Хэш приватного инвайта (``t.me/+xxxx`` или ``t.me/joinchat/xxxx``) или None."""
-    body = _strip_url(ref)
-    if body.startswith("+"):
-        return body[1:] or None
-    if body.startswith("joinchat/"):
-        return body[len("joinchat/") :] or None
-    return None
-
-
-def _public_ref(ref: str) -> str:
-    """Публичный @username/имя канала для get_entity."""
-    body = _strip_url(ref)
-    return body.lstrip("@")
+# Реюз helper'ов из worker.telegram_refs (этап 8, backlog #1): раньше здесь
+# были локальные копии, что грозило дрейфом. Сохраняем короткие псевдонимы,
+# чтобы диффы вызовов остались точечными.
+_strip_url = strip_url
+_folder_slug = folder_slug
+_invite_hash = invite_hash
+_public_ref = public_ref
 
 
 # --- resolve_channel ---------------------------------------------------------

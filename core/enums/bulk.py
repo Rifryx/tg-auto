@@ -41,3 +41,4 @@ class BulkActionType(str, Enum):
     VIEW_STORIES = "view_stories"
     ASSIGN_PROXY = "assign_proxy"
     APPLY_PROFILE_POOL = "apply_profile_pool"
+    SEND_REACTIONS = "send_reactions"
