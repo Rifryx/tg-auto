@@ -64,5 +64,6 @@ register(
         run=_run,
         title="Отписаться от каналов",
         description="Массово отписывает выбранные аккаунты от набора каналов.",
+        governor_key="bulk_channel",
     )
 )

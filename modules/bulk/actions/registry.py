@@ -37,6 +37,10 @@ class BulkAction:
     run: BulkActionRunner
     title: str = ""
     description: str = ""
+    # Категория для rate-limit governor'а (worker.health.governor.LIMITS).
+    # None — действие не проходит через governor (напр. чисто локальные
+    # операции без Telegram API). Дефолт: bulk_view (самый мягкий).
+    governor_key: Optional[str] = "bulk_view"
 
 
 ACTION_REGISTRY: dict[str, BulkAction] = {}

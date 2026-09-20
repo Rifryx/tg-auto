@@ -39,3 +39,4 @@ class BulkActionType(str, Enum):
     VIEW_CHANNEL_POSTS = "view_channel_posts"
     PUBLISH_STORY = "publish_story"
     VIEW_STORIES = "view_stories"
+    ASSIGN_PROXY = "assign_proxy"

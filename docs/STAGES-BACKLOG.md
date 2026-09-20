@@ -12,47 +12,6 @@
 
 ---
 
-## Этап 4. Health-check и Health Score
-
-### Тест reactive-пути на уровне check_account_impl
-* **Триггер:** при первом рефакторинге `worker/tasks/health.py::check_account_impl`.
-* **Что:** сейчас юнит-тесты `probe_session` покрывают реактивный путь напрямую;
-  интеграционного теста «check_account_impl завершил акк как banned» нет — есть
-  только моковый вариант. Добавить, чтобы обкатать `client_pool.get` + probe
-  вместе.
-
----
-
-## Этап 5. Bulk Actions
-
-### Governor на bulk-item
-* **Триггер:** когда появится массовое действие, которое бьёт по Telegram API
-  часто (комментинг/публикация Stories).
-* **Что:** перед вызовом `action.run(...)` в `worker/tasks/bulk.py::item_impl`
-  зарезервировать слот через `Governor.check_and_reserve(account_id, action_type)`
-  где `action_type` мапится из `BulkActionType` (напр. `comment`, `warming`).
-  Если слот не выдан — item помечается `pending` заново и re-enqueue через
-  `TaskQueue.schedule(now + backoff)`.
-* **Зависимость:** `worker.health.governor.LIMITS` — расширить мапой на
-  `BulkActionType`.
-
-### UI-формы под payload действий
-* **Триггер:** этап 13 (Mini-app UX) — когда откроется экран bulk-операций.
-* **Что:** каждое действие в `modules/bulk/actions/*` уже описывает свою
-  `payload_schema` (pydantic). Нужен API-эндпоинт `GET /bulk-jobs/actions`,
-  который отдаёт: `name`, `title`, `description`, `requires_client`, и
-  JSON-schema payload'а (`payload_schema.model_json_schema()`). Mini-app по этому
-  генерирует форму.
-
-### assign_proxy как bulk-action
-* **Триггер:** после этапа 3 (Пул прокси).
-* **Что:** массовое переназначение прокси с соблюдением инв. §4 (один прокси =
-  один аккаунт, гео совпадает). Не тривиально: нужна логика захвата/освобождения
-  прокси из пула, учёт гео номера, обработка «прокси кончились в пуле» → item
-  идёт в SKIPPED с причиной.
-
----
-
 ## Этап 7. Безопасность
 
 ### Recovery-email flow при set_2fa

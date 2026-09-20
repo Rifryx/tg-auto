@@ -44,5 +44,6 @@ register(
         run=_run,
         title="Сбросить чужие сессии",
         description="Terminate all sessions except this client's on Telegram servers.",
+        governor_key="bulk_security",
     )
 )

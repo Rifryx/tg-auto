@@ -7,6 +7,7 @@
 
 from modules.bulk.actions import (  # noqa: F401 - импорт ради side-effect
     apply_profile,
+    assign_proxy,
     generate_and_apply_profile,
     join_channels,
     leave_channels,

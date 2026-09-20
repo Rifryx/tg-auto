@@ -113,5 +113,6 @@ register(
         run=_run,
         title="Сгенерировать профиль из персоны и применить",
         description="LLM создаёт имя/био/username по персоне каждого аккаунта и применяет.",
+        governor_key="bulk_profile",
     )
 )

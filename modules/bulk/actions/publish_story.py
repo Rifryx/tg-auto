@@ -134,5 +134,6 @@ register(
         run=_run,
         title="Опубликовать Stories",
         description="Массовая публикация одной истории от лица каждого выбранного аккаунта.",
+        governor_key="bulk_publish",
     )
 )

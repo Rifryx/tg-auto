@@ -5,15 +5,17 @@
   ``done``/``running``/``failed`` — не ставим повторно.
 * ``bulk.item`` — выполняет один action над одним аккаунтом:
   1) проверяет статус аккаунта (banned/retired → skipped);
-  2) для действий с ``requires_client=True`` берёт клиент из ``ClientPool``;
-  3) вызывает ``action.run(...)`` в try/finally для release клиента;
-  4) обновляет item и job-счётчики;
-  5) публикует ``bulk.progress``.
+  2) если у action указан ``governor_key`` — резервирует слот через governor;
+     при отказе item остаётся ``pending``, задача заново шедулится с backoff.
+  3) для действий с ``requires_client=True`` берёт клиент из ``ClientPool``;
+  4) вызывает ``action.run(...)`` в try/finally для release клиента;
+  5) обновляет item и job-счётчики;
+  6) публикует ``bulk.progress``.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from core.enums import AccountStatus, BulkItemStatus
@@ -26,6 +28,11 @@ from modules.bulk.actions import ACTION_REGISTRY
 from worker.tasks.logging import get_logger
 
 BULK_PROGRESS_CHANNEL = "bulk.progress"
+
+# Задержка перед повторной постановкой rate-limited item'а (этап 5, backlog #1).
+# Часовое окно governor'а — берём 5 минут, чтобы к следующему тику окно уже
+# успело сдвинуться (реже — упрёмся в тот же лимит; чаще — заспамим Redis).
+_GOVERNOR_BACKOFF_SECONDS = 5 * 60
 
 _UNAVAILABLE_STATUSES = frozenset(
     {AccountStatus.BANNED.value, AccountStatus.RETIRED.value}
@@ -125,6 +132,30 @@ async def item_impl(ctx: dict, job_id: int, item_id: int) -> dict[str, Any]:
         _finalize_failed(session_factory, publisher, job_id, item_id, repr(exc), now)
         return {"failed": True, "reason": "invalid_payload"}
 
+    # 2b) Governor (этап 5, backlog #1): для действий с указанным governor_key
+    # резервируем слот. Если лимит исчерпан — item возвращается в pending и
+    # шедулится через ~5 минут, счётчики job не двигаем. В runtime без Redis
+    # governor всё равно fail-open, так что локальные тесты не блокируются.
+    if action.governor_key is not None:
+        governor = ctx.get("governor")
+        if governor is None:
+            # Ленивая сборка поверх arq ctx['redis'] — тот же паттерн, что в
+            # worker/login/flow.py::_governor и worker/tasks/warming.py.
+            from worker.health import Governor as _Governor
+            governor = _Governor(ctx.get("redis"))
+        allowed = await governor.check_and_reserve(account_id, action.governor_key)
+        if not allowed:
+            await _reschedule_rate_limited(
+                session_factory, publisher, ctx,
+                job_id=job_id, item_id=item_id, now=now,
+            )
+            get_logger().info(
+                "bulk.item.rate_limited",
+                job_id=job_id, item_id=item_id, action=action_name,
+                governor_key=action.governor_key,
+            )
+            return {"skipped": True, "reason": "rate_limited"}
+
     # 3) Выполняем действие.
     client = None
     try:
@@ -169,6 +200,53 @@ async def item_impl(ctx: dict, job_id: int, item_id: int) -> dict[str, Any]:
         session.commit()
     _publish(publisher, job_id, item_id, status)
     return {"status": status.value, "detail": result.detail}
+
+
+async def _reschedule_rate_limited(
+    session_factory,
+    publisher: Optional[Publisher],
+    ctx: dict,
+    *,
+    job_id: int,
+    item_id: int,
+    now: datetime,
+) -> None:
+    """Rate-limit path (этап 5, backlog #1): item возвращается в pending,
+    задача шедулится через backoff. Счётчики job'а не двигаем — item как
+    будто не начинали (see recompute_counters ниже, но mark PENDING).
+    """
+    with session_factory() as session:
+        repo = BulkJobRepository(session)
+        # Возвращаем в PENDING, чистим started_at (item был помечен RUNNING
+        # выше в item_impl → apply_item_result не примет None для сброса,
+        # поэтому обнуляем поле напрямую после смены статуса).
+        item = repo.apply_item_result(
+            item_id,
+            status=BulkItemStatus.PENDING,
+            error=None,
+        )
+        if item is not None:
+            item.started_at = None
+            item.finished_at = None
+        repo.recompute_counters(job_id)
+        session.commit()
+
+    # В тестах ctx["task_queue"] — spy; в проде на arq — используем реальную
+    # TaskQueue поверх ctx["redis"].
+    queue = ctx.get("task_queue") or TaskQueue(redis=ctx.get("redis"))
+    run_at = now + timedelta(seconds=_GOVERNOR_BACKOFF_SECONDS)
+    await queue.schedule(TaskName.BULK_ITEM, run_at, job_id, item_id)
+
+    if publisher is not None:
+        publisher.publish(
+            BULK_PROGRESS_CHANNEL,
+            {
+                "job_id": job_id,
+                "item_id": item_id,
+                "status": BulkItemStatus.PENDING.value,
+                "reason": "rate_limited",
+            },
+        )
 
 
 def _finalize_failed(

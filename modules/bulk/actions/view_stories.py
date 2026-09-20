@@ -86,5 +86,6 @@ register(
         run=_run,
         title="Просмотреть чужие Stories",
         description="Каждый аккаунт открывает и отмечает прочитанными активные Stories указанных peer'ов.",
+        governor_key="bulk_view",
     )
 )

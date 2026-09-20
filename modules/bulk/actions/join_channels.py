@@ -87,5 +87,6 @@ register(
         run=_run,
         title="Подписаться на каналы",
         description="Массово вступает каждым аккаунтом в переданный набор каналов.",
+        governor_key="bulk_channel",
     )
 )
