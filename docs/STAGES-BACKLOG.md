@@ -124,32 +124,6 @@ _Пока пусто — заведу пункты при старте этап�
 
 ---
 
-## Этап 6. Оформление профилей
-
-### Пул asset'ов (аватарки / имена / био / username-шаблоны)
-* **Триггер:** когда добавим ручной bulk-режим оформления «без LLM».
-* **Что:** таблица `profile_assets` (`kind: avatar/first_name/last_name/bio/username_template`,
-  `value` / `binary_url`, `tags` JSONB, `used_count`). API CRUD; bulk-action
-  `apply_profile_pool` рандомно берёт asset'ы по kind + фильтру тегов.
-  Сейчас в этапе 6 сделан только AI-путь (`generate_and_apply_profile`).
-
-### Загрузка аватара из URL/файла в Telegram
-* **Триггер:** когда появится пул asset'ов ИЛИ когда генератор начнёт возвращать
-  референсную картинку.
-* **Что:** helper в `worker/profiles/apply.py::upload_avatar` — скачать медиа
-  (aiohttp через прокси аккаунта!) → `client.upload_file` → `SetProfilePhoto`.
-  Учесть: клиент акка ходит через свой прокси, а вот скачивание внешнего URL —
-  нет; нужно решать, из какой сети скачивать (риск раскрытия IP серверной).
-
-### Асинхронная валидация username-кандидатов из LLM
-* **Триггер:** когда bulk `generate_and_apply_profile` начнёт часто натыкаться на
-  занятые username'ы.
-* **Что:** после генерации LLM прогонять `probe_username(candidate)` через
-  Telethon `CheckUsernameRequest` (worker), выбирать первый свободный. Сейчас
-  генератор просто отдаёт список кандидатов, а `apply_profile` применяет первый.
-
----
-
 ## Прочее (кросс-этапное)
 
 ### Формализовать triggered_status_change как enum

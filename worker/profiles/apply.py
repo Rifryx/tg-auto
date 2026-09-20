@@ -19,6 +19,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+import io
+
+import httpx
 from telethon.errors import (
     UsernameInvalidError,
     UsernameNotModifiedError,
@@ -29,6 +32,7 @@ from telethon.tl.functions.account import (
     UpdateProfileRequest,
     UpdateUsernameRequest,
 )
+from telethon.tl.functions.photos import UploadProfilePhotoRequest
 
 from core.queue.publisher import Publisher
 from worker.health.monitor import around_telethon_call
@@ -87,6 +91,23 @@ async def apply_profile_to_telegram(
 
     for candidate in username_candidates or []:
         result.tried_usernames.append(candidate)
+        # Backlog #этап6.3: проактивная проверка через CheckUsername до
+        # UpdateUsername. Так мы избегаем лишнего UpdateUsernameRequest на
+        # заведомо занятые/невалидные (антифрод не любит частые правки).
+        try:
+            free = await around_telethon_call(
+                lambda c=candidate: client(CheckUsernameRequest(username=c)),
+                account_id=account_id,
+                session_factory=session_factory,
+                publisher=publisher,
+            )
+        except (UsernameInvalidError, UsernameOccupiedError) as exc:
+            result.errors[candidate] = type(exc).__name__
+            continue
+        if not free:
+            result.errors[candidate] = "occupied"
+            continue
+
         try:
             await around_telethon_call(
                 lambda c=candidate: client(UpdateUsernameRequest(username=c)),
@@ -100,10 +121,73 @@ async def apply_profile_to_telegram(
             result.applied_username = candidate  # уже стоял этот username
             break
         except (UsernameOccupiedError, UsernameInvalidError) as exc:
+            # Гонка: между CheckUsername и UpdateUsername кто-то занял.
+            # Просто пробуем следующего кандидата.
             result.errors[candidate] = type(exc).__name__
             continue
 
     return result
+
+
+async def upload_avatar(
+    client: Any,
+    *,
+    account_id: int,
+    session_factory: Any,
+    publisher: Optional[Publisher] = None,
+    binary: Optional[bytes] = None,
+    url: Optional[str] = None,
+    filename: str = "avatar.jpg",
+    http_timeout_seconds: float = 10.0,
+) -> dict[str, Any]:
+    """Ставит аватар аккаунту (этап 6, backlog #2).
+
+    Источник — либо готовые байты (``binary``), либо URL (``url``). При URL
+    скачивание идёт по-простому через ``httpx`` без прокси аккаунта: сеть
+    сервера. Это осознанный компромисс MVP — risk раскрытия IP серверной
+    приемлем в single-tenant deploy; когда потребуется — переезжаем на
+    aiohttp через per-account proxy.
+
+    Возвращает ``{ok: bool, mime: str|None, error?: str}``.
+    """
+    if binary is None and not url:
+        return {"ok": False, "error": "no_source"}
+
+    blob: Optional[bytes] = binary
+    if blob is None and url:
+        try:
+            async with httpx.AsyncClient(timeout=http_timeout_seconds) as http:
+                resp = await http.get(url)
+                resp.raise_for_status()
+                blob = resp.content
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"download_failed: {exc}"}
+
+    if not blob:
+        return {"ok": False, "error": "empty_blob"}
+
+    # Telethon.upload_file принимает file-like/bytes. Ставим свой filename,
+    # чтобы Telegram корректно определил как photo.
+    file_obj = io.BytesIO(blob)
+    file_obj.name = filename
+
+    try:
+        input_file = await around_telethon_call(
+            lambda: client.upload_file(file_obj, file_name=filename),
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+        )
+        await around_telethon_call(
+            lambda: client(UploadProfilePhotoRequest(file=input_file)),
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"upload_failed: {exc!r}"}
+
+    return {"ok": True}
 
 
 async def check_username_free(

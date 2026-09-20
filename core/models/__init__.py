@@ -13,6 +13,7 @@ from core.models.commenting import (
 )
 from core.models.health_event import HealthEvent
 from core.models.persona import Persona
+from core.models.profile_asset import ProfileAsset
 from core.models.project import Project
 from core.models.proxy import Proxy
 from core.models.subscription import Subscription
@@ -35,6 +36,7 @@ __all__ = [
     "MonitoredChannel",
     "HealthEvent",
     "Persona",
+    "ProfileAsset",
     "Project",
     "Proxy",
     "Subscription",
