@@ -1,9 +1,18 @@
-import { Bot, Info, ScrollText, SlidersHorizontal, Users, Wifi } from "lucide-react";
+import {
+  Bot,
+  FolderKanban,
+  Info,
+  ScrollText,
+  SlidersHorizontal,
+  Users,
+  Wifi,
+} from "lucide-react";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { MoreRow } from "./components/ui";
 
 const ITEMS = [
   { to: "/more/autopilot", icon: Bot, label: "Автопилот" },
+  { to: "/more/projects", icon: FolderKanban, label: "Проекты" },
   { to: "/more/personas", icon: Users, label: "Персоны" },
   { to: "/more/proxies", icon: Wifi, label: "Прокси" },
   { to: "/more/audit", icon: ScrollText, label: "Аудит" },

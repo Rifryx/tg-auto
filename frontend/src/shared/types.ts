@@ -10,6 +10,7 @@ export type AccountStatus =
   | "banned";
 
 export type WarmingProfile = "minimal" | "medium" | "dense";
+export type AccountRole = "main" | "support" | "warmup" | "burner";
 export type ProxyStatus = "alive" | "dead" | "unchecked";
 export type ProxyType = "socks5" | "http";
 export type Initiator = "user" | "auto" | "health";
@@ -53,6 +54,18 @@ export interface Account {
   app_version: string;
   lang_code: string;
   system_lang_code: string;
+  project_id: number | null;
+  role: AccountRole | null;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Project {
+  id: number;
+  user_id: string;
+  name: string;
+  description: string | null;
   created_at: string;
   updated_at: string;
 }

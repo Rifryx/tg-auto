@@ -11,6 +11,7 @@ import { haptic } from "../../shared/tg";
 import type { MonitoredChannel, MonitoredChannelStatus, WarmingProfile } from "../../shared/types";
 import { Field, TextArea, Toggle } from "../../modules/commenting/components/ui";
 import { BanRiskCard } from "./components/BanRiskCard";
+import { ProjectRoleTagsSection } from "./components/ProjectRoleTagsSection";
 import { CapsuleButton, ConfirmDialog, Section, SegmentedControl, StatusBadge } from "./components/ui";
 
 const PROFILE_OPTIONS: { value: WarmingProfile; label: string }[] = [
@@ -219,6 +220,14 @@ export function AccountDetailScreen() {
 
       {/* 2b. Anti-ban predictor (этап 11) */}
       <BanRiskCard accountId={accountId} />
+
+      {/* 2c. Проект/роль/теги (этап 2) */}
+      <ProjectRoleTagsSection
+        accountId={accountId}
+        projectId={acc.project_id ?? null}
+        role={acc.role ?? null}
+        tags={acc.tags ?? []}
+      />
 
       {/* 3. Прокси — read-инфо + смена через селект */}
       <Section title="Прокси">

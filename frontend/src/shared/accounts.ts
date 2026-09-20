@@ -1,6 +1,7 @@
 import { api } from "./api";
 import type {
   Account,
+  AccountRole,
   LoginStateResponse,
   MonitoredChannel,
   Persona,
@@ -25,6 +26,9 @@ export const accountsApi = {
       avatar_url: string | null;
       persona_id: number | null;
       proxy_id: number | null;
+      project_id: number | null;
+      role: AccountRole | null;
+      tags: string[];
     }>,
   ) => api.patch<Account>(`/accounts/${id}`, body),
   create: (body: {
