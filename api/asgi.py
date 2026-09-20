@@ -208,6 +208,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         billing,
         bulk_jobs,
         login,
+        media_assets,
         monitoring,
         personas,
         profile_assets,
@@ -243,6 +244,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(autopilot.router)
     app.include_router(projects.router)
     app.include_router(profile_assets.router)
+    app.include_router(media_assets.router)
     app.include_router(commenting_router)
     app.include_router(channels_router)
     return app

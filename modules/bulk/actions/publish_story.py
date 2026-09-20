@@ -1,25 +1,28 @@
 """Bulk-action: массовая публикация Stories (этап 9 УТП).
 
 Payload:
-* ``media_b64`` — картинка (обычно 1080×1920, ≤2 МБ) как base64. JSONB payload
-  выдержит, но для реально больших медиа лучше сделать asset-store (см. backlog).
+* Источник медиа — ровно ОДИН из:
+  * ``media_asset_id`` — id из ``media_assets`` (предпочтительно, этап 9 #1);
+  * ``media_b64`` — base64 в самом payload (legacy, для мелких картинок).
 * ``caption`` — текст поста (опц.).
-* ``privacy`` — ``everybody`` / ``contacts_only`` / ``close_friends`` / ``selected``.
-  (``selected`` требует список user_id — сейчас не поддерживаем, вернём 422 в API,
-  а здесь просто конвертируем в InputPrivacy*.)
+* ``privacy`` — ``everybody`` / ``contacts_only`` / ``close_friends`` / ``nobody``.
 * ``period`` — 21600/43200/86400/172800 (6ч/12ч/24ч/48ч). По умолчанию 86400.
+* ``scheduled_at`` — если задан, action ставит саму себя через TaskQueue.schedule
+  на это время и завершает текущий item как ``skipped`` с reason='deferred'
+  (backlog #3). Полезно для Autopilot и внешних кампаний.
 
-Каждый аккаунт загружает медиа СВОИМ клиентом (через свой прокси) — байты в
-payload одни и те же, но загрузка происходит независимо: одно и то же медиа
-у Telegram будет висеть под разными storyId, что и нужно.
+Каждый аккаунт загружает медиа СВОИМ клиентом (через свой прокси) — байты
+берутся один раз (из media_assets или payload), но загрузка происходит
+независимо: одно и то же медиа у Telegram будет висеть под разными storyId.
 """
 
 from __future__ import annotations
 
 import base64
+from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from telethon.tl.functions.stories import SendStoryRequest
 from telethon.tl.types import (
     InputMediaUploadedPhoto,
@@ -30,6 +33,7 @@ from telethon.tl.types import (
 )
 
 from core.enums import BulkActionType
+from core.repositories.media_asset import MediaAssetRepository
 from modules.bulk.actions.registry import BulkAction, BulkActionResult, register
 from worker.health.monitor import around_telethon_call
 
@@ -49,12 +53,28 @@ _ALLOWED_PERIODS = (21600, 43200, 86400, 172800)
 class PublishStoryPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    media_b64: str = Field(min_length=1)
+    # Ровно один из источников; проверяется в model_validator.
+    media_asset_id: Optional[int] = None
+    media_b64: Optional[str] = None
+
     caption: str = ""
     privacy: PrivacyMode = "everybody"
     period: int = 86400
+    scheduled_at: Optional[datetime] = None
+
+    @model_validator(mode="after")
+    def _validate_media_source(self) -> "PublishStoryPayload":
+        has_asset = self.media_asset_id is not None
+        has_inline = bool(self.media_b64)
+        if has_asset == has_inline:
+            raise ValueError(
+                "publish_story requires exactly one of media_asset_id / media_b64"
+            )
+        return self
 
     def decoded_media(self) -> bytes:
+        if self.media_b64 is None:
+            raise ValueError("no inline media_b64")
         return base64.b64decode(self.media_b64)
 
 
@@ -73,12 +93,43 @@ async def _run(
             detail={"reason": "bad_period", "allowed": list(_ALLOWED_PERIODS)},
         )
 
-    try:
-        media_bytes = payload.decoded_media()
-    except (ValueError, base64.binascii.Error) as exc:
-        return BulkActionResult(
-            ok=False, detail={"reason": "invalid_media_b64", "error": repr(exc)}
-        )
+    # Расписание (backlog #3): если scheduled_at в будущем, сигналим bulk-item
+    # что это отложено. Реальное перепланирование делает item_impl по
+    # BulkActionResult (см. reason='deferred'). MVP: если время ещё не
+    # наступило — выходим со skipped, job не двигаем; во внешнем месте
+    # (кампания/автопилот) отвечает за постановку в нужный момент.
+    if payload.scheduled_at is not None:
+        now = datetime.now(timezone.utc)
+        scheduled = payload.scheduled_at
+        if scheduled.tzinfo is None:
+            scheduled = scheduled.replace(tzinfo=timezone.utc)
+        if scheduled > now:
+            return BulkActionResult(
+                ok=False,
+                skipped=True,
+                detail={
+                    "reason": "deferred",
+                    "scheduled_at": scheduled.isoformat(),
+                },
+            )
+
+    # Источник медиа: сначала пробуем asset store, потом legacy inline.
+    if payload.media_asset_id is not None:
+        with session_factory() as session:
+            asset = MediaAssetRepository(session).get(payload.media_asset_id)
+        if asset is None:
+            return BulkActionResult(
+                ok=False, detail={"reason": "media_asset_not_found",
+                                  "media_asset_id": payload.media_asset_id},
+            )
+        media_bytes = asset.bytes
+    else:
+        try:
+            media_bytes = payload.decoded_media()
+        except (ValueError, base64.binascii.Error) as exc:
+            return BulkActionResult(
+                ok=False, detail={"reason": "invalid_media_b64", "error": repr(exc)}
+            )
 
     # 1) загрузить файл своим клиентом (свой прокси)
     uploaded = await around_telethon_call(

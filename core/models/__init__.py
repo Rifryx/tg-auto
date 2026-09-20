@@ -12,6 +12,7 @@ from core.models.commenting import (
     MonitoredChannel,
 )
 from core.models.health_event import HealthEvent
+from core.models.media_asset import MediaAsset
 from core.models.persona import Persona
 from core.models.profile_asset import ProfileAsset
 from core.models.project import Project
@@ -35,6 +36,7 @@ __all__ = [
     "CommentLog",
     "MonitoredChannel",
     "HealthEvent",
+    "MediaAsset",
     "Persona",
     "ProfileAsset",
     "Project",

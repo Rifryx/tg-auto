@@ -44,27 +44,12 @@
 
 ## Этап 9. Stories
 
-### Media store вместо base64 в payload
-* **Триггер:** первый реальный юзкейс с картинкой > 200 КБ.
-* **Что:** сейчас ``publish_story.payload.media_b64`` — base64 в JSONB. Для
-  1080×1920 фото это ~1–2 МБ на job (payload шарится между item'ами — не
-  умножается на N аккаунтов, но всё равно тяжело). Решение: таблица
-  ``media_assets`` (id, mime, bytes, sha256, created_at) + ``media_asset_id`` в
-  payload. Плюсом можно шарить одну картинку между несколькими story-job'ами.
-
 ### Video / документ в Stories
 * **Триггер:** когда пользователь попросит видео-Stories.
 * **Что:** сейчас поддерживаем только ``InputMediaUploadedPhoto``. Для видео
   нужна ``InputMediaUploadedDocument`` с video-attributes (duration/w/h) и
   превью-thumbnail; работает через тот же ``upload_file``, но с обработкой
   больших файлов (несколько частей, MTProto file references).
-
-### Расписание публикаций
-* **Триггер:** этап 10/12 (Warmup Engine / Autopilot).
-* **Что:** сейчас ``publish_story`` шедулится через arq по расписанию извне.
-  Хочется параметр ``scheduled_at`` в payload → task сама через
-  ``TaskQueue.schedule`` откладывает execute. Пока Autopilot не построен —
-  проще пользоваться внешним крон-планировщиком.
 
 ---
 
