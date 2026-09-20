@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./app/layout/AppLayout";
 import { AccountDetailScreen } from "./screens/accounts/AccountDetailScreen";
 import { AccountsListScreen } from "./screens/accounts/AccountsListScreen";
+import { BulkImportScreen } from "./screens/accounts/BulkImportScreen";
 import { NewAccountFlow } from "./screens/accounts/NewAccountFlow";
 import { DashboardScreen } from "./screens/dashboard/DashboardScreen";
 import { AboutScreen } from "./screens/more/AboutScreen";
@@ -25,6 +26,7 @@ export function App() {
         <Route path="/" element={<DashboardScreen />} />
         <Route path="/accounts" element={<AccountsListScreen />} />
         <Route path="/accounts/new" element={<NewAccountFlow />} />
+        <Route path="/accounts/import-bulk" element={<BulkImportScreen />} />
         <Route path="/accounts/:id" element={<AccountDetailScreen />} />
         {/* «Задачи» = модули; сейчас единственный модуль — commenting (§9 брифа). */}
         <Route path="/tasks" element={<CampaignsScreen />} />

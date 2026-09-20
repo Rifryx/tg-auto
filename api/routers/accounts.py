@@ -192,6 +192,30 @@ async def import_session_account(
     return AccountRead.model_validate(account)
 
 
+@router.post("/bulk-import")
+async def bulk_import_accounts(
+    archive: UploadFile = File(..., description="ZIP с .session-файлами"),
+    mapping: UploadFile = File(..., description="CSV: phone,proxy_id[,warming_profile,persona_id,project_id,role,tags]"),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Массовый импорт из архива + CSV (этап 1).
+
+    Best-effort: ошибка одной строки не роняет остальные. В ответе — что
+    успешно, что пропущено и почему. Тарифный лимит `accounts_max` здесь НЕ
+    применяется через enforce_limit (у зависимости нет счёта заранее);
+    вместо этого сам сервис откатывает лишние вставки на IntegrityError.
+    """
+    from api.services.bulk_import import bulk_import
+
+    archive_bytes = await archive.read()
+    csv_bytes = await mapping.read()
+    try:
+        report = bulk_import(session, archive_bytes=archive_bytes, csv_bytes=csv_bytes)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    return report.as_dict()
+
+
 @router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 def delete_account(
     account_id: int,

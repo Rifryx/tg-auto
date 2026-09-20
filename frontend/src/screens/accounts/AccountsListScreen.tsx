@@ -90,7 +90,7 @@ export function AccountsListScreen() {
       )}
 
       {data && data.length === 0 && filter === "all" && (
-        <div className="mt-6">
+        <div className="mt-6 flex flex-col gap-2">
           <CapsuleButton
             variant={blocked ? "secondary" : "accent"}
             disabled={blocked}
@@ -98,6 +98,23 @@ export function AccountsListScreen() {
           >
             {blocked ? "Лимит достигнут" : "Добавить аккаунт"}
           </CapsuleButton>
+          <CapsuleButton
+            variant="secondary"
+            onClick={() => navigate("/accounts/import-bulk")}
+          >
+            Массовый импорт
+          </CapsuleButton>
+        </div>
+      )}
+
+      {data && data.length > 0 && (
+        <div className="mt-4">
+          <button
+            onClick={() => navigate("/accounts/import-bulk")}
+            className="text-[13px] text-text-tertiary underline-offset-2 hover:underline"
+          >
+            Массовый импорт из архива
+          </button>
         </div>
       )}
     </>

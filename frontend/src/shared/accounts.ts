@@ -52,6 +52,16 @@ export const accountsApi = {
     if (body.session_file) fd.append("session_file", body.session_file);
     return api.postForm<Account>("/accounts/import-session", fd);
   },
+  bulkImport: (archive: File, mapping: File) => {
+    const fd = new FormData();
+    fd.append("archive", archive);
+    fd.append("mapping", mapping);
+    return api.postForm<{
+      imported: { phone: string; account_id: number }[];
+      skipped: { phone: string; reason: string }[];
+      totals: { imported: number; skipped: number };
+    }>("/accounts/bulk-import", fd);
+  },
   history: (id: number) => api.get<StatusHistoryRecord[]>(`/accounts/${id}/history`),
   warming: (id: number) => api.get<WarmingActivity[]>(`/accounts/${id}/warming`),
   setProfile: (id: number, profile: WarmingProfile) =>
