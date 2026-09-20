@@ -5,6 +5,7 @@ from core.crypto.fernet import (
     encrypt_password,
     encrypt_session,
     reset_cache,
+    rotate,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "encrypt_password",
     "encrypt_session",
     "reset_cache",
+    "rotate",
 ]
