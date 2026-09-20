@@ -62,6 +62,40 @@ class AccountRepository(BaseRepository[Account]):
         stmt = select(Account).where(Account.status == AccountStatus(status).value)
         return list(self.session.execute(stmt).scalars().all())
 
+    def list_filtered(
+        self,
+        *,
+        status: Optional[AccountStatus] = None,
+        warming_profile: Optional[WarmingProfile] = None,
+        project_id: Optional[int] = None,
+        role: Optional[str] = None,
+        tag: Optional[str] = None,
+    ) -> list[Account]:
+        """Один запрос с необязательными фильтрами (этап 2).
+
+        `tag` — фильтр «содержит», работает поверх ARRAY-колонки. `project_id`
+        может быть 0, чтобы явно фильтровать «без проекта» (project_id IS NULL)
+        — эту логику обрабатываем здесь.
+        """
+        stmt = select(Account)
+        if status is not None:
+            stmt = stmt.where(Account.status == AccountStatus(status).value)
+        if warming_profile is not None:
+            stmt = stmt.where(
+                Account.warming_profile == WarmingProfile(warming_profile).value
+            )
+        if project_id is not None:
+            if project_id == 0:
+                stmt = stmt.where(Account.project_id.is_(None))
+            else:
+                stmt = stmt.where(Account.project_id == project_id)
+        if role is not None:
+            stmt = stmt.where(Account.role == role)
+        if tag is not None:
+            # ARRAY contains через оператор @>. Быстро благодаря GIN-индексу.
+            stmt = stmt.where(Account.tags.contains([tag]))
+        return list(self.session.execute(stmt).scalars().all())
+
     def list_pool_by_profile(self, profile: WarmingProfile) -> list[Account]:
         stmt = select(Account).where(
             Account.status == AccountStatus.POOL.value,

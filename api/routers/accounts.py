@@ -75,6 +75,10 @@ class AccountPatchRequest(BaseModel):
     avatar_url: Optional[str] = None
     proxy_id: Optional[int] = None
     persona_id: Optional[int] = None
+    # Этап 2: проект-группировка, роль, теги.
+    project_id: Optional[int] = None
+    role: Optional[str] = None
+    tags: Optional[list[str]] = None
 
 
 class WarmingProfilePatchRequest(BaseModel):
@@ -97,10 +101,18 @@ def _get_account_or_404(session: Session, account_id: int):
 def list_accounts(
     status: Optional[AccountStatus] = None,
     warming_profile: Optional[WarmingProfile] = None,
+    project_id: Optional[int] = None,
+    role: Optional[str] = None,
+    tag: Optional[str] = None,
     session: Session = Depends(get_session),
 ) -> list[AccountRead]:
     accounts = accounts_service.list_accounts(
-        session, status=status, warming_profile=warming_profile
+        session,
+        status=status,
+        warming_profile=warming_profile,
+        project_id=project_id,
+        role=role,
+        tag=tag,
     )
     return [AccountRead.model_validate(a) for a in accounts]
 

@@ -210,6 +210,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         login,
         monitoring,
         personas,
+        projects,
         proxies,
     )
     from modules.commenting.api import router as commenting_router
@@ -239,6 +240,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(admin.router)
     app.include_router(ban_risk.router)
     app.include_router(autopilot.router)
+    app.include_router(projects.router)
     app.include_router(commenting_router)
     app.include_router(channels_router)
     return app

@@ -31,16 +31,17 @@ def list_accounts(
     *,
     status: Optional[AccountStatus] = None,
     warming_profile: Optional[WarmingProfile] = None,
+    project_id: Optional[int] = None,
+    role: Optional[str] = None,
+    tag: Optional[str] = None,
 ) -> list[Account]:
-    repo = AccountRepository(session)
-    if status is not None:
-        accounts = repo.list_by_status(status)
-    else:
-        accounts = repo.list_all()
-    if warming_profile is not None:
-        wp = WarmingProfile(warming_profile).value
-        accounts = [a for a in accounts if a.warming_profile == wp]
-    return accounts
+    return AccountRepository(session).list_filtered(
+        status=status,
+        warming_profile=warming_profile,
+        project_id=project_id,
+        role=role,
+        tag=tag,
+    )
 
 
 def create_account(
