@@ -95,6 +95,23 @@ services:
       start_period: 15s
     restart: unless-stopped
 
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: neuro_bot
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      # Бот читает БД (read-only) и слушает Redis pub/sub. От api не зависит.
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   frontend:
     build:
       context: .
