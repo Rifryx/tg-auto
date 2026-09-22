@@ -6,8 +6,10 @@ import type {
   Campaign,
   CampaignAccount,
   CampaignAccountPatchBody,
+  CampaignChannel,
   CampaignCreateBody,
   CampaignUpdateBody,
+  ChannelBlacklistEntry,
   CommentLog,
   DelayPreset,
   DelayPresetCreateBody,
@@ -41,6 +43,22 @@ export const commentingApi = {
     api.del<void>(`${BASE}/${id}/accounts/${accountId}`),
   logs: (id: number, limit = 50) =>
     api.get<CommentLog[]>(`${BASE}/${id}/logs?limit=${limit}`),
+
+  channels: (id: number) =>
+    api.get<CampaignChannel[]>(`${BASE}/${id}/channels`),
+  addChannels: (id: number, raw_inputs: string[]) =>
+    api.post<CampaignChannel[]>(`${BASE}/${id}/channels`, { raw_inputs }),
+  removeChannel: (id: number, channelId: number) =>
+    api.del<void>(`${BASE}/${id}/channels/${channelId}`),
+
+  blacklist: (id: number) =>
+    api.get<ChannelBlacklistEntry[]>(`${BASE}/${id}/blacklist`),
+  addBlacklist: (
+    id: number,
+    body: { chat_id?: number | null; username?: string | null; reason?: string | null },
+  ) => api.post<ChannelBlacklistEntry>(`${BASE}/${id}/blacklist`, body),
+  removeBlacklist: (id: number, entryId: number) =>
+    api.del<void>(`${BASE}/${id}/blacklist/${entryId}`),
 };
 
 /* Пресеты аккаунтов и задержек (§ Этап 1). Delay-list возвращает системные

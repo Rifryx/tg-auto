@@ -131,3 +131,85 @@ runner их пока не читает — лимиты не применяют�
 формируются plans), `modules/commenting/models/comment_log.py`
 (для агрегата), `modules/commenting/models/campaign_account.py`
 (куда добавлять `last_posted_at`).
+
+---
+
+## [E3.1] Folder-links (`t.me/addlist/...`, `t.me/list/...`)
+
+**Статус:** классификатор `classify_channel_input` относит такие ссылки
+к `kind='folder'` и БД хранит их, но резолвер (папка → набор чатов)
+не реализован. В UI показываем «распознан пак-каналов, но пока не
+поддерживается».
+
+**Что должно делать:**
+- Через прогретый MTProto-клиент вызывать
+  `client(chatlists.CheckChatlistInviteRequest(slug=...))`, получать
+  список чатов, автоматически подписываться на каждый (уважая delay-пресеты),
+  создавать по одному `CampaignChannel` с `kind='username'` и уже
+  резолвленным `resolved_chat_id`.
+
+**Что писать:**
+1. Модуль `modules/commenting/worker/channel_resolver.py`:
+   - `resolve_folder(client, slug: str) -> list[ResolvedChat]`,
+   - `resolve_username(client, ref: str) -> ResolvedChat | None`,
+   - `resolve_invite(client, hash_: str) -> ResolvedChat | None`.
+2. Таск `commenting.resolve_campaign_channel` (per raw_input), enqueue
+   при создании `CampaignChannel` и по расписанию для `last_error != NULL`.
+
+**Важные детали:**
+- `checkChatlistInvite` требует, чтобы аккаунт-резолвер сам был
+  прогретым и с адекватным DC. На cold-аккаунте — FloodWait / PEER_ID_INVALID.
+- Некоторые slug'и содержат приватные чаты — не подписываемся молча,
+  UI должен спросить подтверждение.
+
+**Где смотреть:** `modules/commenting/schemas/channel_source.py`
+(`classify_channel_input`), `modules/commenting/models/channel_source.py`
+(`CampaignChannel.kind`).
+
+---
+
+## [E3.2] Runtime целевых каналов: резолвер + not-subscribed handler + auto-blacklist
+
+**Статус:** схема (Campaign.channel_source_mode / on_not_subscribed_action)
+и CRUD целевых каналов/ЧС есть. Воркер их пока не читает.
+
+**Что должно делать:**
+1. **Резолвер** для `explicit_links`: при attach аккаунта или создании
+   `CampaignChannel` подписать каждого assigned-аккаунта на канал
+   (Telethon `JoinChannelRequest` для username и invite; folder → E3.1).
+   Успех → заполнить `resolved_chat_id` + `title`; ошибка → `last_error`.
+2. **Not-subscribed handler**: при постинге, если Telethon вернул
+   `ChannelPrivateError` / `ChatWriteForbiddenError` / `UserNotParticipantError`:
+   - Если `on_not_subscribed_action='subscribe_and_notify'` → попытаться
+     `JoinChannelRequest`, если успех → перепланировать пост.
+   - В любом случае → опубликовать событие
+     `commenting.channel_unsubscribed` в Redis (см. `bot/notifier.py`)
+     с полями `campaign_id, account_id, channel`.
+   - Записать `CommentLog{status='flagged', error='not_subscribed'}`.
+3. **Auto-blacklist**: при устойчивой ошибке доступа (`ChannelPrivate`,
+   `ChatBanned`) — вставить запись в `channel_blacklist` с `auto=True` и
+   `reason=<код>`. Проверять ЧС в `on_new_post` до планирования — если
+   канал в ЧС, скипнуть.
+4. **`by_account_subscriptions`**: игнорировать `CampaignChannel`, работать
+   по существующим `MonitoredChannel` аккаунта.
+
+**Что писать:**
+1. Новый Redis-канал `commenting.channel_unsubscribed`; добавить формат
+   и подписку в `bot/notifier.py::_ACCOUNT_STATUS_CHANNEL` соседом.
+2. В `runner.py::on_new_post` / `on_channel_post` вызов
+   `_ensure_subscribed(account_id, channel)` перед send.
+3. В `worker/registry.py` — при attach прогонять resolver для
+   `explicit_links` кампаний.
+
+**Важные детали:**
+- Массовая подписка со свежего аккаунта → мгновенный FloodWait. Уважать
+  `campaign.join_delay_min_sec / join_delay_max_sec` (уже в БД).
+- Auto-blacklist должен различать `ChannelPrivate` (навсегда, blacklist)
+  и transient (`FloodWait`, `Timeout` — не blacklist).
+- Пуш на «главный экран мини-аппа»: нужен отдельный in-app inbox
+  (сейчас notifier шлёт только в Telegram-бота). Задел на новый модуль
+  `notifications`; пока — только Telegram-пуш.
+
+**Где смотреть:** `bot/notifier.py` (образец pub/sub-обработчика),
+`modules/commenting/worker/runner.py` (точка постинга),
+`modules/commenting/repositories/channel_source.py::find` (проверка ЧС).

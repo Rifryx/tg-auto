@@ -26,7 +26,9 @@ from modules.commenting.api import service
 from modules.commenting.repositories import (
     AccountPresetRepository,
     CampaignAccountRepository,
+    CampaignChannelRepository,
     CampaignRepository,
+    ChannelBlacklistRepository,
     CommentLogRepository,
     DelayPresetRepository,
 )
@@ -42,9 +44,14 @@ from modules.commenting.schemas import (
     AttachAccountRequest,
     CampaignAccountRead,
     CampaignAccountUpdate,
+    CampaignChannelBulkCreate,
+    CampaignChannelCreate,
+    CampaignChannelRead,
     CampaignCreate,
     CampaignRead,
     CampaignUpdate,
+    ChannelBlacklistCreate,
+    ChannelBlacklistRead,
     CommentLogRead,
     DelayPresetCreate,
     DelayPresetRead,
@@ -335,6 +342,115 @@ def delete_delay_preset(
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, "preset not found or not deletable"
         )
+    session.commit()
+
+
+# --- Целевые каналы кампании (§ Этап 3) -------------------------------------
+
+
+@router.get(
+    "/campaigns/{campaign_id}/channels",
+    response_model=list[CampaignChannelRead],
+)
+def list_campaign_channels(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> list[CampaignChannelRead]:
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    items = CampaignChannelRepository(session).list_by_campaign(campaign_id)
+    return [CampaignChannelRead.model_validate(i) for i in items]
+
+
+@router.post(
+    "/campaigns/{campaign_id}/channels",
+    response_model=list[CampaignChannelRead],
+    status_code=status.HTTP_201_CREATED,
+)
+def add_campaign_channels(
+    campaign_id: int,
+    body: CampaignChannelBulkCreate,
+    session: Session = Depends(get_session),
+) -> list[CampaignChannelRead]:
+    """Bulk-добавление: одна ссылка на строку, дубли пропускаются молча."""
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    repo = CampaignChannelRepository(session)
+    existing = {c.raw_input for c in repo.list_by_campaign(campaign_id)}
+    created: list[CampaignChannelRead] = []
+    for raw in body.raw_inputs:
+        cleaned = raw.strip()
+        if not cleaned or cleaned in existing:
+            continue
+        item = repo.create(campaign_id, CampaignChannelCreate(raw_input=cleaned))
+        existing.add(cleaned)
+        created.append(CampaignChannelRead.model_validate(item))
+    session.commit()
+    return created
+
+
+@router.delete(
+    "/campaigns/{campaign_id}/channels/{channel_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+def delete_campaign_channel(
+    campaign_id: int, channel_id: int, session: Session = Depends(get_session)
+) -> None:
+    if not CampaignChannelRepository(session).delete(campaign_id, channel_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "channel not found")
+    session.commit()
+
+
+# --- Черный список каналов (§ Этап 3) ---------------------------------------
+
+
+@router.get(
+    "/campaigns/{campaign_id}/blacklist",
+    response_model=list[ChannelBlacklistRead],
+)
+def list_blacklist(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> list[ChannelBlacklistRead]:
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    items = ChannelBlacklistRepository(session).list_by_campaign(campaign_id)
+    return [ChannelBlacklistRead.model_validate(i) for i in items]
+
+
+@router.post(
+    "/campaigns/{campaign_id}/blacklist",
+    response_model=ChannelBlacklistRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_blacklist(
+    campaign_id: int,
+    body: ChannelBlacklistCreate,
+    session: Session = Depends(get_session),
+) -> ChannelBlacklistRead:
+    """Ручное добавление в ЧС; воркер добавляет автоматически с ``auto=True``."""
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        entry = ChannelBlacklistRepository(session).create(campaign_id, body, auto=False)
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "already blacklisted") from None
+    return ChannelBlacklistRead.model_validate(entry)
+
+
+@router.delete(
+    "/campaigns/{campaign_id}/blacklist/{entry_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+def remove_blacklist(
+    campaign_id: int, entry_id: int, session: Session = Depends(get_session)
+) -> None:
+    if not ChannelBlacklistRepository(session).delete(campaign_id, entry_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "blacklist entry not found")
     session.commit()
 
 

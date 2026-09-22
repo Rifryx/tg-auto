@@ -74,6 +74,14 @@ class Campaign(Base, TimestampMixin):
             "pause_between_sec IS NULL OR pause_between_sec >= 0",
             name="campaign_pause_between_valid",
         ),
+        CheckConstraint(
+            "channel_source_mode IN ('by_account_subscriptions', 'explicit_links')",
+            name="campaign_channel_source_mode_allowed",
+        ),
+        CheckConstraint(
+            "on_not_subscribed_action IN ('subscribe_and_notify', 'notify_only')",
+            name="campaign_on_not_subscribed_action_allowed",
+        ),
         {"schema": COMMENTING_SCHEMA},
     )
 
@@ -147,3 +155,17 @@ class Campaign(Base, TimestampMixin):
     )
     window_after_post_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pause_between_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # ── Целевые каналы (§ Этап 3) ──────────────────────────────────────
+    # by_account_subscriptions: источник = MonitoredChannel каждого аккаунта.
+    # explicit_links: источник = CampaignChannel этой кампании
+    # (usernames / invites / folder-slug'и).
+    channel_source_mode: Mapped[str] = mapped_column(
+        String, nullable=False, default="explicit_links", server_default="explicit_links"
+    )
+    # Что делать, если при постинге оказалось, что аккаунт не подписан:
+    # subscribe_and_notify — подписаться и залогировать; notify_only —
+    # только уведомить и пропустить пост.
+    on_not_subscribed_action: Mapped[str] = mapped_column(
+        String, nullable=False, default="notify_only", server_default="notify_only"
+    )

@@ -5,6 +5,9 @@ export type CommentStatus = "posted" | "failed" | "flagged";
 export type PostSelectionMode = "all" | "keywords" | "probability";
 export type PostScope = "new" | "existing" | "mixed";
 export type WorkMode = "by_count" | "by_time_window";
+export type ChannelSourceMode = "by_account_subscriptions" | "explicit_links";
+export type OnNotSubscribedAction = "subscribe_and_notify" | "notify_only";
+export type ChannelKind = "username" | "invite" | "folder";
 
 export interface Campaign {
   id: number;
@@ -33,6 +36,8 @@ export interface Campaign {
   min_words: number;
   window_after_post_sec: number | null;
   pause_between_sec: number | null;
+  channel_source_mode: ChannelSourceMode;
+  on_not_subscribed_action: OnNotSubscribedAction;
   created_at: string;
   updated_at: string;
 }
@@ -83,6 +88,31 @@ export interface CampaignCreateBody {
   min_words?: number;
   window_after_post_sec?: number | null;
   pause_between_sec?: number | null;
+  channel_source_mode?: ChannelSourceMode;
+  on_not_subscribed_action?: OnNotSubscribedAction;
+}
+
+export interface CampaignChannel {
+  id: number;
+  campaign_id: number;
+  raw_input: string;
+  kind: ChannelKind;
+  resolved_chat_id: number | null;
+  title: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChannelBlacklistEntry {
+  id: number;
+  campaign_id: number;
+  chat_id: number | null;
+  username: string | null;
+  reason: string | null;
+  auto: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface CampaignAccountPatchBody {

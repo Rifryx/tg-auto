@@ -14,6 +14,13 @@ from modules.commenting.schemas.monitored_channel import (
     AddChannelsRequest,
     MonitoredChannelRead,
 )
+from modules.commenting.schemas.channel_source import (
+    CampaignChannelBulkCreate,
+    CampaignChannelCreate,
+    CampaignChannelRead,
+    ChannelBlacklistCreate,
+    ChannelBlacklistRead,
+)
 from modules.commenting.schemas.preset import (
     AccountPresetCreate,
     AccountPresetRead,
@@ -29,6 +36,11 @@ __all__ = [
     "AccountPresetUpdate",
     "AddChannelsRequest",
     "AttachAccountRequest",
+    "CampaignChannelBulkCreate",
+    "CampaignChannelCreate",
+    "CampaignChannelRead",
+    "ChannelBlacklistCreate",
+    "ChannelBlacklistRead",
     "CampaignAccountCreate",
     "CampaignAccountRead",
     "CampaignAccountUpdate",

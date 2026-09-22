@@ -9,6 +9,8 @@ from core.schemas.base import ORMModel
 PostSelectionMode = Literal["all", "keywords", "probability"]
 PostScope = Literal["new", "existing", "mixed"]
 WorkMode = Literal["by_count", "by_time_window"]
+ChannelSourceMode = Literal["by_account_subscriptions", "explicit_links"]
+OnNotSubscribedAction = Literal["subscribe_and_notify", "notify_only"]
 
 
 class CampaignCreate(BaseModel):
@@ -43,6 +45,8 @@ class CampaignCreate(BaseModel):
     min_words: int = Field(default=0, ge=0)
     window_after_post_sec: Optional[int] = Field(default=None, gt=0)
     pause_between_sec: Optional[int] = Field(default=None, ge=0)
+    channel_source_mode: ChannelSourceMode = "explicit_links"
+    on_not_subscribed_action: OnNotSubscribedAction = "notify_only"
 
 
 class CampaignUpdate(BaseModel):
@@ -72,6 +76,8 @@ class CampaignUpdate(BaseModel):
     min_words: Optional[int] = Field(default=None, ge=0)
     window_after_post_sec: Optional[int] = Field(default=None, gt=0)
     pause_between_sec: Optional[int] = Field(default=None, ge=0)
+    channel_source_mode: Optional[ChannelSourceMode] = None
+    on_not_subscribed_action: Optional[OnNotSubscribedAction] = None
 
 
 class CampaignRead(ORMModel):
@@ -101,5 +107,7 @@ class CampaignRead(ORMModel):
     min_words: int
     window_after_post_sec: Optional[int]
     pause_between_sec: Optional[int]
+    channel_source_mode: ChannelSourceMode
+    on_not_subscribed_action: OnNotSubscribedAction
     created_at: datetime
     updated_at: datetime

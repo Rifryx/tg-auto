@@ -19,12 +19,22 @@ import {
 } from "./components/ui";
 import type {
   AccountPreset,
+  ChannelSourceMode,
   DelayPreset,
   LLMProvider,
+  OnNotSubscribedAction,
   PostScope,
   PostSelectionMode,
   WorkMode,
 } from "./types";
+
+function classifyChannelInput(raw: string): "username" | "invite" | "folder" {
+  const low = raw.trim().toLowerCase();
+  if (low.includes("t.me/addlist/") || low.includes("t.me/list/")) return "folder";
+  if (low.includes("t.me/joinchat/") || low.includes("t.me/+") || low.startsWith("+"))
+    return "invite";
+  return "username";
+}
 
 const TZ_OPTIONS = [
   "UTC",
@@ -90,6 +100,13 @@ export function NewCampaignScreen() {
   const [windowAfterPost, setWindowAfterPost] = useState<number>(3600);
   const [pauseBetween, setPauseBetween] = useState<number>(60);
 
+  // ── Целевые каналы (§ Этап 3) ─────────────────────────────────────
+  const [channelSourceMode, setChannelSourceMode] =
+    useState<ChannelSourceMode>("explicit_links");
+  const [channelLinksText, setChannelLinksText] = useState("");
+  const [onNotSubscribed, setOnNotSubscribed] =
+    useState<OnNotSubscribedAction>("notify_only");
+
   const pool = useQuery({ queryKey: ["accounts", "pool"], queryFn: () => accountsApi.list("pool") });
   const personas = useQuery({ queryKey: ["personas"], queryFn: catalogApi.personas });
   const delayPresets = useQuery({ queryKey: ["delay-presets"], queryFn: delayPresetsApi.list });
@@ -105,6 +122,14 @@ export function NewCampaignScreen() {
         .map((s) => s.trim())
         .filter(Boolean),
     [keywordsText],
+  );
+  const channelLinksList = useMemo(
+    () =>
+      channelLinksText
+        .split(/\n+/)
+        .map((s) => s.trim())
+        .filter(Boolean),
+    [channelLinksText],
   );
 
   const valid =
@@ -139,8 +164,20 @@ export function NewCampaignScreen() {
         window_after_post_sec:
           workMode === "by_time_window" ? windowAfterPost : null,
         pause_between_sec: workMode === "by_time_window" ? pauseBetween : null,
+        channel_source_mode: channelSourceMode,
+        on_not_subscribed_action: onNotSubscribed,
         enabled: true,
       });
+      if (
+        channelSourceMode === "explicit_links" &&
+        channelLinksList.length > 0
+      ) {
+        try {
+          await commentingApi.addChannels(camp.id, channelLinksList);
+        } catch {
+          /* некритично: ссылки можно добавить позже в деталях кампании */
+        }
+      }
       for (const id of selected) {
         const override =
           selectionMode === "probability" ? perAccountProbability[id] ?? null : null;
@@ -372,6 +409,75 @@ export function NewCampaignScreen() {
           Пресет также задаёт задержки входа в канал ({joinMin}–{joinMax}s) и
           floodwait-паузу ({floodPause}s / карантин после {floodMax}).
         </p>
+      </Section>
+
+      <Section title="Целевые каналы">
+        <SegmentedControl
+          options={[
+            { value: "explicit_links", label: "Юзернейм/Ссылка" },
+            { value: "by_account_subscriptions", label: "По подпискам аккаунта" },
+          ]}
+          value={channelSourceMode}
+          onChange={(v) => setChannelSourceMode(v as ChannelSourceMode)}
+        />
+        {channelSourceMode === "explicit_links" ? (
+          <div className="mt-3">
+            <Field
+              label="Ссылки на каналы"
+              hint={<span className="text-[11px] text-text-tertiary">по одной на строку</span>}
+            >
+              <TextArea
+                value={channelLinksText}
+                onChange={(e) => setChannelLinksText(e.target.value)}
+                placeholder={"@username или https://t.me/channel_name\nt.me/joinchat/xxx"}
+              />
+            </Field>
+            {channelLinksList.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {channelLinksList.map((raw) => {
+                  const kind = classifyChannelInput(raw);
+                  return (
+                    <span
+                      key={raw}
+                      className={`rounded-pill border border-hairline bg-surface-1 px-2.5 py-0.5 text-[11px] ${
+                        kind === "folder" ? "text-status-warning" : "text-text-secondary"
+                      }`}
+                    >
+                      {raw} · {kind === "folder" ? "папка (скоро)" : kind}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            <p className="mt-2 px-1 text-[12px] text-text-tertiary">
+              Папки (`t.me/addlist/…`) сохраняются, но пока не резолвятся —
+              см. DEFERRED-FEATURES [E3.1].
+            </p>
+          </div>
+        ) : (
+          <p className="mt-2 px-1 text-[12px] text-text-tertiary">
+            Каждый аккаунт комментирует только каналы, на которые он подписан.
+            Убедитесь, что у аккаунтов настроены `Мониторинг` — иначе очередь
+            будет пустой.
+          </p>
+        )}
+        <div className="mt-4">
+          <Field label="Если аккаунт не подписан">
+            <SegmentedControl
+              options={[
+                { value: "notify_only", label: "Только уведомить" },
+                { value: "subscribe_and_notify", label: "Подписаться + уведомить" },
+              ]}
+              value={onNotSubscribed}
+              onChange={(v) => setOnNotSubscribed(v as OnNotSubscribedAction)}
+            />
+          </Field>
+          <p className="px-1 text-[12px] text-text-tertiary">
+            Пуш-уведомления при обнаружении отсутствия подписки — через тот же
+            канал, что и алерты по прокси. Runtime-обработчик — см.
+            DEFERRED-FEATURES [E3.2].
+          </p>
+        </div>
       </Section>
 
       <Section title="Аккаунты из пула">
