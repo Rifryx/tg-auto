@@ -2,12 +2,14 @@
 
 Для КАЖДОГО аккаунта прогоняем список ``channel_refs`` и вступаем/присоединяемся.
 Публичные каналы (@name / t.me/name) — ``JoinChannelRequest`` по entity;
-инвайты (t.me/+hash / joinchat/hash) — ``ImportChatInviteRequest``.
+инвайты (t.me/+hash / joinchat/hash) — ``ImportChatInviteRequest``;
+папки-addlist (t.me/addlist/slug) — при ``expand_folders=True`` (по умолчанию)
+разворачиваем в дочерние каналы через :mod:`worker.telegram_folders`
+(этап 8, backlog #2). ``expand_folders=False`` — старое поведение (папка идёт
+в ``errors['folders_unsupported_in_bulk']``).
+
 Если один ref упал, остальные всё равно попробуем — результат по каждому в
 ``detail.joined`` / ``detail.errors``.
-
-Папки-addlist оставлены на commenting-модуль (там уже есть развёртывание в
-дочерние monitored-каналы); здесь фокус — «прямая» подписка на набор ссылок.
 """
 
 from __future__ import annotations
@@ -21,13 +23,17 @@ from telethon.tl.functions.messages import ImportChatInviteRequest
 from core.enums import BulkActionType
 from modules.bulk.actions.registry import BulkAction, BulkActionResult, register
 from worker.health.monitor import around_telethon_call
-from worker.telegram_refs import classify_ref, invite_hash, public_ref
+from worker.telegram_folders import join_folder
+from worker.telegram_refs import classify_ref, folder_slug, invite_hash, public_ref
 
 
 class JoinChannelsPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     channel_refs: list[str] = Field(min_length=1, max_length=100)
+    # Backlog #этап8.4: разворачивать addlist-папки в дочерние каналы. По
+    # умолчанию — включено (иначе фича не будет использоваться).
+    expand_folders: bool = True
 
 
 async def _run(
@@ -41,6 +47,8 @@ async def _run(
 ) -> BulkActionResult:
     joined: list[str] = []
     errors: dict[str, str] = {}
+    # Для папок — метаинформация: {slug: {joined: [...], already_in: N}}.
+    folder_meta: dict[str, dict] = {}
 
     for raw in payload.channel_refs:
         kind = classify_ref(raw)
@@ -53,7 +61,27 @@ async def _run(
                     publisher=publisher,
                 )
             elif kind == "folder":
-                errors[raw] = "folders_unsupported_in_bulk"
+                if not payload.expand_folders:
+                    errors[raw] = "folders_unsupported_in_bulk"
+                    continue
+                slug = folder_slug(raw)
+                if slug is None:
+                    errors[raw] = "bad_folder_slug"
+                    continue
+                result = await join_folder(
+                    client,
+                    slug,
+                    account_id=account_id,
+                    session_factory=session_factory,
+                    publisher=publisher,
+                )
+                folder_meta[raw] = {
+                    "joined": result.joined_refs,
+                    "already_in": result.already_in,
+                }
+                joined.extend(result.joined_refs)
+                # Сам addlist-ref не помечаем в joined отдельно: он «служебный»,
+                # его дочерние каналы уже в списке.
                 continue
             else:
                 entity = await around_telethon_call(
@@ -73,10 +101,10 @@ async def _run(
             errors[raw] = repr(exc)
 
     ok = bool(joined) or not errors
-    return BulkActionResult(
-        ok=ok,
-        detail={"joined": joined, "errors": errors},
-    )
+    detail: dict[str, Any] = {"joined": joined, "errors": errors}
+    if folder_meta:
+        detail["folders"] = folder_meta
+    return BulkActionResult(ok=ok, detail=detail)
 
 
 register(
@@ -87,5 +115,6 @@ register(
         run=_run,
         title="Подписаться на каналы",
         description="Массово вступает каждым аккаунтом в переданный набор каналов.",
+        governor_key="bulk_channel",
     )
 )

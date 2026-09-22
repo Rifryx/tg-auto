@@ -7,11 +7,15 @@
 
 from modules.bulk.actions import (  # noqa: F401 - импорт ради side-effect
     apply_profile,
+    apply_profile_pool,
+    assign_proxy,
+    create_channel,
     generate_and_apply_profile,
     join_channels,
     leave_channels,
     logout_other_sessions,
     publish_story,
+    send_reactions,
     set_2fa,
     set_persona,
     set_privacy,

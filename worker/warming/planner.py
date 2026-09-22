@@ -48,6 +48,14 @@ _TAG_WEIGHTS: dict[str, dict[WarmingActionType, float]] = {
         WarmingActionType.JOIN_GROUP: 0.2,
         WarmingActionType.SUBSCRIBE_CHANNEL: 0.3,
         WarmingActionType.REACTION: 0.4,
+        # Одиночка не тусит с peer'ами:
+        WarmingActionType.INTERACT_WITH_PEER: 0.3,
+    },
+    # Trust-graph (этап 10, backlog #2): «социальные» персоны чаще общаются
+    # с peer'ами того же проекта/команды.
+    "social": {
+        WarmingActionType.INTERACT_WITH_PEER: 2.5,
+        WarmingActionType.REACTION: 1.3,
     },
 }
 

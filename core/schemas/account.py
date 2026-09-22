@@ -3,7 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from core.enums import AccountStatus, WarmingProfile
+from core.enums import AccountRole, AccountStatus, WarmingProfile
 from core.schemas.base import ORMModel
 
 
@@ -46,6 +46,11 @@ class AccountUpdate(BaseModel):
     app_version: Optional[str] = None
     lang_code: Optional[str] = None
     system_lang_code: Optional[str] = None
+    # Пользовательская группировка (этап 2). project_id=0 трактовать
+    # как «отвязать от проекта» — но проще передавать None.
+    project_id: Optional[int] = None
+    role: Optional[AccountRole] = None
+    tags: Optional[list[str]] = None
 
 
 class AccountRead(ORMModel):
@@ -72,5 +77,8 @@ class AccountRead(ORMModel):
     app_version: str
     lang_code: str
     system_lang_code: str
+    project_id: Optional[int] = None
+    role: Optional[AccountRole] = None
+    tags: list[str] = []
     created_at: datetime
     updated_at: datetime

@@ -10,6 +10,9 @@ import { PROFILE_LABEL, STATUS_LABEL, statusDotClass } from "../../shared/status
 import { haptic } from "../../shared/tg";
 import type { MonitoredChannel, MonitoredChannelStatus, WarmingProfile } from "../../shared/types";
 import { Field, TextArea, Toggle } from "../../modules/commenting/components/ui";
+import { BanRiskCard } from "./components/BanRiskCard";
+import { ProjectRoleTagsSection } from "./components/ProjectRoleTagsSection";
+import { TwoFactorSection } from "./components/TwoFactorSection";
 import { CapsuleButton, ConfirmDialog, Section, SegmentedControl, StatusBadge } from "./components/ui";
 
 const PROFILE_OPTIONS: { value: WarmingProfile; label: string }[] = [
@@ -215,6 +218,20 @@ export function AccountDetailScreen() {
           Инцидентов нет
         </div>
       </Section>
+
+      {/* 2b. Anti-ban predictor (этап 11) */}
+      <BanRiskCard accountId={accountId} />
+
+      {/* 2c. Проект/роль/теги (этап 2) */}
+      <ProjectRoleTagsSection
+        accountId={accountId}
+        projectId={acc.project_id ?? null}
+        role={acc.role ?? null}
+        tags={acc.tags ?? []}
+      />
+
+      {/* 2d. Управление 2FA — recovery email (этап 7) */}
+      <TwoFactorSection accountId={accountId} />
 
       {/* 3. Прокси — read-инфо + смена через селект */}
       <Section title="Прокси">

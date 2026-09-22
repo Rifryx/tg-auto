@@ -24,9 +24,11 @@ from core.enums import CommentStatus
 from core.queue.publisher import Publisher
 from modules.commenting.api import service
 from modules.commenting.repositories import (
+    AccountPresetRepository,
     CampaignAccountRepository,
     CampaignRepository,
     CommentLogRepository,
+    DelayPresetRepository,
 )
 from modules.commenting.worker.registry import (
     ACTION_ATTACH,
@@ -34,12 +36,19 @@ from modules.commenting.worker.registry import (
     publish_campaign_lifecycle,
 )
 from modules.commenting.schemas import (
+    AccountPresetCreate,
+    AccountPresetRead,
+    AccountPresetUpdate,
     AttachAccountRequest,
     CampaignAccountRead,
+    CampaignAccountUpdate,
     CampaignCreate,
     CampaignRead,
     CampaignUpdate,
     CommentLogRead,
+    DelayPresetCreate,
+    DelayPresetRead,
+    DelayPresetUpdate,
 )
 
 router = APIRouter(
@@ -144,7 +153,12 @@ def attach_account(
 ) -> CampaignAccountRead:
     try:
         link = service.attach_account(
-            session, publisher, campaign_id, body.account_id, body.override_prompt
+            session,
+            publisher,
+            campaign_id,
+            body.account_id,
+            body.override_prompt,
+            body.probability_override,
         )
     except service.CommentingNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
@@ -157,6 +171,31 @@ def attach_account(
     campaign = CampaignRepository(session).get(campaign_id)
     if len(links) == 1 and campaign is not None and campaign.enabled:
         publish_campaign_lifecycle(publisher, campaign_id, ACTION_ATTACH)
+    return CampaignAccountRead.model_validate(link)
+
+
+@router.patch(
+    "/campaigns/{campaign_id}/accounts/{account_id}",
+    response_model=CampaignAccountRead,
+)
+def patch_campaign_account(
+    campaign_id: int,
+    account_id: int,
+    body: CampaignAccountUpdate,
+    session: Session = Depends(get_session),
+) -> CampaignAccountRead:
+    """Патч привязки (пока — probability_override, override_prompt).
+
+    Используется для тумблера «Пер-аккаунтная вероятность» в UI при
+    ``post_selection_mode='probability'``.
+    """
+    link = CampaignAccountRepository(session).update(campaign_id, account_id, body)
+    if link is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"account {account_id} is not attached to campaign {campaign_id}",
+        )
+    session.commit()
     return CampaignAccountRead.model_validate(link)
 
 
@@ -177,6 +216,126 @@ def detach_account(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except service.CommentingConflict as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+
+# --- Логи комментариев -------------------------------------------------------
+
+
+# --- Пресеты аккаунтов ------------------------------------------------------
+
+
+@router.get("/presets/accounts", response_model=list[AccountPresetRead])
+def list_account_presets(
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> list[AccountPresetRead]:
+    presets = AccountPresetRepository(session).list_by_owner(user_id)
+    return [AccountPresetRead.model_validate(p) for p in presets]
+
+
+@router.post(
+    "/presets/accounts",
+    response_model=AccountPresetRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_account_preset(
+    body: AccountPresetCreate,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> AccountPresetRead:
+    preset = AccountPresetRepository(session).create(user_id, body)
+    session.commit()
+    return AccountPresetRead.model_validate(preset)
+
+
+@router.patch("/presets/accounts/{preset_id}", response_model=AccountPresetRead)
+def update_account_preset(
+    preset_id: int,
+    body: AccountPresetUpdate,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> AccountPresetRead:
+    preset = AccountPresetRepository(session).update(preset_id, user_id, body)
+    if preset is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "preset not found")
+    session.commit()
+    return AccountPresetRead.model_validate(preset)
+
+
+@router.delete(
+    "/presets/accounts/{preset_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+def delete_account_preset(
+    preset_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> None:
+    if not AccountPresetRepository(session).delete(preset_id, user_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "preset not found")
+    session.commit()
+
+
+# --- Пресеты задержек -------------------------------------------------------
+
+
+@router.get("/presets/delays", response_model=list[DelayPresetRead])
+def list_delay_presets(
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> list[DelayPresetRead]:
+    presets = DelayPresetRepository(session).list_visible(user_id)
+    return [DelayPresetRead.model_validate(p) for p in presets]
+
+
+@router.post(
+    "/presets/delays",
+    response_model=DelayPresetRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_delay_preset(
+    body: DelayPresetCreate,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> DelayPresetRead:
+    preset = DelayPresetRepository(session).create(user_id, body)
+    session.commit()
+    return DelayPresetRead.model_validate(preset)
+
+
+@router.patch("/presets/delays/{preset_id}", response_model=DelayPresetRead)
+def update_delay_preset(
+    preset_id: int,
+    body: DelayPresetUpdate,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> DelayPresetRead:
+    preset = DelayPresetRepository(session).update(preset_id, user_id, body)
+    if preset is None:
+        # Может быть 404 (нет) или попытка редактировать системный (не own).
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "preset not found or not editable"
+        )
+    session.commit()
+    return DelayPresetRead.model_validate(preset)
+
+
+@router.delete(
+    "/presets/delays/{preset_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+def delete_delay_preset(
+    preset_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> None:
+    if not DelayPresetRepository(session).delete(preset_id, user_id):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "preset not found or not deletable"
+        )
+    session.commit()
 
 
 # --- Логи комментариев -------------------------------------------------------

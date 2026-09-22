@@ -28,6 +28,8 @@ from core.queue.task_names import TaskName
 from modules.commenting.repositories import MonitoredChannelRepository
 from worker.client_pool import ClientPool
 from worker.health import around_telethon_call
+from worker.telegram_folders import join_folder
+from worker.telegram_refs import folder_slug, invite_hash, public_ref, strip_url
 
 get_logger = structlog.get_logger
 
@@ -56,42 +58,13 @@ def _task_queue(ctx: dict) -> TaskQueue:
 
 
 # --- разбор пользовательского ввода ------------------------------------------
-
-
-def _strip_url(ref: str) -> str:
-    ref = ref.strip()
-    for prefix in ("https://", "http://"):
-        if ref.startswith(prefix):
-            ref = ref[len(prefix) :]
-    if ref.startswith("t.me/"):
-        ref = ref[len("t.me/") :]
-    elif ref.startswith("telegram.me/"):
-        ref = ref[len("telegram.me/") :]
-    return ref.strip("/")
-
-
-def _folder_slug(ref: str) -> Optional[str]:
-    """Слаг папки-addlist (``t.me/addlist/<slug>``) или None."""
-    body = _strip_url(ref)
-    if body.startswith("addlist/"):
-        return body[len("addlist/") :] or None
-    return None
-
-
-def _invite_hash(ref: str) -> Optional[str]:
-    """Хэш приватного инвайта (``t.me/+xxxx`` или ``t.me/joinchat/xxxx``) или None."""
-    body = _strip_url(ref)
-    if body.startswith("+"):
-        return body[1:] or None
-    if body.startswith("joinchat/"):
-        return body[len("joinchat/") :] or None
-    return None
-
-
-def _public_ref(ref: str) -> str:
-    """Публичный @username/имя канала для get_entity."""
-    body = _strip_url(ref)
-    return body.lstrip("@")
+# Реюз helper'ов из worker.telegram_refs (этап 8, backlog #1): раньше здесь
+# были локальные копии, что грозило дрейфом. Сохраняем короткие псевдонимы,
+# чтобы диффы вызовов остались точечными.
+_strip_url = strip_url
+_folder_slug = folder_slug
+_invite_hash = invite_hash
+_public_ref = public_ref
 
 
 # --- resolve_channel ---------------------------------------------------------
@@ -140,40 +113,21 @@ async def _join_and_resolve(
 async def _resolve_folder(
     client: Any, slug: str, *, account_id: int, session_factory, publisher, now
 ) -> list[str]:
-    """Вступает в папку-addlist и возвращает ref'ы каналов из неё."""
-    from telethon.tl.functions.chatlists import (
-        CheckChatlistInviteRequest,
-        JoinChatlistInviteRequest,
+    """Вступает в папку-addlist и возвращает ref'ы каналов из неё.
+
+    Тонкая обёртка над :func:`worker.telegram_folders.join_folder` — reuse
+    после этапа 8, backlog #4 (helper вынесен, повторение кода убрано).
+    ``now`` сохраняется в сигнатуре для обратной совместимости, но не
+    прокидывается: around_telethon_call вычисляет ``now`` сам.
+    """
+    result = await join_folder(
+        client,
+        slug,
+        account_id=account_id,
+        session_factory=session_factory,
+        publisher=publisher,
     )
-    from telethon.tl.types import InputChatlistDialogFilter
-
-    async def _call(coro_factory):
-        return await around_telethon_call(
-            coro_factory,
-            account_id=account_id,
-            session_factory=session_factory,
-            publisher=publisher,
-            now=now,
-        )
-
-    info = await _call(lambda: client(CheckChatlistInviteRequest(slug=slug)))
-    peers = list(getattr(info, "peers", None) or getattr(info, "already_peers", []) or [])
-    # Вступаем в папку целиком (Telegram сам подпишет на её каналы).
-    if peers:
-        await _call(
-            lambda: client(
-                JoinChatlistInviteRequest(slug=slug, peers=peers)
-            )
-        )
-    refs: list[str] = []
-    for peer in peers:
-        try:
-            entity = await _call(lambda p=peer: client.get_entity(p))
-        except Exception:  # noqa: BLE001 - один битый peer не рушит всю папку
-            continue
-        username = getattr(entity, "username", None)
-        refs.append(f"@{username}" if username else str(getattr(entity, "id", peer)))
-    return refs
+    return result.joined_refs
 
 
 async def resolve_channel(ctx: dict, channel_id: int) -> str:

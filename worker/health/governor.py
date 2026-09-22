@@ -27,6 +27,15 @@ LIMITS: dict[str, tuple[tuple[str, int, int], ...]] = {
     # health.check_account: не даём заспамить одну и ту же карточку — 6/час,
     # 20/сутки достаточно и для ручного «Проверить», и для periodic-планировщика.
     "health_check": (("hour", 6, _HOUR), ("day", 20, _DAY)),
+    # Bulk-действия (этап 5, backlog #1 — governor на bulk-item).
+    # Публикующие в чужие сущности — жёстче. Профиль/приватность — мягче,
+    # но всё равно ограничены (антифрод не любит частые правки).
+    "bulk_publish": (("hour", 10, _HOUR), ("day", 30, _DAY)),
+    "bulk_reaction": (("hour", 30, _HOUR), ("day", 150, _DAY)),
+    "bulk_view": (("hour", 60, _HOUR), ("day", 400, _DAY)),
+    "bulk_profile": (("hour", 4, _HOUR), ("day", 10, _DAY)),
+    "bulk_channel": (("hour", 10, _HOUR), ("day", 40, _DAY)),
+    "bulk_security": (("hour", 4, _HOUR), ("day", 10, _DAY)),
 }
 
 

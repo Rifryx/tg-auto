@@ -41,6 +41,7 @@ def attach_account(
     campaign_id: int,
     account_id: int,
     override_prompt: Optional[str] = None,
+    probability_override: Optional[int] = None,
 ) -> CampaignAccount:
     if CampaignRepository(session).get(campaign_id) is None:
         raise CommentingNotFound(f"campaign {campaign_id} not found")
@@ -63,6 +64,7 @@ def attach_account(
                 campaign_id=campaign_id,
                 account_id=account_id,
                 override_prompt=override_prompt,
+                probability_override=probability_override,
             )
         )
         # transition коммитит всю транзакцию (вставку + смену статуса).

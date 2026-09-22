@@ -8,7 +8,7 @@ from worker.warming.actions.base import action
 
 
 @action(WarmingActionType.IDLE_ONLINE)
-async def execute(client, account: Account):
+async def execute(client, account: Account, **_: object):
     from telethon.tl.functions.account import UpdateStatusRequest
 
     await client(UpdateStatusRequest(offline=False))

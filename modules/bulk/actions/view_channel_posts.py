@@ -82,5 +82,6 @@ register(
         run=_run,
         title="Просмотреть каналы",
         description="Каждый аккаунт читает последние N постов из выбранных каналов.",
+        governor_key="bulk_view",
     )
 )

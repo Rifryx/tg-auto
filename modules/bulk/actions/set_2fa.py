@@ -150,5 +150,6 @@ register(
         run=_run,
         title="Управление 2FA",
         description="Установить/сменить/снять двухфакторный пароль на выборке.",
+        governor_key="bulk_security",
     )
 )

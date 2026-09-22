@@ -24,6 +24,10 @@ class TaskName(str, Enum):
     HEALTH_RECOMPUTE_SCORE = "health.recompute_score"
     HEALTH_PREDICT_BAN_RISK = "health.predict_ban_risk"
     HEALTH_PREDICT_BAN_RISK_BATCH = "health.predict_ban_risk_batch"
+    AUTOPILOT_TICK = "autopilot.tick"
+    # Security: recovery-email flow для 2FA (этап 7, backlog #1).
+    SECURITY_REQUEST_RECOVERY_EMAIL = "security.request_recovery_email"
+    SECURITY_CONFIRM_RECOVERY_EMAIL = "security.confirm_recovery_email"
     BULK_DISPATCH = "bulk.dispatch"
     BULK_ITEM = "bulk.item"
     ACCOUNT_RETIRE = "account.retire"

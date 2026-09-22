@@ -179,6 +179,8 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
             session_factory=session_factory,
             publisher=publisher,
             now=now,
+            persona=persona,
+            rng=rng,
         )
     finally:
         await pool.release(account_id)

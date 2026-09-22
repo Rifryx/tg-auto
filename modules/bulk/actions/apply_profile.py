@@ -106,5 +106,6 @@ register(
         run=_run,
         title="Применить оформление профиля",
         description="Единым payload'ом обновляет имя, био и username у выбранных аккаунтов.",
+        governor_key="bulk_profile",
     )
 )

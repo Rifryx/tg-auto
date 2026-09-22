@@ -1,6 +1,7 @@
 import { api } from "./api";
 import type {
   Account,
+  AccountRole,
   LoginStateResponse,
   MonitoredChannel,
   Persona,
@@ -25,6 +26,9 @@ export const accountsApi = {
       avatar_url: string | null;
       persona_id: number | null;
       proxy_id: number | null;
+      project_id: number | null;
+      role: AccountRole | null;
+      tags: string[];
     }>,
   ) => api.patch<Account>(`/accounts/${id}`, body),
   create: (body: {
@@ -48,6 +52,16 @@ export const accountsApi = {
     if (body.session_file) fd.append("session_file", body.session_file);
     return api.postForm<Account>("/accounts/import-session", fd);
   },
+  bulkImport: (archive: File, mapping: File) => {
+    const fd = new FormData();
+    fd.append("archive", archive);
+    fd.append("mapping", mapping);
+    return api.postForm<{
+      imported: { phone: string; account_id: number }[];
+      skipped: { phone: string; reason: string }[];
+      totals: { imported: number; skipped: number };
+    }>("/accounts/bulk-import", fd);
+  },
   history: (id: number) => api.get<StatusHistoryRecord[]>(`/accounts/${id}/history`),
   warming: (id: number) => api.get<WarmingActivity[]>(`/accounts/${id}/warming`),
   setProfile: (id: number, profile: WarmingProfile) =>
@@ -60,6 +74,23 @@ export const accountsApi = {
     api.post<LoginStateResponse>(`/accounts/${id}/login/confirm`, { code }),
   confirmPassword: (id: number, password: string) =>
     api.post<LoginStateResponse>(`/accounts/${id}/login/password`, { password }),
+  // Recovery-email для 2FA (этап 7, backlog #1).
+  recoveryEmailState: (id: number) =>
+    api.get<{
+      email: string | null;
+      pending_email: string | null;
+      code_length: number | null;
+      confirmed_at: string | null;
+    }>(`/accounts/${id}/2fa/recovery-email/state`),
+  requestRecoveryEmail: (id: number, email: string, password: string) =>
+    api.post<{ queued: boolean }>(`/accounts/${id}/2fa/recovery-email/request`, {
+      email,
+      password,
+    }),
+  confirmRecoveryEmail: (id: number, code: string) =>
+    api.post<{ queued: boolean }>(`/accounts/${id}/2fa/recovery-email/confirm`, {
+      code,
+    }),
 };
 
 /* Каналы, которые мониторит аккаунт (modules/commenting/api/channels.py). */

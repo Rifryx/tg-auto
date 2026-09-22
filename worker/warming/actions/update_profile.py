@@ -8,7 +8,7 @@ from worker.warming.actions.base import action
 
 
 @action(WarmingActionType.UPDATE_PROFILE)
-async def execute(client, account: Account):
+async def execute(client, account: Account, **_: object):
     from telethon.tl.functions.account import UpdateProfileRequest
 
     about = account.bio or "Hi there!"

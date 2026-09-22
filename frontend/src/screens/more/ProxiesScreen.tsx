@@ -44,7 +44,9 @@ export function ProxiesScreen() {
   const [toDelete, setToDelete] = useState<Proxy | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const list = useQuery({ queryKey: ["proxies"], queryFn: proxiesApi.list });
+  // Пул (этап 3, backlog #2): вместе с проксями получаем занятость по
+  // аккаунтам, чтобы отличать «свободен» от «привязан к #N».
+  const list = useQuery({ queryKey: ["proxy-pool"], queryFn: proxiesApi.pool });
 
   const create = useMutation({
     mutationFn: () =>
@@ -52,6 +54,7 @@ export function ProxiesScreen() {
     onSuccess: () => {
       setHost("");
       setGeo("");
+      qc.invalidateQueries({ queryKey: ["proxy-pool"] });
       qc.invalidateQueries({ queryKey: ["proxies"] });
     },
   });
@@ -59,6 +62,7 @@ export function ProxiesScreen() {
     mutationFn: (id: number) => proxiesApi.remove(id),
     onSuccess: () => {
       setToDelete(null);
+      qc.invalidateQueries({ queryKey: ["proxy-pool"] });
       qc.invalidateQueries({ queryKey: ["proxies"] });
     },
   });
@@ -98,12 +102,15 @@ export function ProxiesScreen() {
                   </p>
                   <p className="text-[12px] text-text-tertiary">
                     {p.type.toUpperCase()} · {p.geo ?? "—"} · {PROXY_LABEL[p.status]}
+                    {p.is_free ? " · свободен" : ` · занят #${p.assigned_account_id}`}
                   </p>
                 </div>
                 <button
                   onClick={() => setToDelete(p)}
                   aria-label="Удалить"
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-text-secondary active:text-status-critical"
+                  disabled={!p.is_free}
+                  title={p.is_free ? "" : "Занят аккаунтом — сначала переназначьте прокси"}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-text-secondary active:text-status-critical disabled:opacity-40"
                 >
                   <Trash2 className="h-4 w-4" strokeWidth={1.8} aria-hidden />
                 </button>

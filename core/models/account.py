@@ -11,7 +11,7 @@ from sqlalchemy import (
     String,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.models.base import Base, TimestampMixin
@@ -33,7 +33,24 @@ class Account(Base, TimestampMixin):
             "(assigned_container_type IS NULL) = (assigned_container_id IS NULL)",
             name="assignment_pair_consistent",
         ),
+        CheckConstraint(
+            "role IS NULL OR role IN ('main', 'support', 'warmup', 'burner')",
+            name="role_allowed",
+        ),
+        # Backlog #прочее: CHECK на previous_status.
+        # PROJECT-STAGES §1.2: previous_status запоминает stage, куда акк
+        # вернётся из cooldown. Реальные значения ровно два: pool | assigned.
+        # NULL допускается (при первичном создании и когда previous не
+        # актуально), но мусор в поле — нет.
+        CheckConstraint(
+            "previous_status IS NULL OR "
+            "previous_status IN ('pool', 'assigned')",
+            name="previous_status_allowed",
+        ),
         Index("ix_accounts_status", "status"),
+        Index("ix_accounts_project_id", "project_id"),
+        Index("ix_accounts_role", "role"),
+        Index("ix_accounts_tags_gin", "tags", postgresql_using="gin"),
         Index("ix_accounts_proxy_id", "proxy_id"),
         Index("ix_accounts_persona_id", "persona_id"),
         Index(
@@ -115,3 +132,17 @@ class Account(Base, TimestampMixin):
         LargeBinary, nullable=True
     )
     two_factor_hint: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    # Пользовательская группировка (этап 2). Отличается от
+    # ``assigned_container_*``: проект — просто ярлык владельца, не
+    # эксклюзивный рабочий контейнер модуля.
+    project_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
+    )
+    role: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    tags: Mapped[list[str]] = mapped_column(
+        ARRAY(String),
+        nullable=False,
+        default=list,
+        server_default=text("ARRAY[]::text[]"),
+    )

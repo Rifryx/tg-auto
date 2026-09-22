@@ -30,7 +30,8 @@ class BulkJob(Base, TimestampMixin):
             "action_type IN ('set_persona', 'logout_other_sessions', 'set_privacy', "
             "'apply_profile', 'generate_and_apply_profile', 'set_2fa', "
             "'join_channels', 'leave_channels', 'view_channel_posts', "
-            "'publish_story', 'view_stories')",
+            "'publish_story', 'view_stories', 'assign_proxy', "
+            "'apply_profile_pool', 'send_reactions', 'create_channel')",
             name="action_type_allowed",
         ),
         CheckConstraint(

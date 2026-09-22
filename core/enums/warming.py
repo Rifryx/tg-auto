@@ -18,6 +18,10 @@ class WarmingActionType(str, Enum):
     JOIN_GROUP = "join_group"
     IDLE_ONLINE = "idle_online"
     UPDATE_PROFILE = "update_profile"
+    # Trust-graph (этап 10, backlog #2): «естественное» взаимодействие между
+    # аккаунтами одного проекта/персоны/кампании — читаем историю peer'а или
+    # ставим реакцию на его пост.
+    INTERACT_WITH_PEER = "interact_with_peer"
 
 
 class WarmingActivityStatus(str, Enum):

@@ -130,7 +130,12 @@ class ListenerRegistry:
             client = await pool.get(account.id)
             channel = await client.get_entity(target_channel)
             channel_id = getattr(channel, "id", None)
-            handler = make_new_post_handler(campaign_id, task_queue, channel_id=channel_id)
+            handler = make_new_post_handler(
+                campaign_id,
+                task_queue,
+                channel_id=channel_id,
+                session_factory=session_factory,
+            )
             event = events.NewMessage(chats=discussion_group_id)
             client.add_event_handler(handler, event)
             self._handlers[campaign_id] = _Attached(

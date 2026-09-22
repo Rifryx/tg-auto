@@ -7,6 +7,7 @@ from sqlalchemy import select
 from core.repositories.base import BaseRepository
 from modules.commenting.models import CampaignAccount
 from modules.commenting.schemas import CampaignAccountCreate
+from modules.commenting.schemas.campaign_account import CampaignAccountUpdate
 
 
 class CampaignAccountRepository(BaseRepository[CampaignAccount]):
@@ -33,6 +34,17 @@ class CampaignAccountRepository(BaseRepository[CampaignAccount]):
             .order_by(CampaignAccount.created_at.desc())
         )
         return list(self.session.execute(stmt).scalars().all())
+
+    def update(
+        self, campaign_id: int, account_id: int, data: CampaignAccountUpdate
+    ) -> Optional[CampaignAccount]:
+        link = self.get(campaign_id, account_id)
+        if link is None:
+            return None
+        for field, value in data.model_dump(exclude_unset=True).items():
+            setattr(link, field, value)
+        self.session.flush()
+        return link
 
     def delete(self, campaign_id: int, account_id: int) -> bool:
         link = self.get(campaign_id, account_id)

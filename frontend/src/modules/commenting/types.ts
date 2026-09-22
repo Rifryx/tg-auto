@@ -2,6 +2,9 @@
 
 export type LLMProvider = "deepseek" | "gemini";
 export type CommentStatus = "posted" | "failed" | "flagged";
+export type PostSelectionMode = "all" | "keywords" | "probability";
+export type PostScope = "new" | "existing" | "mixed";
+export type WorkMode = "by_count" | "by_time_window";
 
 export interface Campaign {
   id: number;
@@ -16,7 +19,20 @@ export interface Campaign {
   active_hours_tz: string;
   posting_delay_min_sec: number;
   posting_delay_max_sec: number;
+  join_delay_min_sec: number;
+  join_delay_max_sec: number;
+  floodwait_pause_sec: number;
+  floodwait_quarantine_max: number;
   enabled: boolean;
+  post_selection_mode: PostSelectionMode;
+  keywords: string[];
+  probability_percent: number;
+  post_scope: PostScope;
+  work_mode: WorkMode;
+  max_comments: number | null;
+  min_words: number;
+  window_after_post_sec: number | null;
+  pause_between_sec: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -25,6 +41,7 @@ export interface CampaignAccount {
   campaign_id: number;
   account_id: number;
   override_prompt: string | null;
+  probability_override: number | null;
   created_at: string;
 }
 
@@ -52,7 +69,68 @@ export interface CampaignCreateBody {
   active_hours_tz: string;
   posting_delay_min_sec: number;
   posting_delay_max_sec: number;
+  join_delay_min_sec?: number;
+  join_delay_max_sec?: number;
+  floodwait_pause_sec?: number;
+  floodwait_quarantine_max?: number;
   enabled?: boolean;
+  post_selection_mode?: PostSelectionMode;
+  keywords?: string[];
+  probability_percent?: number;
+  post_scope?: PostScope;
+  work_mode?: WorkMode;
+  max_comments?: number | null;
+  min_words?: number;
+  window_after_post_sec?: number | null;
+  pause_between_sec?: number | null;
+}
+
+export interface CampaignAccountPatchBody {
+  override_prompt?: string | null;
+  probability_override?: number | null;
 }
 
 export type CampaignUpdateBody = Partial<CampaignCreateBody>;
+
+/* ── Пресеты (§ Этап 1) ──────────────────────────────────────────────── */
+
+export interface AccountPreset {
+  id: number;
+  owner_user_id: string;
+  name: string;
+  account_ids: number[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AccountPresetCreateBody {
+  name: string;
+  account_ids: number[];
+}
+export type AccountPresetUpdateBody = Partial<AccountPresetCreateBody>;
+
+export interface DelayPreset {
+  id: number;
+  owner_user_id: string | null;
+  name: string;
+  is_system: boolean;
+  posting_delay_min_sec: number;
+  posting_delay_max_sec: number;
+  join_delay_min_sec: number;
+  join_delay_max_sec: number;
+  floodwait_pause_sec: number;
+  floodwait_quarantine_max: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DelayPresetCreateBody {
+  name: string;
+  posting_delay_min_sec: number;
+  posting_delay_max_sec: number;
+  join_delay_min_sec: number;
+  join_delay_max_sec: number;
+  floodwait_pause_sec: number;
+  floodwait_quarantine_max: number;
+}
+export type DelayPresetUpdateBody = Partial<DelayPresetCreateBody>;

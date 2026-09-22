@@ -203,12 +203,16 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     from api.routers import (
         accounts,
         admin,
+        autopilot,
         ban_risk,
         billing,
         bulk_jobs,
         login,
+        media_assets,
         monitoring,
         personas,
+        profile_assets,
+        projects,
         proxies,
     )
     from modules.commenting.api import router as commenting_router
@@ -237,6 +241,10 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(bulk_jobs.router)
     app.include_router(admin.router)
     app.include_router(ban_risk.router)
+    app.include_router(autopilot.router)
+    app.include_router(projects.router)
+    app.include_router(profile_assets.router)
+    app.include_router(media_assets.router)
     app.include_router(commenting_router)
     app.include_router(channels_router)
     return app

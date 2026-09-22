@@ -26,6 +26,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import func, select
 
 from api.deps.db import _session_factory  # тестируемый и уже настроенный фабрик
+from bot.notifier import run_notifier
+from bot.user_commands import cmd_help, cmd_start, cmd_status
 from core.audit import admin_action
 from core.config import get_settings
 from core.models.account import Account
@@ -138,11 +140,23 @@ async def _amain() -> None:
     bot = Bot(settings.telegram_bot_token)
     dp = Dispatcher()
 
+    # Админ (белый список): /admin26 + inline-callback'и меню.
     dp.message.register(cmd_admin, Command("admin26"))
     dp.callback_query.register(on_admin_callback, F.data.startswith(ADMIN_MENU_CB + ":"))
 
-    logger.info("bot starting (long-polling)…")
-    await dp.start_polling(bot, handle_signals=True)
+    # Публичные пользовательские команды (этап 13b).
+    dp.message.register(cmd_start, Command("start"))
+    dp.message.register(cmd_help, Command("help"))
+    dp.message.register(cmd_status, Command("status"))
+
+    logger.info("bot starting (long-polling + notifier)…")
+    # notifier — фоновая корутина: слушает Redis pub/sub и шлёт админам пуши
+    # об инцидентах (ban / retire / рост риска / решения автопилота). Работает
+    # параллельно с polling'ом; если один упадёт, второй тоже завершится.
+    await asyncio.gather(
+        dp.start_polling(bot, handle_signals=True),
+        run_notifier(bot),
+    )
 
 
 def main() -> None:

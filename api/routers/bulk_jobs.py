@@ -46,6 +46,31 @@ def _get_or_404(session: Session, job_id: int) -> BulkJob:
     return job
 
 
+@router.get("/actions")
+def list_bulk_actions() -> list[dict]:
+    """Каталог bulk-действий с JSON-schema payload'а (этап 5, backlog #2).
+
+    Mini-app по этому каталогу рендерит форму: title/description — метаданные,
+    ``payload_schema`` — pydantic JSON-schema для генерации полей ввода;
+    ``requires_client`` — подсказка UI, что при выборке аккаунтов надо
+    исключать retired/banned. Порядок стабилен по ключу name.
+    """
+    items = []
+    for name in sorted(ACTION_REGISTRY.keys()):
+        action = ACTION_REGISTRY[name]
+        items.append(
+            {
+                "name": name,
+                "title": action.title,
+                "description": action.description,
+                "requires_client": action.requires_client,
+                "governor_key": action.governor_key,
+                "payload_schema": action.payload_schema.model_json_schema(),
+            }
+        )
+    return items
+
+
 @router.post("", response_model=BulkJobRead, status_code=status.HTTP_201_CREATED)
 async def create_bulk_job(
     body: BulkJobCreate,

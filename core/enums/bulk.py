@@ -39,3 +39,7 @@ class BulkActionType(str, Enum):
     VIEW_CHANNEL_POSTS = "view_channel_posts"
     PUBLISH_STORY = "publish_story"
     VIEW_STORIES = "view_stories"
+    ASSIGN_PROXY = "assign_proxy"
+    APPLY_PROFILE_POOL = "apply_profile_pool"
+    SEND_REACTIONS = "send_reactions"
+    CREATE_CHANNEL = "create_channel"

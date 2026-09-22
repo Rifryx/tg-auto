@@ -4,7 +4,9 @@ from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     ForeignKey,
+    Integer,
     PrimaryKeyConstraint,
     String,
     UniqueConstraint,
@@ -19,6 +21,11 @@ class CampaignAccount(Base, CreatedAtMixin):
     __table_args__ = (
         PrimaryKeyConstraint("campaign_id", "account_id", name="pk_campaign_accounts"),
         UniqueConstraint("account_id", name="uq_campaign_accounts_account_id"),
+        CheckConstraint(
+            "probability_override IS NULL OR "
+            "probability_override BETWEEN 0 AND 100",
+            name="campaign_accounts_probability_override_valid",
+        ),
         {"schema": COMMENTING_SCHEMA},
     )
 
@@ -33,3 +40,6 @@ class CampaignAccount(Base, CreatedAtMixin):
         nullable=False,
     )
     override_prompt: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Пер-аккаунтная вероятность для post_selection_mode='probability'
+    # (§ Этап 2). NULL → используется campaign.probability_percent.
+    probability_override: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

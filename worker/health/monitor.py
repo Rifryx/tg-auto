@@ -45,7 +45,7 @@ from telethon.errors import (
 
 import structlog
 
-from core.enums import HealthEventType, Initiator
+from core.enums import HealthEventType, Initiator, TriggeredStatusChange
 from core.queue.publisher import Publisher
 from core.repositories.health_event import HealthEventRepository
 from core.schemas.health import HealthEventCreate
@@ -171,7 +171,7 @@ def _incident(
                 Initiator.HEALTH,
                 meta={"cooldown_until": cooldown_until},
             )
-            event.triggered_status_change = "cooldown"
+            event.triggered_status_change = TriggeredStatusChange.COOLDOWN.value
             session.commit()
         except (TransitionError, LookupError) as exc:
             get_logger().warning(
@@ -200,7 +200,7 @@ def _ban(
             AccountStateMachine(session, publisher).transition(
                 account_id, AccountEvent.BAN_DETECTED, Initiator.HEALTH
             )
-            event.triggered_status_change = "banned"
+            event.triggered_status_change = TriggeredStatusChange.BANNED.value
             session.commit()
         except (TransitionError, LookupError) as exc:
             get_logger().warning(

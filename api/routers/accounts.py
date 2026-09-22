@@ -75,6 +75,10 @@ class AccountPatchRequest(BaseModel):
     avatar_url: Optional[str] = None
     proxy_id: Optional[int] = None
     persona_id: Optional[int] = None
+    # Этап 2: проект-группировка, роль, теги.
+    project_id: Optional[int] = None
+    role: Optional[str] = None
+    tags: Optional[list[str]] = None
 
 
 class WarmingProfilePatchRequest(BaseModel):
@@ -97,10 +101,18 @@ def _get_account_or_404(session: Session, account_id: int):
 def list_accounts(
     status: Optional[AccountStatus] = None,
     warming_profile: Optional[WarmingProfile] = None,
+    project_id: Optional[int] = None,
+    role: Optional[str] = None,
+    tag: Optional[str] = None,
     session: Session = Depends(get_session),
 ) -> list[AccountRead]:
     accounts = accounts_service.list_accounts(
-        session, status=status, warming_profile=warming_profile
+        session,
+        status=status,
+        warming_profile=warming_profile,
+        project_id=project_id,
+        role=role,
+        tag=tag,
     )
     return [AccountRead.model_validate(a) for a in accounts]
 
@@ -178,6 +190,30 @@ async def import_session_account(
     except accounts_service.ProxyNotFoundError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     return AccountRead.model_validate(account)
+
+
+@router.post("/bulk-import")
+async def bulk_import_accounts(
+    archive: UploadFile = File(..., description="ZIP с .session-файлами"),
+    mapping: UploadFile = File(..., description="CSV: phone,proxy_id[,warming_profile,persona_id,project_id,role,tags]"),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Массовый импорт из архива + CSV (этап 1).
+
+    Best-effort: ошибка одной строки не роняет остальные. В ответе — что
+    успешно, что пропущено и почему. Тарифный лимит `accounts_max` здесь НЕ
+    применяется через enforce_limit (у зависимости нет счёта заранее);
+    вместо этого сам сервис откатывает лишние вставки на IntegrityError.
+    """
+    from api.services.bulk_import import bulk_import
+
+    archive_bytes = await archive.read()
+    csv_bytes = await mapping.read()
+    try:
+        report = bulk_import(session, archive_bytes=archive_bytes, csv_bytes=csv_bytes)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    return report.as_dict()
 
 
 @router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
@@ -483,6 +519,103 @@ async def bulk_set_2fa(
     session.commit()
     await task_queue.enqueue(TaskName.BULK_DISPATCH, job.id)
     return BulkJobRead.model_validate(job)
+
+
+class RecoveryEmailRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str
+    password: str
+
+
+class RecoveryEmailConfirm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str
+
+
+class RecoveryEmailState(BaseModel):
+    email: Optional[str] = None
+    pending_email: Optional[str] = None
+    code_length: Optional[int] = None
+    confirmed_at: Optional[str] = None
+
+
+@router.post(
+    "/{account_id}/2fa/recovery-email/request",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def request_recovery_email(
+    account_id: int,
+    body: RecoveryEmailRequest,
+    session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> dict[str, Any]:
+    """Инициировать привязку recovery-email к 2FA (этап 7, backlog #1).
+
+    Шифруем пароль ДО постановки в очередь: Telethon-worker получит
+    зашифрованный blob и вернёт результат в pub/sub канал
+    ``security.recovery_email_updated``.
+    """
+    _get_account_or_404(session, account_id)
+    if not body.email or "@" not in body.email:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "invalid email")
+    if not body.password:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "current password required"
+        )
+    import base64
+
+    password_enc = encrypt_password(body.password.encode("utf-8"))
+    password_enc_b64 = base64.b64encode(password_enc).decode("ascii")
+
+    await task_queue.enqueue(
+        TaskName.SECURITY_REQUEST_RECOVERY_EMAIL,
+        account_id,
+        body.email,
+        password_enc_b64,
+    )
+    return {"queued": True}
+
+
+@router.post(
+    "/{account_id}/2fa/recovery-email/confirm",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def confirm_recovery_email(
+    account_id: int,
+    body: RecoveryEmailConfirm,
+    session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> dict[str, Any]:
+    """Подтвердить код, введённый пользователем (этап 7, backlog #1)."""
+    _get_account_or_404(session, account_id)
+    if not body.code or not body.code.strip():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "code required")
+    await task_queue.enqueue(
+        TaskName.SECURITY_CONFIRM_RECOVERY_EMAIL,
+        account_id,
+        body.code.strip(),
+    )
+    return {"queued": True}
+
+
+@router.get(
+    "/{account_id}/2fa/recovery-email/state",
+    response_model=RecoveryEmailState,
+)
+def get_recovery_email_state(
+    account_id: int,
+    session: Session = Depends(get_session),
+) -> RecoveryEmailState:
+    """Текущее состояние привязки recovery-email (читаем meta)."""
+    account = _get_account_or_404(session, account_id)
+    meta = account.meta or {}
+    pending = meta.get("recovery_email_pending") or {}
+    return RecoveryEmailState(
+        email=meta.get("recovery_email"),
+        pending_email=pending.get("email"),
+        code_length=pending.get("code_length"),
+        confirmed_at=meta.get("recovery_email_confirmed_at"),
+    )
 
 
 @router.post("/health/check-bulk", status_code=status.HTTP_202_ACCEPTED)
