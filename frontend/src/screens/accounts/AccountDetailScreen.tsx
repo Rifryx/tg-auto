@@ -12,6 +12,7 @@ import type { MonitoredChannel, MonitoredChannelStatus, WarmingProfile } from ".
 import { Field, TextArea, Toggle } from "../../modules/commenting/components/ui";
 import { BanRiskCard } from "./components/BanRiskCard";
 import { ProjectRoleTagsSection } from "./components/ProjectRoleTagsSection";
+import { TwoFactorSection } from "./components/TwoFactorSection";
 import { CapsuleButton, ConfirmDialog, Section, SegmentedControl, StatusBadge } from "./components/ui";
 
 const PROFILE_OPTIONS: { value: WarmingProfile; label: string }[] = [
@@ -228,6 +229,9 @@ export function AccountDetailScreen() {
         role={acc.role ?? null}
         tags={acc.tags ?? []}
       />
+
+      {/* 2d. Управление 2FA — recovery email (этап 7) */}
+      <TwoFactorSection accountId={accountId} />
 
       {/* 3. Прокси — read-инфо + смена через селект */}
       <Section title="Прокси">

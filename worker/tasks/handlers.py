@@ -47,6 +47,10 @@ from worker.tasks.predictor import (
     predict_ban_risk_batch_impl,
     predict_ban_risk_impl,
 )
+from worker.tasks.security import (
+    confirm_recovery_email_impl,
+    request_recovery_email_impl,
+)
 from worker.tasks.logging import get_logger
 from worker.tasks.warming import (
     initial_start_impl,
@@ -116,6 +120,14 @@ predict_ban_risk_batch = task(TaskName.HEALTH_PREDICT_BAN_RISK_BATCH.value)(
 # Autopilot (этап 12): cron-планировщик действий над парком.
 autopilot_tick = task(TaskName.AUTOPILOT_TICK.value)(autopilot_tick_impl)
 
+# Security recovery-email flow (этап 7, backlog #1).
+request_recovery_email = task(TaskName.SECURITY_REQUEST_RECOVERY_EMAIL.value)(
+    request_recovery_email_impl
+)
+confirm_recovery_email = task(TaskName.SECURITY_CONFIRM_RECOVERY_EMAIL.value)(
+    confirm_recovery_email_impl
+)
+
 # Bulk-операции (§5.5 — этап 5 УТП). dispatch распределяет по item'ам, item —
 # сам исполнитель одного действия для одного аккаунта.
 bulk_dispatch = task(TaskName.BULK_DISPATCH.value)(bulk_dispatch_impl)
@@ -160,6 +172,19 @@ TASK_FUNCTIONS = [
     func(login_start, name=TaskName.ACCOUNT_LOGIN_START.value, max_tries=3),
     func(login_confirm, name=TaskName.ACCOUNT_LOGIN_CONFIRM.value, max_tries=3),
     func(login_password, name=TaskName.ACCOUNT_LOGIN_PASSWORD.value, max_tries=3),
+    # Recovery-email flow (этап 7, backlog #1): max_tries=1 — при
+    # EmailUnconfirmedError мы уже сохранили pending, повторный вызов только
+    # спутает Telegram.
+    func(
+        request_recovery_email,
+        name=TaskName.SECURITY_REQUEST_RECOVERY_EMAIL.value,
+        max_tries=1,
+    ),
+    func(
+        confirm_recovery_email,
+        name=TaskName.SECURITY_CONFIRM_RECOVERY_EMAIL.value,
+        max_tries=1,
+    ),
     # cooldown_return: max_tries=1 — при сбое повторится по крону
     func(cooldown_return, name=TaskName.HEALTH_COOLDOWN_RETURN.value, max_tries=1),
     func(check_account, name=TaskName.HEALTH_CHECK_ACCOUNT.value, max_tries=2),

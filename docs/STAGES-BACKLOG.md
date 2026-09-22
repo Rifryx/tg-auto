@@ -12,19 +12,6 @@
 
 ---
 
-## Этап 7. Безопасность
-
-### Recovery-email flow при set_2fa
-* **Триггер:** когда в mini-app появится страница управления 2FA.
-* **Что:** сейчас `email` кладётся в payload, но Telethon `edit_2fa` при первом
-  вызове с email требует code_callback (пришедший email-код) → в фоне это
-  сломает bulk. Решение: отдельный вход-flow «attach recovery email» с двумя
-  задачами: `security.request_email_code` (кладёт code_hash в meta) →
-  `security.confirm_email_code` (вводит код, дожёвывает 2FA). MVP пока
-  игнорирует email в bulk — оставляем в payload на будущее.
-
----
-
 ## Этап 8. Каналы и чаты
 
 ### Bulk-действие «сгенерировать канал»

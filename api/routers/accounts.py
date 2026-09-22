@@ -521,6 +521,103 @@ async def bulk_set_2fa(
     return BulkJobRead.model_validate(job)
 
 
+class RecoveryEmailRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str
+    password: str
+
+
+class RecoveryEmailConfirm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str
+
+
+class RecoveryEmailState(BaseModel):
+    email: Optional[str] = None
+    pending_email: Optional[str] = None
+    code_length: Optional[int] = None
+    confirmed_at: Optional[str] = None
+
+
+@router.post(
+    "/{account_id}/2fa/recovery-email/request",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def request_recovery_email(
+    account_id: int,
+    body: RecoveryEmailRequest,
+    session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> dict[str, Any]:
+    """Инициировать привязку recovery-email к 2FA (этап 7, backlog #1).
+
+    Шифруем пароль ДО постановки в очередь: Telethon-worker получит
+    зашифрованный blob и вернёт результат в pub/sub канал
+    ``security.recovery_email_updated``.
+    """
+    _get_account_or_404(session, account_id)
+    if not body.email or "@" not in body.email:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "invalid email")
+    if not body.password:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "current password required"
+        )
+    import base64
+
+    password_enc = encrypt_password(body.password.encode("utf-8"))
+    password_enc_b64 = base64.b64encode(password_enc).decode("ascii")
+
+    await task_queue.enqueue(
+        TaskName.SECURITY_REQUEST_RECOVERY_EMAIL,
+        account_id,
+        body.email,
+        password_enc_b64,
+    )
+    return {"queued": True}
+
+
+@router.post(
+    "/{account_id}/2fa/recovery-email/confirm",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def confirm_recovery_email(
+    account_id: int,
+    body: RecoveryEmailConfirm,
+    session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> dict[str, Any]:
+    """Подтвердить код, введённый пользователем (этап 7, backlog #1)."""
+    _get_account_or_404(session, account_id)
+    if not body.code or not body.code.strip():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "code required")
+    await task_queue.enqueue(
+        TaskName.SECURITY_CONFIRM_RECOVERY_EMAIL,
+        account_id,
+        body.code.strip(),
+    )
+    return {"queued": True}
+
+
+@router.get(
+    "/{account_id}/2fa/recovery-email/state",
+    response_model=RecoveryEmailState,
+)
+def get_recovery_email_state(
+    account_id: int,
+    session: Session = Depends(get_session),
+) -> RecoveryEmailState:
+    """Текущее состояние привязки recovery-email (читаем meta)."""
+    account = _get_account_or_404(session, account_id)
+    meta = account.meta or {}
+    pending = meta.get("recovery_email_pending") or {}
+    return RecoveryEmailState(
+        email=meta.get("recovery_email"),
+        pending_email=pending.get("email"),
+        code_length=pending.get("code_length"),
+        confirmed_at=meta.get("recovery_email_confirmed_at"),
+    )
+
+
 @router.post("/health/check-bulk", status_code=status.HTTP_202_ACCEPTED)
 async def enqueue_health_check_bulk(
     body: HealthCheckBulkRequest,

@@ -74,6 +74,23 @@ export const accountsApi = {
     api.post<LoginStateResponse>(`/accounts/${id}/login/confirm`, { code }),
   confirmPassword: (id: number, password: string) =>
     api.post<LoginStateResponse>(`/accounts/${id}/login/password`, { password }),
+  // Recovery-email для 2FA (этап 7, backlog #1).
+  recoveryEmailState: (id: number) =>
+    api.get<{
+      email: string | null;
+      pending_email: string | null;
+      code_length: number | null;
+      confirmed_at: string | null;
+    }>(`/accounts/${id}/2fa/recovery-email/state`),
+  requestRecoveryEmail: (id: number, email: string, password: string) =>
+    api.post<{ queued: boolean }>(`/accounts/${id}/2fa/recovery-email/request`, {
+      email,
+      password,
+    }),
+  confirmRecoveryEmail: (id: number, code: string) =>
+    api.post<{ queued: boolean }>(`/accounts/${id}/2fa/recovery-email/confirm`, {
+      code,
+    }),
 };
 
 /* Каналы, которые мониторит аккаунт (modules/commenting/api/channels.py). */
