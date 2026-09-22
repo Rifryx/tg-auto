@@ -218,6 +218,40 @@ export function CampaignDetailScreen() {
         )}
       </Section>
 
+      <Section title="Стиль комментариев">
+        <div className="card flex flex-col gap-3 p-4">
+          <StyleToggle
+            label="Использовать эмодзи"
+            checked={c.use_emojis}
+            onChange={(v) => save.mutate({ use_emojis: v })}
+          />
+          <StyleToggle
+            label="Комментировать стикерами"
+            hint="Runtime — DEFERRED [E4.1]."
+            checked={c.use_stickers}
+            onChange={(v) => save.mutate({ use_stickers: v })}
+          />
+          <StyleToggle
+            label="Картинка к комментарию"
+            hint="Runtime — DEFERRED [E4.1]."
+            checked={c.attach_image}
+            onChange={(v) => save.mutate({ attach_image: v })}
+          />
+          <StyleToggle
+            label="Писать от имени канала"
+            hint="Требует прав post_messages у аккаунта."
+            checked={c.write_as_channel}
+            onChange={(v) => save.mutate({ write_as_channel: v })}
+          />
+          <StyleToggle
+            label="Контроль удаления комментариев"
+            hint={`Через ${c.verify_delay_sec}с — тот же аккаунт (DEFERRED [E4.2]).`}
+            checked={c.verify_after_post}
+            onChange={(v) => save.mutate({ verify_after_post: v })}
+          />
+        </div>
+      </Section>
+
       <CampaignChannelsSection campaignId={campaignId} />
       <CampaignBlacklistSection campaignId={campaignId} />
 
@@ -289,6 +323,29 @@ function AutoText({
         <TextInput value={v} onChange={(e) => setV(e.target.value)} onBlur={commit} />
       )}
     </Field>
+  );
+}
+
+/* Компактный ряд «Тумблер + подпись» для секции стиля. */
+function StyleToggle({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-[14px] text-text-primary">{label}</p>
+        {hint && <p className="mt-0.5 text-[12px] text-text-tertiary">{hint}</p>}
+      </div>
+      <Toggle checked={checked} onChange={onChange} label={label} />
+    </div>
   );
 }
 

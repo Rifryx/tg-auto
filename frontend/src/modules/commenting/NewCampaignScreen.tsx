@@ -16,6 +16,7 @@ import {
   SegmentedControl,
   TextArea,
   TextInput,
+  Toggle,
 } from "./components/ui";
 import type {
   AccountPreset,
@@ -107,6 +108,14 @@ export function NewCampaignScreen() {
   const [onNotSubscribed, setOnNotSubscribed] =
     useState<OnNotSubscribedAction>("notify_only");
 
+  // ── Стиль комментариев (§ Этап 4) ──────────────────────────────────
+  const [useEmojis, setUseEmojis] = useState(true);
+  const [useStickers, setUseStickers] = useState(false);
+  const [attachImage, setAttachImage] = useState(false);
+  const [writeAsChannel, setWriteAsChannel] = useState(false);
+  const [verifyAfterPost, setVerifyAfterPost] = useState(false);
+  const [verifyDelaySec, setVerifyDelaySec] = useState(300);
+
   const pool = useQuery({ queryKey: ["accounts", "pool"], queryFn: () => accountsApi.list("pool") });
   const personas = useQuery({ queryKey: ["personas"], queryFn: catalogApi.personas });
   const delayPresets = useQuery({ queryKey: ["delay-presets"], queryFn: delayPresetsApi.list });
@@ -166,6 +175,12 @@ export function NewCampaignScreen() {
         pause_between_sec: workMode === "by_time_window" ? pauseBetween : null,
         channel_source_mode: channelSourceMode,
         on_not_subscribed_action: onNotSubscribed,
+        use_emojis: useEmojis,
+        use_stickers: useStickers,
+        attach_image: attachImage,
+        write_as_channel: writeAsChannel,
+        verify_after_post: verifyAfterPost,
+        verify_delay_sec: verifyDelaySec,
         enabled: true,
       });
       if (
@@ -239,12 +254,63 @@ export function NewCampaignScreen() {
         </p>
       </Section>
 
-      <Section title="Промпт">
+      <Section title="Промпт LLM">
         <TextArea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="Ты — активный участник обсуждений. Пиши короткие релевантные комментарии…"
         />
+        <p className="px-1 text-[12px] text-text-tertiary">
+          Обязательное поле. Если выбрана персона выше — её описание
+          подмешивается к промпту (LLM подстраивает стиль под персону).
+        </p>
+      </Section>
+
+      <Section title="Стиль комментариев">
+        <div className="flex flex-col gap-3">
+          <ToggleRow
+            label="Использовать эмодзи"
+            hint="Если выключено — LLM просят обойтись без эмодзи, а strip'ом чистим safety-net'ом."
+            checked={useEmojis}
+            onChange={setUseEmojis}
+          />
+          <ToggleRow
+            label="Комментировать стикерами"
+            hint="Часть комментариев уходит стикером из пака аккаунта (runtime — E4.1)."
+            checked={useStickers}
+            onChange={setUseStickers}
+          />
+          <ToggleRow
+            label="Картинка к комментарию"
+            hint="Прикладывает медиа-ассет к тексту (runtime — E4.1)."
+            checked={attachImage}
+            onChange={setAttachImage}
+          />
+          <ToggleRow
+            label="Писать от имени канала"
+            hint="Аккаунт должен быть админом канала с правом post. Иначе флаг игнорируется (E4.1)."
+            checked={writeAsChannel}
+            onChange={setWriteAsChannel}
+          />
+          <ToggleRow
+            label="Контроль удаления комментариев"
+            hint={`Через ${verifyDelaySec}с тот же аккаунт проверит, что коммент виден в чате (runtime — E4.2).`}
+            checked={verifyAfterPost}
+            onChange={setVerifyAfterPost}
+          />
+          {verifyAfterPost && (
+            <Field label="Задержка проверки (сек)">
+              <TextInput
+                inputMode="numeric"
+                value={String(verifyDelaySec)}
+                onChange={(e) =>
+                  setVerifyDelaySec(Math.max(1, Number(e.target.value.replace(/\D/g, "") || "0")))
+                }
+                className="nums"
+              />
+            </Field>
+          )}
+        </div>
       </Section>
 
       <Section title="Режим комментирования">
@@ -566,6 +632,29 @@ export function NewCampaignScreen() {
           {create.isPending ? "Создаём…" : "Создать кампанию"}
         </CapsuleButton>
       </StickyBar>
+    </div>
+  );
+}
+
+/* Ряд с тумблером — label + подсказка слева, свитч справа. */
+function ToggleRow({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-chip border border-hairline bg-surface-1 px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-[14px] text-text-primary">{label}</p>
+        {hint && <p className="mt-0.5 text-[12px] text-text-tertiary">{hint}</p>}
+      </div>
+      <Toggle checked={checked} onChange={onChange} label={label} />
     </div>
   );
 }

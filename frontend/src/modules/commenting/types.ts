@@ -38,6 +38,12 @@ export interface Campaign {
   pause_between_sec: number | null;
   channel_source_mode: ChannelSourceMode;
   on_not_subscribed_action: OnNotSubscribedAction;
+  use_emojis: boolean;
+  use_stickers: boolean;
+  attach_image: boolean;
+  write_as_channel: boolean;
+  verify_after_post: boolean;
+  verify_delay_sec: number;
   created_at: string;
   updated_at: string;
 }
@@ -90,6 +96,12 @@ export interface CampaignCreateBody {
   pause_between_sec?: number | null;
   channel_source_mode?: ChannelSourceMode;
   on_not_subscribed_action?: OnNotSubscribedAction;
+  use_emojis?: boolean;
+  use_stickers?: boolean;
+  attach_image?: boolean;
+  write_as_channel?: boolean;
+  verify_after_post?: boolean;
+  verify_delay_sec?: number;
 }
 
 export interface CampaignChannel {
