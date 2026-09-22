@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { accountsApi, catalogApi } from "../../shared/accounts";
 import { subscribeStream } from "../../shared/api";
 import { useLimit } from "../../shared/limits";
+import { proxiesApi } from "../more/api";
 import { Select } from "../../shared/Select";
 import { haptic } from "../../shared/tg";
 import type { LoginState, Proxy, WarmingProfile } from "../../shared/types";
@@ -157,6 +158,10 @@ export function NewAccountFlow() {
               }))}
             />
           </Field>
+          <AutoPickProxyButton
+            phone={phone}
+            onPicked={(id) => setProxyId(id)}
+          />
           <AddProxyInline
             onCreated={(p) => {
               proxies.refetch();
@@ -360,6 +365,53 @@ function InfoNote({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+/* Автопик свободного прокси под гео номера (этап 3, backlog #1). */
+function AutoPickProxyButton({
+  phone,
+  onPicked,
+}: {
+  phone: string;
+  onPicked: (id: number) => void;
+}) {
+  const [status, setStatus] = useState<string | null>(null);
+  const pick = useMutation({
+    mutationFn: () => proxiesApi.pick({ phone: phone.trim() }),
+    onSuccess: (r) => {
+      if (r.proxy_id != null) {
+        onPicked(r.proxy_id);
+        setStatus(
+          r.detected_geo
+            ? `Подобран под ${r.detected_geo}`
+            : "Подобран свободный прокси"
+        );
+      } else if (r.reason === "no_matching_geo_proxy") {
+        setStatus(
+          r.detected_geo
+            ? `Нет свободного прокси для ${r.detected_geo}`
+            : "Нет свободного прокси нужного гео"
+        );
+      } else {
+        setStatus("Свободных прокси нет");
+      }
+    },
+    onError: () => setStatus("Ошибка подбора"),
+  });
+  const enabled = phone.trim().length >= 4 && !pick.isPending;
+  return (
+    <div className="mb-3 flex items-center gap-2">
+      <button
+        onClick={() => enabled && pick.mutate()}
+        disabled={!enabled}
+        className="rounded-pill border border-hairline bg-surface-2 px-3 py-1.5 text-[13px] text-text-primary disabled:opacity-50"
+      >
+        {pick.isPending ? "Подбираем…" : "Автоподбор по номеру"}
+      </button>
+      {status && <p className="text-[12px] text-text-tertiary">{status}</p>}
+    </div>
+  );
+}
+
 
 /* Инлайн-добавление прокси прямо в онбординге — прокси уходит в общий пул.
    login/password («подписать» прокси) — по желанию, не обязательны. */

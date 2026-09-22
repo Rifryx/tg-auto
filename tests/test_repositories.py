@@ -272,9 +272,9 @@ def test_health_event_repo(session):
     assert resolved.resolved_at is not None
     assert ev.id not in {e.id for e in repo.list_unresolved()}
 
-    # обновление через update-схему
-    repo.update(ev.id, HealthEventUpdate(triggered_status_change="pool→cooldown"))
-    assert repo.get(ev.id).triggered_status_change == "pool→cooldown"
+    # обновление через update-схему (значение валидируется CHECK-constraint'ом).
+    repo.update(ev.id, HealthEventUpdate(triggered_status_change="cooldown"))
+    assert repo.get(ev.id).triggered_status_change == "cooldown"
 
 
 # --------------------------------------------------------------------------- #

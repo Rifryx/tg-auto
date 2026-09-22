@@ -25,6 +25,13 @@ class HealthEvent(Base, CreatedAtMixin):
             "'proxy_down', 'session_revoked', 'auth_failed')",
             name="event_type_allowed",
         ),
+        # Backlog #прочее: формализация triggered_status_change (было
+        # свободное поле). Допускаем только валидные целевые статусы.
+        CheckConstraint(
+            "triggered_status_change IS NULL OR "
+            "triggered_status_change IN ('cooldown', 'banned', 'retired')",
+            name="triggered_status_change_allowed",
+        ),
         Index(
             "ix_health_events_account_id_created_at",
             "account_id",

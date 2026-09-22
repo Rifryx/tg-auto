@@ -37,6 +37,16 @@ class Account(Base, TimestampMixin):
             "role IS NULL OR role IN ('main', 'support', 'warmup', 'burner')",
             name="role_allowed",
         ),
+        # Backlog #прочее: CHECK на previous_status.
+        # PROJECT-STAGES §1.2: previous_status запоминает stage, куда акк
+        # вернётся из cooldown. Реальные значения ровно два: pool | assigned.
+        # NULL допускается (при первичном создании и когда previous не
+        # актуально), но мусор в поле — нет.
+        CheckConstraint(
+            "previous_status IS NULL OR "
+            "previous_status IN ('pool', 'assigned')",
+            name="previous_status_allowed",
+        ),
         Index("ix_accounts_status", "status"),
         Index("ix_accounts_project_id", "project_id"),
         Index("ix_accounts_role", "role"),

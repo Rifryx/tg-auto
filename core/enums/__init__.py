@@ -7,7 +7,7 @@ from core.enums.autopilot import (
 from core.enums.bulk import BulkActionType, BulkItemStatus, BulkJobStatus
 from core.enums.commenting import CommentStatus, LLMProvider
 from core.enums.health import HealthCategory, HealthEventType, PhoneStatus
-from core.enums.history import Initiator
+from core.enums.history import Initiator, TriggeredStatusChange
 from core.enums.project import AccountRole
 from core.enums.proxy import ProxyStatus, ProxyType
 from core.enums.risk import RiskLevel
@@ -30,6 +30,7 @@ __all__ = [
     "HealthEventType",
     "PhoneStatus",
     "Initiator",
+    "TriggeredStatusChange",
     "LLMProvider",
     "AccountRole",
     "ProxyStatus",
