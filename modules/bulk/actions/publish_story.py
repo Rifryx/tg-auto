@@ -8,12 +8,23 @@ Payload:
 * ``privacy`` — ``everybody`` / ``contacts_only`` / ``close_friends`` / ``nobody``.
 * ``period`` — 21600/43200/86400/172800 (6ч/12ч/24ч/48ч). По умолчанию 86400.
 * ``scheduled_at`` — если задан, action ставит саму себя через TaskQueue.schedule
-  на это время и завершает текущий item как ``skipped`` с reason='deferred'
+  на это время и завершает текущий item как ``skipped`` с reason='deferred''
   (backlog #3). Полезно для Autopilot и внешних кампаний.
+* Video (этап 9, backlog #2):
+  * ``video_duration_sec`` / ``video_width`` / ``video_height`` — атрибуты видео
+    для ``DocumentAttributeVideo``; обязательны когда медиа — video/*.
+  * ``thumb_asset_id`` — превью-thumbnail (media_asset image/*), опц.
+
+Тип медиа определяется по MIME:
+* ``image/*`` (или неизвестный MIME без video-хвоста) → ``InputMediaUploadedPhoto``;
+* ``video/*`` → ``InputMediaUploadedDocument`` с
+  ``DocumentAttributeVideo(duration, w, h, supports_streaming=True)``.
 
 Каждый аккаунт загружает медиа СВОИМ клиентом (через свой прокси) — байты
 берутся один раз (из media_assets или payload), но загрузка происходит
 независимо: одно и то же медиа у Telegram будет висеть под разными storyId.
+MTProto file references Telethon строит сам в ``client.upload_file`` (chunked
+upload через ``SaveFilePartRequest``/``SaveBigFilePartRequest`` для >10 МБ).
 """
 
 from __future__ import annotations
@@ -25,6 +36,8 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from telethon.tl.functions.stories import SendStoryRequest
 from telethon.tl.types import (
+    DocumentAttributeVideo,
+    InputMediaUploadedDocument,
     InputMediaUploadedPhoto,
     InputPrivacyValueAllowAll,
     InputPrivacyValueAllowCloseFriends,
@@ -56,6 +69,15 @@ class PublishStoryPayload(BaseModel):
     # Ровно один из источников; проверяется в model_validator.
     media_asset_id: Optional[int] = None
     media_b64: Optional[str] = None
+    # Если медиа — видео (mime video/*), эти поля обязательны для
+    # DocumentAttributeVideo. Для inline (media_b64) MIME не известен, поэтому
+    # передавать video-атрибуты можно только вместе с media_asset_id — где
+    # MIME определяется по media_assets.mime. Если inline video нужен —
+    # заливай его сначала как media_asset и передавай id.
+    video_duration_sec: Optional[int] = Field(default=None, ge=1, le=60)
+    video_width: Optional[int] = Field(default=None, ge=1, le=4096)
+    video_height: Optional[int] = Field(default=None, ge=1, le=4096)
+    thumb_asset_id: Optional[int] = None
 
     caption: str = ""
     privacy: PrivacyMode = "everybody"
@@ -70,6 +92,21 @@ class PublishStoryPayload(BaseModel):
             raise ValueError(
                 "publish_story requires exactly one of media_asset_id / media_b64"
             )
+        # Все video-атрибуты — либо все три вместе, либо ни один. Пустые
+        # атрибуты допустимы для photo.
+        video_fields = (
+            self.video_duration_sec, self.video_width, self.video_height,
+        )
+        if any(v is not None for v in video_fields) and not all(
+            v is not None for v in video_fields
+        ):
+            raise ValueError(
+                "video_duration_sec, video_width, video_height must be provided together"
+            )
+        # Thumb доступен только с media_asset_id (для inline нам неоткуда взять
+        # bytes отдельного thumb).
+        if self.thumb_asset_id is not None and has_inline:
+            raise ValueError("thumb_asset_id requires media_asset_id (not media_b64)")
         return self
 
     def decoded_media(self) -> bytes:
@@ -114,15 +151,37 @@ async def _run(
             )
 
     # Источник медиа: сначала пробуем asset store, потом legacy inline.
+    media_bytes: bytes
+    media_mime: Optional[str]
+    media_filename: Optional[str]
+    thumb_bytes: Optional[bytes] = None
+
     if payload.media_asset_id is not None:
         with session_factory() as session:
             asset = MediaAssetRepository(session).get(payload.media_asset_id)
-        if asset is None:
-            return BulkActionResult(
-                ok=False, detail={"reason": "media_asset_not_found",
-                                  "media_asset_id": payload.media_asset_id},
-            )
-        media_bytes = asset.bytes
+            if asset is None:
+                return BulkActionResult(
+                    ok=False,
+                    detail={
+                        "reason": "media_asset_not_found",
+                        "media_asset_id": payload.media_asset_id,
+                    },
+                )
+            media_bytes = asset.bytes
+            media_mime = asset.mime
+            media_filename = asset.filename
+
+            if payload.thumb_asset_id is not None:
+                thumb_asset = MediaAssetRepository(session).get(payload.thumb_asset_id)
+                if thumb_asset is None:
+                    return BulkActionResult(
+                        ok=False,
+                        detail={
+                            "reason": "thumb_asset_not_found",
+                            "thumb_asset_id": payload.thumb_asset_id,
+                        },
+                    )
+                thumb_bytes = thumb_asset.bytes
     else:
         try:
             media_bytes = payload.decoded_media()
@@ -130,16 +189,51 @@ async def _run(
             return BulkActionResult(
                 ok=False, detail={"reason": "invalid_media_b64", "error": repr(exc)}
             )
+        # inline: MIME неизвестен, filename тоже; тип определится как photo
+        # (см. _is_video ниже — вернёт False, если MIME не video/*).
+        media_mime = None
+        media_filename = None
 
-    # 1) загрузить файл своим клиентом (свой прокси)
+    is_video = _is_video(media_mime)
+    if is_video:
+        # Для видео обязательны video-атрибуты.
+        video_fields = (
+            payload.video_duration_sec, payload.video_width, payload.video_height,
+        )
+        if not all(v is not None for v in video_fields):
+            return BulkActionResult(
+                ok=False,
+                detail={
+                    "reason": "video_attributes_required",
+                    "mime": media_mime,
+                },
+            )
+
+    # 1) загрузить файл своим клиентом (свой прокси). client.upload_file сам
+    # рвёт большие файлы на chunk'и через SaveBigFilePartRequest — MTProto
+    # file references обрабатываются Telethon.
     uploaded = await around_telethon_call(
-        lambda: client.upload_file(media_bytes),
+        lambda: client.upload_file(media_bytes, file_name=media_filename),
         account_id=account_id,
         session_factory=session_factory,
         publisher=publisher,
     )
+    uploaded_thumb = None
+    if thumb_bytes is not None:
+        uploaded_thumb = await around_telethon_call(
+            lambda: client.upload_file(thumb_bytes),
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+        )
 
-    media = InputMediaUploadedPhoto(file=uploaded)
+    media = _build_input_media(
+        uploaded,
+        mime=media_mime,
+        is_video=is_video,
+        thumb=uploaded_thumb,
+        payload=payload,
+    )
     privacy_cls = _PRIVACY_MAP[payload.privacy]
 
     result = await around_telethon_call(
@@ -162,11 +256,54 @@ async def _run(
     return BulkActionResult(
         ok=True,
         detail={
+            "media_kind": "video" if is_video else "photo",
+            "mime": media_mime,
+            "size_bytes": len(media_bytes),
             "privacy": payload.privacy,
             "period": payload.period,
             "caption_len": len(payload.caption),
             "updates_type": type(result).__name__,
         },
+    )
+
+
+def _is_video(mime: Optional[str]) -> bool:
+    """Тип медиа по MIME. Без MIME (inline base64) считаем photo."""
+    if not mime:
+        return False
+    return mime.lower().startswith("video/")
+
+
+def _build_input_media(
+    uploaded,
+    *,
+    mime: Optional[str],
+    is_video: bool,
+    thumb,
+    payload: "PublishStoryPayload",
+):
+    """Собирает Telethon-медиа (photo или video-document) для SendStoryRequest.
+
+    Для видео используем ``InputMediaUploadedDocument`` с
+    ``DocumentAttributeVideo``. Для фото — ``InputMediaUploadedPhoto`` (thumb
+    в photo не поддерживается Telegram, а Telethon его просто игнорирует).
+    """
+    if not is_video:
+        return InputMediaUploadedPhoto(file=uploaded)
+
+    attributes = [
+        DocumentAttributeVideo(
+            duration=int(payload.video_duration_sec or 0),
+            w=int(payload.video_width or 0),
+            h=int(payload.video_height or 0),
+            supports_streaming=True,
+        )
+    ]
+    return InputMediaUploadedDocument(
+        file=uploaded,
+        mime_type=mime or "video/mp4",
+        attributes=attributes,
+        thumb=thumb,
     )
 
 

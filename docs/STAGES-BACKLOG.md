@@ -12,17 +12,6 @@
 
 ---
 
-## Этап 9. Stories
-
-### Video / документ в Stories
-* **Триггер:** когда пользователь попросит видео-Stories.
-* **Что:** сейчас поддерживаем только ``InputMediaUploadedPhoto``. Для видео
-  нужна ``InputMediaUploadedDocument`` с video-attributes (duration/w/h) и
-  превью-thumbnail; работает через тот же ``upload_file``, но с обработкой
-  больших файлов (несколько частей, MTProto file references).
-
----
-
 ## Этап 10. Warmup Engine
 
 ### Trust-graph: действие ``interact_with_peer``
