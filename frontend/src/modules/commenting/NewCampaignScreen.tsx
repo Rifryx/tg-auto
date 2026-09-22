@@ -8,6 +8,7 @@ import { Select } from "../../shared/Select";
 import { haptic } from "../../shared/tg";
 import { accountPresetsApi, commentingApi, delayPresetsApi } from "./api";
 import { AccountPickRow } from "./components/AccountPickRow";
+import { AiProtectionCard } from "./components/AiProtectionCard";
 import {
   CapsuleButton,
   Field,
@@ -16,15 +17,26 @@ import {
   SegmentedControl,
   TextArea,
   TextInput,
+  Toggle,
 } from "./components/ui";
 import type {
   AccountPreset,
+  ChannelSourceMode,
   DelayPreset,
   LLMProvider,
+  OnNotSubscribedAction,
   PostScope,
   PostSelectionMode,
   WorkMode,
 } from "./types";
+
+function classifyChannelInput(raw: string): "username" | "invite" | "folder" {
+  const low = raw.trim().toLowerCase();
+  if (low.includes("t.me/addlist/") || low.includes("t.me/list/")) return "folder";
+  if (low.includes("t.me/joinchat/") || low.includes("t.me/+") || low.startsWith("+"))
+    return "invite";
+  return "username";
+}
 
 const TZ_OPTIONS = [
   "UTC",
@@ -90,6 +102,21 @@ export function NewCampaignScreen() {
   const [windowAfterPost, setWindowAfterPost] = useState<number>(3600);
   const [pauseBetween, setPauseBetween] = useState<number>(60);
 
+  // ── Целевые каналы (§ Этап 3) ─────────────────────────────────────
+  const [channelSourceMode, setChannelSourceMode] =
+    useState<ChannelSourceMode>("explicit_links");
+  const [channelLinksText, setChannelLinksText] = useState("");
+  const [onNotSubscribed, setOnNotSubscribed] =
+    useState<OnNotSubscribedAction>("notify_only");
+
+  // ── Стиль комментариев (§ Этап 4) ──────────────────────────────────
+  const [useEmojis, setUseEmojis] = useState(true);
+  const [useStickers, setUseStickers] = useState(false);
+  const [attachImage, setAttachImage] = useState(false);
+  const [writeAsChannel, setWriteAsChannel] = useState(false);
+  const [verifyAfterPost, setVerifyAfterPost] = useState(false);
+  const [verifyDelaySec, setVerifyDelaySec] = useState(300);
+
   const pool = useQuery({ queryKey: ["accounts", "pool"], queryFn: () => accountsApi.list("pool") });
   const personas = useQuery({ queryKey: ["personas"], queryFn: catalogApi.personas });
   const delayPresets = useQuery({ queryKey: ["delay-presets"], queryFn: delayPresetsApi.list });
@@ -105,6 +132,14 @@ export function NewCampaignScreen() {
         .map((s) => s.trim())
         .filter(Boolean),
     [keywordsText],
+  );
+  const channelLinksList = useMemo(
+    () =>
+      channelLinksText
+        .split(/\n+/)
+        .map((s) => s.trim())
+        .filter(Boolean),
+    [channelLinksText],
   );
 
   const valid =
@@ -139,8 +174,26 @@ export function NewCampaignScreen() {
         window_after_post_sec:
           workMode === "by_time_window" ? windowAfterPost : null,
         pause_between_sec: workMode === "by_time_window" ? pauseBetween : null,
+        channel_source_mode: channelSourceMode,
+        on_not_subscribed_action: onNotSubscribed,
+        use_emojis: useEmojis,
+        use_stickers: useStickers,
+        attach_image: attachImage,
+        write_as_channel: writeAsChannel,
+        verify_after_post: verifyAfterPost,
+        verify_delay_sec: verifyDelaySec,
         enabled: true,
       });
+      if (
+        channelSourceMode === "explicit_links" &&
+        channelLinksList.length > 0
+      ) {
+        try {
+          await commentingApi.addChannels(camp.id, channelLinksList);
+        } catch {
+          /* некритично: ссылки можно добавить позже в деталях кампании */
+        }
+      }
       for (const id of selected) {
         const override =
           selectionMode === "probability" ? perAccountProbability[id] ?? null : null;
@@ -172,6 +225,8 @@ export function NewCampaignScreen() {
       </button>
       <h1 className="screen-title mb-6">Новая кампания</h1>
 
+      <AiProtectionCard />
+
       <Section title="Основное">
         <Field label="Название">
           <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Промо-кампания" />
@@ -202,12 +257,63 @@ export function NewCampaignScreen() {
         </p>
       </Section>
 
-      <Section title="Промпт">
+      <Section title="Промпт LLM">
         <TextArea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="Ты — активный участник обсуждений. Пиши короткие релевантные комментарии…"
         />
+        <p className="px-1 text-[12px] text-text-tertiary">
+          Обязательное поле. Если выбрана персона выше — её описание
+          подмешивается к промпту (LLM подстраивает стиль под персону).
+        </p>
+      </Section>
+
+      <Section title="Стиль комментариев">
+        <div className="flex flex-col gap-3">
+          <ToggleRow
+            label="Использовать эмодзи"
+            hint="Если выключено — LLM просят обойтись без эмодзи, а strip'ом чистим safety-net'ом."
+            checked={useEmojis}
+            onChange={setUseEmojis}
+          />
+          <ToggleRow
+            label="Комментировать стикерами"
+            hint="Часть комментариев уходит стикером из пака аккаунта (runtime — E4.1)."
+            checked={useStickers}
+            onChange={setUseStickers}
+          />
+          <ToggleRow
+            label="Картинка к комментарию"
+            hint="Прикладывает медиа-ассет к тексту (runtime — E4.1)."
+            checked={attachImage}
+            onChange={setAttachImage}
+          />
+          <ToggleRow
+            label="Писать от имени канала"
+            hint="Аккаунт должен быть админом канала с правом post. Иначе флаг игнорируется (E4.1)."
+            checked={writeAsChannel}
+            onChange={setWriteAsChannel}
+          />
+          <ToggleRow
+            label="Контроль удаления комментариев"
+            hint={`Через ${verifyDelaySec}с тот же аккаунт проверит, что коммент виден в чате (runtime — E4.2).`}
+            checked={verifyAfterPost}
+            onChange={setVerifyAfterPost}
+          />
+          {verifyAfterPost && (
+            <Field label="Задержка проверки (сек)">
+              <TextInput
+                inputMode="numeric"
+                value={String(verifyDelaySec)}
+                onChange={(e) =>
+                  setVerifyDelaySec(Math.max(1, Number(e.target.value.replace(/\D/g, "") || "0")))
+                }
+                className="nums"
+              />
+            </Field>
+          )}
+        </div>
       </Section>
 
       <Section title="Режим комментирования">
@@ -374,6 +480,75 @@ export function NewCampaignScreen() {
         </p>
       </Section>
 
+      <Section title="Целевые каналы">
+        <SegmentedControl
+          options={[
+            { value: "explicit_links", label: "Юзернейм/Ссылка" },
+            { value: "by_account_subscriptions", label: "По подпискам аккаунта" },
+          ]}
+          value={channelSourceMode}
+          onChange={(v) => setChannelSourceMode(v as ChannelSourceMode)}
+        />
+        {channelSourceMode === "explicit_links" ? (
+          <div className="mt-3">
+            <Field
+              label="Ссылки на каналы"
+              hint={<span className="text-[11px] text-text-tertiary">по одной на строку</span>}
+            >
+              <TextArea
+                value={channelLinksText}
+                onChange={(e) => setChannelLinksText(e.target.value)}
+                placeholder={"@username или https://t.me/channel_name\nt.me/joinchat/xxx"}
+              />
+            </Field>
+            {channelLinksList.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {channelLinksList.map((raw) => {
+                  const kind = classifyChannelInput(raw);
+                  return (
+                    <span
+                      key={raw}
+                      className={`rounded-pill border border-hairline bg-surface-1 px-2.5 py-0.5 text-[11px] ${
+                        kind === "folder" ? "text-status-warning" : "text-text-secondary"
+                      }`}
+                    >
+                      {raw} · {kind === "folder" ? "папка (скоро)" : kind}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            <p className="mt-2 px-1 text-[12px] text-text-tertiary">
+              Папки (`t.me/addlist/…`) сохраняются, но пока не резолвятся —
+              см. DEFERRED-FEATURES [E3.1].
+            </p>
+          </div>
+        ) : (
+          <p className="mt-2 px-1 text-[12px] text-text-tertiary">
+            Каждый аккаунт комментирует только каналы, на которые он подписан.
+            Убедитесь, что у аккаунтов настроены `Мониторинг` — иначе очередь
+            будет пустой.
+          </p>
+        )}
+        <div className="mt-4">
+          <Field label="Если аккаунт не подписан">
+            <SegmentedControl
+              options={[
+                { value: "notify_only", label: "Только уведомить" },
+                { value: "subscribe_and_notify", label: "Подписаться + уведомить" },
+              ]}
+              value={onNotSubscribed}
+              onChange={(v) => setOnNotSubscribed(v as OnNotSubscribedAction)}
+            />
+          </Field>
+          <p className="px-1 text-[12px] text-text-tertiary">
+            Пуш-уведомления при обнаружении отсутствия подписки — через тот же
+            канал, что и алерты по прокси. Runtime-обработчик — см.
+            DEFERRED-FEATURES [E3.2].
+          </p>
+        </div>
+      </Section>
+
       <Section title="Аккаунты из пула">
         <AccountPresetBar
           presets={accountPresets.data ?? []}
@@ -460,6 +635,29 @@ export function NewCampaignScreen() {
           {create.isPending ? "Создаём…" : "Создать кампанию"}
         </CapsuleButton>
       </StickyBar>
+    </div>
+  );
+}
+
+/* Ряд с тумблером — label + подсказка слева, свитч справа. */
+function ToggleRow({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-chip border border-hairline bg-surface-1 px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-[14px] text-text-primary">{label}</p>
+        {hint && <p className="mt-0.5 text-[12px] text-text-tertiary">{hint}</p>}
+      </div>
+      <Toggle checked={checked} onChange={onChange} label={label} />
     </div>
   );
 }

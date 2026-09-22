@@ -26,7 +26,9 @@ from modules.commenting.api import service
 from modules.commenting.repositories import (
     AccountPresetRepository,
     CampaignAccountRepository,
+    CampaignChannelRepository,
     CampaignRepository,
+    ChannelBlacklistRepository,
     CommentLogRepository,
     DelayPresetRepository,
 )
@@ -35,6 +37,15 @@ from modules.commenting.worker.registry import (
     ACTION_DETACH,
     publish_campaign_lifecycle,
 )
+from modules.commenting.schemas.ai_protection import (
+    AccountRiskBucket,
+    AiProtectionFeature,
+    AiProtectionStatus,
+)
+from modules.commenting.schemas.stats import (
+    CampaignRuntimeSummary,
+    CampaignStats,
+)
 from modules.commenting.schemas import (
     AccountPresetCreate,
     AccountPresetRead,
@@ -42,9 +53,14 @@ from modules.commenting.schemas import (
     AttachAccountRequest,
     CampaignAccountRead,
     CampaignAccountUpdate,
+    CampaignChannelBulkCreate,
+    CampaignChannelCreate,
+    CampaignChannelRead,
     CampaignCreate,
     CampaignRead,
     CampaignUpdate,
+    ChannelBlacklistCreate,
+    ChannelBlacklistRead,
     CommentLogRead,
     DelayPresetCreate,
     DelayPresetRead,
@@ -336,6 +352,261 @@ def delete_delay_preset(
             status.HTTP_404_NOT_FOUND, "preset not found or not deletable"
         )
     session.commit()
+
+
+# --- Целевые каналы кампании (§ Этап 3) -------------------------------------
+
+
+@router.get(
+    "/campaigns/{campaign_id}/channels",
+    response_model=list[CampaignChannelRead],
+)
+def list_campaign_channels(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> list[CampaignChannelRead]:
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    items = CampaignChannelRepository(session).list_by_campaign(campaign_id)
+    return [CampaignChannelRead.model_validate(i) for i in items]
+
+
+@router.post(
+    "/campaigns/{campaign_id}/channels",
+    response_model=list[CampaignChannelRead],
+    status_code=status.HTTP_201_CREATED,
+)
+def add_campaign_channels(
+    campaign_id: int,
+    body: CampaignChannelBulkCreate,
+    session: Session = Depends(get_session),
+) -> list[CampaignChannelRead]:
+    """Bulk-добавление: одна ссылка на строку, дубли пропускаются молча."""
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    repo = CampaignChannelRepository(session)
+    existing = {c.raw_input for c in repo.list_by_campaign(campaign_id)}
+    created: list[CampaignChannelRead] = []
+    for raw in body.raw_inputs:
+        cleaned = raw.strip()
+        if not cleaned or cleaned in existing:
+            continue
+        item = repo.create(campaign_id, CampaignChannelCreate(raw_input=cleaned))
+        existing.add(cleaned)
+        created.append(CampaignChannelRead.model_validate(item))
+    session.commit()
+    return created
+
+
+@router.delete(
+    "/campaigns/{campaign_id}/channels/{channel_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+def delete_campaign_channel(
+    campaign_id: int, channel_id: int, session: Session = Depends(get_session)
+) -> None:
+    if not CampaignChannelRepository(session).delete(campaign_id, channel_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "channel not found")
+    session.commit()
+
+
+# --- Черный список каналов (§ Этап 3) ---------------------------------------
+
+
+@router.get(
+    "/campaigns/{campaign_id}/blacklist",
+    response_model=list[ChannelBlacklistRead],
+)
+def list_blacklist(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> list[ChannelBlacklistRead]:
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    items = ChannelBlacklistRepository(session).list_by_campaign(campaign_id)
+    return [ChannelBlacklistRead.model_validate(i) for i in items]
+
+
+@router.post(
+    "/campaigns/{campaign_id}/blacklist",
+    response_model=ChannelBlacklistRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_blacklist(
+    campaign_id: int,
+    body: ChannelBlacklistCreate,
+    session: Session = Depends(get_session),
+) -> ChannelBlacklistRead:
+    """Ручное добавление в ЧС; воркер добавляет автоматически с ``auto=True``."""
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        entry = ChannelBlacklistRepository(session).create(campaign_id, body, auto=False)
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "already blacklisted") from None
+    return ChannelBlacklistRead.model_validate(entry)
+
+
+@router.delete(
+    "/campaigns/{campaign_id}/blacklist/{entry_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+def remove_blacklist(
+    campaign_id: int, entry_id: int, session: Session = Depends(get_session)
+) -> None:
+    if not ChannelBlacklistRepository(session).delete(campaign_id, entry_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "blacklist entry not found")
+    session.commit()
+
+
+# --- ИИ-защита аккаунтов (§ Этап 5) -----------------------------------------
+
+
+_AI_PROTECTION_FEATURES: list[AiProtectionFeature] = [
+    AiProtectionFeature(
+        key="behavior_analysis",
+        label="ИИ анализ поведения",
+        description=(
+            "Anti-Ban Predictor раз в 15 минут пересчитывает риск для всех "
+            "активных аккаунтов (задача health.predict_ban_risk_batch)."
+        ),
+        status="active",
+    ),
+    AiProtectionFeature(
+        key="human_mimicry",
+        label="Имитация человека",
+        description=(
+            "Warming maintenance каждые 5 минут поддерживает человекоподобное "
+            "поведение (задача warming.maintenance_scheduler)."
+        ),
+        status="active",
+    ),
+    AiProtectionFeature(
+        key="ban_shield",
+        label="Защита от банов",
+        description=(
+            "Health-monitor + автопилот раз в 10 минут переводят рискующие "
+            "аккаунты в cooldown/limited и снимают их с нагрузки."
+        ),
+        status="active",
+    ),
+    AiProtectionFeature(
+        key="adaptive_delays",
+        label="Адаптивные задержки",
+        description=(
+            "Задержки постинга берутся из delay-пресета кампании, а FloodWait "
+            "автоматически уводит аккаунт в паузу (floodwait_pause_sec)."
+        ),
+        status="active",
+    ),
+]
+
+
+@router.get("/ai-protection/status", response_model=AiProtectionStatus)
+def get_ai_protection_status(
+    session: Session = Depends(get_session),
+) -> AiProtectionStatus:
+    """Read-only статус защиты для всех аккаунтов текущего инстанса.
+
+    Никаких paywall'ов: защита включена по факту — daemon'ы запущены как
+    cron-задачи воркера. Тут только агрегат для UI-плашки.
+    """
+    from sqlalchemy import func, select
+    from core.models.account import Account
+    from core.models.ban_risk import BanRiskSnapshot
+
+    total = session.execute(select(func.count()).select_from(Account)).scalar_one()
+    rows = session.execute(
+        select(BanRiskSnapshot.risk_level, func.count())
+        .group_by(BanRiskSnapshot.risk_level)
+    ).all()
+    buckets = AccountRiskBucket()
+    covered = 0
+    for level, count in rows:
+        covered += count
+        setattr(buckets, level, count)
+    buckets.unknown = max(0, total - covered)
+
+    return AiProtectionStatus(
+        active=True,
+        features=_AI_PROTECTION_FEATURES,
+        accounts_by_risk=buckets,
+        total_accounts=total,
+    )
+
+
+# --- Логи комментариев -------------------------------------------------------
+
+
+# --- Статистика + Runtime-сводка (§ Этап 6) ---------------------------------
+
+
+@router.get("/campaigns/{campaign_id}/stats", response_model=CampaignStats)
+def get_campaign_stats(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> CampaignStats:
+    """Агрегат CommentLog по статусам. Кампанию проверяем — 404 если её нет."""
+    from sqlalchemy import func, select
+    from modules.commenting.models import CommentLog
+
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+
+    rows = session.execute(
+        select(CommentLog.status, func.count())
+        .where(CommentLog.campaign_id == campaign_id)
+        .group_by(CommentLog.status)
+    ).all()
+    counts = {"posted": 0, "failed": 0, "flagged": 0}
+    for st, cnt in rows:
+        if st in counts:
+            counts[st] = cnt
+    total = sum(counts.values())
+    rate = (counts["posted"] * 100) // total if total > 0 else 0
+    return CampaignStats(
+        total=total,
+        posted=counts["posted"],
+        failed=counts["failed"],
+        flagged=counts["flagged"],
+        success_rate_percent=rate,
+    )
+
+
+@router.get(
+    "/campaigns/{campaign_id}/runtime-summary",
+    response_model=CampaignRuntimeSummary,
+)
+def get_campaign_runtime_summary(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> CampaignRuntimeSummary:
+    """Что показать в «блоке запуска»: аккаунты / каналы / лимиты."""
+    from sqlalchemy import func, select
+    from modules.commenting.models import CampaignAccount, CampaignChannel
+
+    campaign = CampaignRepository(session).get(campaign_id)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    accounts_count = session.execute(
+        select(func.count()).select_from(CampaignAccount).where(
+            CampaignAccount.campaign_id == campaign_id
+        )
+    ).scalar_one()
+    channels_count = session.execute(
+        select(func.count()).select_from(CampaignChannel).where(
+            CampaignChannel.campaign_id == campaign_id
+        )
+    ).scalar_one()
+    return CampaignRuntimeSummary(
+        accounts_count=accounts_count,
+        channels_count=channels_count,
+        max_interval_sec=campaign.posting_delay_max_sec,
+        max_comments=campaign.max_comments,
+        enabled=campaign.enabled,
+    )
 
 
 # --- Логи комментариев -------------------------------------------------------

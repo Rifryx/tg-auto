@@ -74,6 +74,18 @@ class Campaign(Base, TimestampMixin):
             "pause_between_sec IS NULL OR pause_between_sec >= 0",
             name="campaign_pause_between_valid",
         ),
+        CheckConstraint(
+            "channel_source_mode IN ('by_account_subscriptions', 'explicit_links')",
+            name="campaign_channel_source_mode_allowed",
+        ),
+        CheckConstraint(
+            "on_not_subscribed_action IN ('subscribe_and_notify', 'notify_only')",
+            name="campaign_on_not_subscribed_action_allowed",
+        ),
+        CheckConstraint(
+            "verify_delay_sec > 0",
+            name="campaign_verify_delay_valid",
+        ),
         {"schema": COMMENTING_SCHEMA},
     )
 
@@ -147,3 +159,43 @@ class Campaign(Base, TimestampMixin):
     )
     window_after_post_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pause_between_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # ── Целевые каналы (§ Этап 3) ──────────────────────────────────────
+    # by_account_subscriptions: источник = MonitoredChannel каждого аккаунта.
+    # explicit_links: источник = CampaignChannel этой кампании
+    # (usernames / invites / folder-slug'и).
+    channel_source_mode: Mapped[str] = mapped_column(
+        String, nullable=False, default="explicit_links", server_default="explicit_links"
+    )
+    # Что делать, если при постинге оказалось, что аккаунт не подписан:
+    # subscribe_and_notify — подписаться и залогировать; notify_only —
+    # только уведомить и пропустить пост.
+    on_not_subscribed_action: Mapped[str] = mapped_column(
+        String, nullable=False, default="notify_only", server_default="notify_only"
+    )
+
+    # ── Стиль комментариев + verify-seam (§ Этап 4) ────────────────────
+    # Эти булевы флаги читает воркер при генерации/отправке коммента.
+    # use_stickers / attach_image / write_as_channel требуют runtime-обвязки
+    # (см. DEFERRED-FEATURES [E4.1]/[E4.2]) — сейчас только хранение и UI.
+    use_emojis: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    use_stickers: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    attach_image: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    write_as_channel: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # verify_after_post — тот самый live-verification gate (см. MEMORY:
+    # monitoring-architecture). После постинга через verify_delay_sec тем же
+    # аккаунтом проверяем, что коммент всё ещё виден в обсуждении.
+    verify_after_post: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    verify_delay_sec: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=300, server_default="300"
+    )

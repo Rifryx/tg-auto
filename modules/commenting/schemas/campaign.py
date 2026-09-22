@@ -9,6 +9,8 @@ from core.schemas.base import ORMModel
 PostSelectionMode = Literal["all", "keywords", "probability"]
 PostScope = Literal["new", "existing", "mixed"]
 WorkMode = Literal["by_count", "by_time_window"]
+ChannelSourceMode = Literal["by_account_subscriptions", "explicit_links"]
+OnNotSubscribedAction = Literal["subscribe_and_notify", "notify_only"]
 
 
 class CampaignCreate(BaseModel):
@@ -43,6 +45,15 @@ class CampaignCreate(BaseModel):
     min_words: int = Field(default=0, ge=0)
     window_after_post_sec: Optional[int] = Field(default=None, gt=0)
     pause_between_sec: Optional[int] = Field(default=None, ge=0)
+    channel_source_mode: ChannelSourceMode = "explicit_links"
+    on_not_subscribed_action: OnNotSubscribedAction = "notify_only"
+    # Стиль комментариев (§ Этап 4)
+    use_emojis: bool = True
+    use_stickers: bool = False
+    attach_image: bool = False
+    write_as_channel: bool = False
+    verify_after_post: bool = False
+    verify_delay_sec: int = Field(default=300, gt=0)
 
 
 class CampaignUpdate(BaseModel):
@@ -72,6 +83,14 @@ class CampaignUpdate(BaseModel):
     min_words: Optional[int] = Field(default=None, ge=0)
     window_after_post_sec: Optional[int] = Field(default=None, gt=0)
     pause_between_sec: Optional[int] = Field(default=None, ge=0)
+    channel_source_mode: Optional[ChannelSourceMode] = None
+    on_not_subscribed_action: Optional[OnNotSubscribedAction] = None
+    use_emojis: Optional[bool] = None
+    use_stickers: Optional[bool] = None
+    attach_image: Optional[bool] = None
+    write_as_channel: Optional[bool] = None
+    verify_after_post: Optional[bool] = None
+    verify_delay_sec: Optional[int] = Field(default=None, gt=0)
 
 
 class CampaignRead(ORMModel):
@@ -101,5 +120,13 @@ class CampaignRead(ORMModel):
     min_words: int
     window_after_post_sec: Optional[int]
     pause_between_sec: Optional[int]
+    channel_source_mode: ChannelSourceMode
+    on_not_subscribed_action: OnNotSubscribedAction
+    use_emojis: bool
+    use_stickers: bool
+    attach_image: bool
+    write_as_channel: bool
+    verify_after_post: bool
+    verify_delay_sec: int
     created_at: datetime
     updated_at: datetime

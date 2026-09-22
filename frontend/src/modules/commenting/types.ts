@@ -5,6 +5,9 @@ export type CommentStatus = "posted" | "failed" | "flagged";
 export type PostSelectionMode = "all" | "keywords" | "probability";
 export type PostScope = "new" | "existing" | "mixed";
 export type WorkMode = "by_count" | "by_time_window";
+export type ChannelSourceMode = "by_account_subscriptions" | "explicit_links";
+export type OnNotSubscribedAction = "subscribe_and_notify" | "notify_only";
+export type ChannelKind = "username" | "invite" | "folder";
 
 export interface Campaign {
   id: number;
@@ -33,6 +36,14 @@ export interface Campaign {
   min_words: number;
   window_after_post_sec: number | null;
   pause_between_sec: number | null;
+  channel_source_mode: ChannelSourceMode;
+  on_not_subscribed_action: OnNotSubscribedAction;
+  use_emojis: boolean;
+  use_stickers: boolean;
+  attach_image: boolean;
+  write_as_channel: boolean;
+  verify_after_post: boolean;
+  verify_delay_sec: number;
   created_at: string;
   updated_at: string;
 }
@@ -83,11 +94,86 @@ export interface CampaignCreateBody {
   min_words?: number;
   window_after_post_sec?: number | null;
   pause_between_sec?: number | null;
+  channel_source_mode?: ChannelSourceMode;
+  on_not_subscribed_action?: OnNotSubscribedAction;
+  use_emojis?: boolean;
+  use_stickers?: boolean;
+  attach_image?: boolean;
+  write_as_channel?: boolean;
+  verify_after_post?: boolean;
+  verify_delay_sec?: number;
+}
+
+export interface CampaignChannel {
+  id: number;
+  campaign_id: number;
+  raw_input: string;
+  kind: ChannelKind;
+  resolved_chat_id: number | null;
+  title: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChannelBlacklistEntry {
+  id: number;
+  campaign_id: number;
+  chat_id: number | null;
+  username: string | null;
+  reason: string | null;
+  auto: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface CampaignAccountPatchBody {
   override_prompt?: string | null;
   probability_override?: number | null;
+}
+
+/* ── ИИ-защита аккаунтов (§ Этап 5) ────────────────────────────────── */
+
+export type AiProtectionFeatureStatus = "active" | "degraded" | "off";
+
+export interface AiProtectionFeature {
+  key: string;
+  label: string;
+  description: string;
+  status: AiProtectionFeatureStatus;
+}
+
+export interface AccountRiskBucket {
+  low: number;
+  medium: number;
+  high: number;
+  critical: number;
+  unknown: number;
+}
+
+export interface AiProtectionStatus {
+  active: boolean;
+  features: AiProtectionFeature[];
+  accounts_by_risk: AccountRiskBucket;
+  total_accounts: number;
+}
+
+/* ── Статистика и runtime-сводка (§ Этап 6) ─────────────────────────── */
+
+export interface CampaignStats {
+  total: number;
+  posted: number;
+  failed: number;
+  flagged: number;
+  success_rate_percent: number;
+}
+
+export interface CampaignRuntimeSummary {
+  accounts_count: number;
+  channels_count: number;
+  max_interval_sec: number;
+  max_comments: number | null;
+  enabled: boolean;
 }
 
 export type CampaignUpdateBody = Partial<CampaignCreateBody>;

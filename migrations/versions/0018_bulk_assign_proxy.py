@@ -32,7 +32,23 @@ _ALLOWED_OLD = (
 
 
 def upgrade() -> None:
-    op.drop_constraint("action_type_allowed", "bulk_jobs", type_="check")
+    # HISTORICAL FIX: 0009 создавал constraint с `name="ck_bulk_jobs_action_type_allowed"`,
+    # а `Base.metadata` уже имеет naming_convention
+    # `ck_%(table_name)s_%(constraint_name)s`. Явное имя тоже подпадает под
+    # convention → в Postgres constraint оказывался с двойным префиксом
+    # (`ck_bulk_jobs_ck_bulk_jobs_action_type_allowed`). 0010-0013 продолжали
+    # дропать/пересоздавать эту же «двойную» форму — работали. А эта миграция
+    # использует короткое имя → convention раскрывает в single-`ck_bulk_jobs_...`,
+    # которого в БД нет → фатал. Сбрасываем оба возможных имени идемпотентно и
+    # пересоздаём коротким именем — дальше 0020/0021/0024 работают корректно.
+    op.execute(
+        'ALTER TABLE bulk_jobs '
+        'DROP CONSTRAINT IF EXISTS ck_bulk_jobs_ck_bulk_jobs_action_type_allowed'
+    )
+    op.execute(
+        'ALTER TABLE bulk_jobs '
+        'DROP CONSTRAINT IF EXISTS ck_bulk_jobs_action_type_allowed'
+    )
     op.create_check_constraint(
         "action_type_allowed",
         "bulk_jobs",
@@ -41,7 +57,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint("action_type_allowed", "bulk_jobs", type_="check")
+    op.execute(
+        'ALTER TABLE bulk_jobs '
+        'DROP CONSTRAINT IF EXISTS ck_bulk_jobs_action_type_allowed'
+    )
     op.create_check_constraint(
         "action_type_allowed",
         "bulk_jobs",
