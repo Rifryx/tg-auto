@@ -16,7 +16,8 @@ class WarmingActivity(Base, CreatedAtMixin):
         ),
         CheckConstraint(
             "action_type IN ('subscribe_channel', 'read_history', 'reaction', "
-            "'view_media', 'join_group', 'idle_online', 'update_profile')",
+            "'view_media', 'join_group', 'idle_online', 'update_profile', "
+            "'interact_with_peer')",
             name="action_type_allowed",
         ),
         CheckConstraint(

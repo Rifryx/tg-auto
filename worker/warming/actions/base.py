@@ -115,8 +115,13 @@ def action(action_type: WarmingActionType) -> Callable[[_ActionBody], _ActionBod
             # иначе цикл при импорте worker.health раньше worker.tasks.
             from worker.health import around_telethon_call
 
-            # Тело принимает persona/rng через **kwargs (backward-compat).
-            call_kwargs = {"persona": persona, "rng": rng}
+            # Тело принимает persona/rng/session_factory через **kwargs.
+            # Actions, которым это не нужно, просто игнорируют через **_.
+            call_kwargs = {
+                "persona": persona,
+                "rng": rng,
+                "session_factory": session_factory,
+            }
 
             try:
                 if session_factory is None:

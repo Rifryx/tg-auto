@@ -17,6 +17,7 @@ from core.enums import WarmingActionType, WarmingActivityStatus
 from core.models import Account, Persona
 from worker.warming.actions import (
     idle_online,
+    interact_with_peer,
     join_group,
     reaction,
     read_history,
@@ -34,6 +35,7 @@ ACTIONS = {
     WarmingActionType.JOIN_GROUP: join_group.execute,
     WarmingActionType.IDLE_ONLINE: idle_online.execute,
     WarmingActionType.UPDATE_PROFILE: update_profile.execute,
+    WarmingActionType.INTERACT_WITH_PEER: interact_with_peer.execute,
 }
 
 # action_type для лимитера прогрева (см. worker/health/governor.py::LIMITS).
