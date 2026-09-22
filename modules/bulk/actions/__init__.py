@@ -9,6 +9,7 @@ from modules.bulk.actions import (  # noqa: F401 - импорт ради side-ef
     apply_profile,
     apply_profile_pool,
     assign_proxy,
+    create_channel,
     generate_and_apply_profile,
     join_channels,
     leave_channels,

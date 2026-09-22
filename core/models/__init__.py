@@ -16,6 +16,7 @@ from core.models.media_asset import MediaAsset
 from core.models.persona import Persona
 from core.models.profile_asset import ProfileAsset
 from core.models.project import Project
+from core.models.project_channel import ProjectChannel
 from core.models.proxy import Proxy
 from core.models.subscription import Subscription
 from core.models.warming_activity import WarmingActivity
@@ -40,6 +41,7 @@ __all__ = [
     "Persona",
     "ProfileAsset",
     "Project",
+    "ProjectChannel",
     "Proxy",
     "Subscription",
     "WarmingActivity",

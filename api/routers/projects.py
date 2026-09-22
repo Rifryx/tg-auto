@@ -6,9 +6,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from datetime import datetime
+from typing import Optional
+
+from pydantic import BaseModel
+
 from api.deps.auth import require_user
 from api.deps.db import get_session
 from core.repositories.project import ProjectRepository
+from core.repositories.project_channel import ProjectChannelRepository
 from core.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
 
 router = APIRouter(
@@ -85,3 +91,32 @@ def delete_project(
     repo.delete(project_id)
     session.commit()
     return None
+
+
+class ProjectChannelRead(BaseModel):
+    """Канал, созданный аккаунтом в рамках проекта (этап 8, backlog #3)."""
+
+    id: int
+    account_id: int
+    project_id: Optional[int]
+    channel_tg_id: int
+    title: str
+    username: Optional[str]
+    is_megagroup: bool
+    pinned_message_id: Optional[int]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/{project_id}/channels", response_model=list[ProjectChannelRead])
+def list_project_channels(
+    project_id: int,
+    user_id: str = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Каналы, созданные bulk-action create_channel в рамках проекта."""
+    project = ProjectRepository(session).get(project_id)
+    if project is None or project.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Проект не найден")
+    return ProjectChannelRepository(session).list_for_project(project_id)

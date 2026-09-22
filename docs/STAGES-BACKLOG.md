@@ -12,23 +12,6 @@
 
 ---
 
-## Этап 8. Каналы и чаты
-
-### Bulk-действие «сгенерировать канал»
-* **Триггер:** когда пользователь попросит массово создавать проектные каналы.
-* **Что:** action `create_channel` (`channels.CreateChannelRequest`), после —
-  `PinMessageRequest` на первом посте. Пожалуй, требует отдельного
-  ``project_channels`` учёта, чтобы не потерять созданные каналы.
-
-### Bulk view + folders
-* **Триггер:** когда развернём папки addlist как first-class объект.
-* **Что:** сейчас `join_channels` возвращает `folders_unsupported_in_bulk` для
-  ссылок addlist. Логику разворачивания в дочерние каналы можно взять из
-  `commenting/worker/channels.py::_resolve_folder`, но без записи в
-  `monitored_channels` — только фактическое присоединение.
-
----
-
 ## Этап 9. Stories
 
 ### Video / документ в Stories

@@ -42,3 +42,4 @@ class BulkActionType(str, Enum):
     ASSIGN_PROXY = "assign_proxy"
     APPLY_PROFILE_POOL = "apply_profile_pool"
     SEND_REACTIONS = "send_reactions"
+    CREATE_CHANNEL = "create_channel"
