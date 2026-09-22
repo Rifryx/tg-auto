@@ -18,7 +18,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+import random
+from typing import Any, Callable, Iterable, Optional
 
 from core.queue import TaskQueue
 from core.queue.task_names import TaskName
@@ -27,16 +28,87 @@ from modules.commenting.repositories import CampaignAccountRepository
 from worker.tasks.logging import get_logger
 
 
+def _passes_post_filter(
+    text: Optional[str],
+    *,
+    mode: str,
+    keywords: Iterable[str],
+    probability_percent: int,
+    rng: random.Random,
+) -> bool:
+    """Пост проходит фильтр отбора (§ Этап 2, post_selection_mode).
+
+    * ``all``           → всегда True.
+    * ``keywords``      → в тексте есть хотя бы одно ключевое слово
+      (case-insensitive substring). Пустой список ключей → False (иначе
+      keywords ничем не отличался бы от all).
+    * ``probability``   → коин-флип 0..99 < probability_percent.
+    """
+
+    if mode == "all":
+        return True
+    if mode == "keywords":
+        haystack = (text or "").lower()
+        needles = [k.lower() for k in keywords if k]
+        if not needles:
+            return False
+        return any(k in haystack for k in needles)
+    if mode == "probability":
+        pct = max(0, min(100, probability_percent))
+        return rng.randrange(100) < pct
+    # Неизвестный режим — не блокируем поток (безопасный дефолт).
+    return True
+
+
 def make_new_post_handler(
-    campaign_id: int, task_queue: TaskQueue, *, channel_id: int
+    campaign_id: int,
+    task_queue: TaskQueue,
+    *,
+    channel_id: int,
+    session_factory: Optional[Callable[[], Any]] = None,
+    rng: Optional[random.Random] = None,
 ) -> Callable[[Any], Any]:
-    """Возвращает async-handler: пост канала → enqueue commenting.on_new_post."""
+    """Возвращает async-handler: пост канала → enqueue commenting.on_new_post.
+
+    При наличии ``session_factory`` handler читает актуальную конфигурацию
+    кампании (post_selection_mode / keywords / probability_percent) и
+    отсеивает посты ещё ДО постановки задачи в очередь. Так работник не
+    получает шум для игнорируемых постов, а логика фильтра остаётся в одном
+    месте.
+    """
+
+    _rng = rng or random.Random()
 
     async def handler(event: Any) -> None:
         message = getattr(event, "message", event)
         # Только сообщения самого канала (не комментарии участников/ботов).
         if getattr(message, "sender_id", None) != channel_id:
             return
+
+        if session_factory is not None:
+            # Локальный импорт: у registry свой __init__ порядок, избегаем цикла.
+            from modules.commenting.repositories import CampaignRepository
+
+            with session_factory() as session:
+                campaign = CampaignRepository(session).get(campaign_id)
+                if campaign is None or not campaign.enabled:
+                    return
+                text = getattr(message, "message", None) or getattr(message, "text", None)
+                if not _passes_post_filter(
+                    text,
+                    mode=campaign.post_selection_mode,
+                    keywords=campaign.keywords or [],
+                    probability_percent=campaign.probability_percent,
+                    rng=_rng,
+                ):
+                    get_logger().info(
+                        "commenting.listener.filtered",
+                        campaign_id=campaign_id,
+                        channel_msg_id=message.id,
+                        mode=campaign.post_selection_mode,
+                    )
+                    return
+
         await task_queue.enqueue(
             TaskName.COMMENTING_ON_NEW_POST, campaign_id, message.id
         )
