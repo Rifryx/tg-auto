@@ -3,6 +3,7 @@ import type {
   AccountPreset,
   AccountPresetCreateBody,
   AccountPresetUpdateBody,
+  AiProtectionStatus,
   Campaign,
   CampaignAccount,
   CampaignAccountPatchBody,
@@ -71,6 +72,11 @@ export const accountPresetsApi = {
   update: (id: number, body: AccountPresetUpdateBody) =>
     api.patch<AccountPreset>(`${PRESETS}/accounts/${id}`, body),
   remove: (id: number) => api.del<void>(`${PRESETS}/accounts/${id}`),
+};
+
+export const aiProtectionApi = {
+  status: () =>
+    api.get<AiProtectionStatus>("/modules/commenting/ai-protection/status"),
 };
 
 export const delayPresetsApi = {

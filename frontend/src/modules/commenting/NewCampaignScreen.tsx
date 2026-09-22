@@ -8,6 +8,7 @@ import { Select } from "../../shared/Select";
 import { haptic } from "../../shared/tg";
 import { accountPresetsApi, commentingApi, delayPresetsApi } from "./api";
 import { AccountPickRow } from "./components/AccountPickRow";
+import { AiProtectionCard } from "./components/AiProtectionCard";
 import {
   CapsuleButton,
   Field,
@@ -223,6 +224,8 @@ export function NewCampaignScreen() {
         Кампании
       </button>
       <h1 className="screen-title mb-6">Новая кампания</h1>
+
+      <AiProtectionCard />
 
       <Section title="Основное">
         <Field label="Название">

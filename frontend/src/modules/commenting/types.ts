@@ -132,6 +132,32 @@ export interface CampaignAccountPatchBody {
   probability_override?: number | null;
 }
 
+/* ── ИИ-защита аккаунтов (§ Этап 5) ────────────────────────────────── */
+
+export type AiProtectionFeatureStatus = "active" | "degraded" | "off";
+
+export interface AiProtectionFeature {
+  key: string;
+  label: string;
+  description: string;
+  status: AiProtectionFeatureStatus;
+}
+
+export interface AccountRiskBucket {
+  low: number;
+  medium: number;
+  high: number;
+  critical: number;
+  unknown: number;
+}
+
+export interface AiProtectionStatus {
+  active: boolean;
+  features: AiProtectionFeature[];
+  accounts_by_risk: AccountRiskBucket;
+  total_accounts: number;
+}
+
 export type CampaignUpdateBody = Partial<CampaignCreateBody>;
 
 /* ── Пресеты (§ Этап 1) ──────────────────────────────────────────────── */

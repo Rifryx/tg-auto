@@ -10,6 +10,7 @@ import { haptic } from "../../shared/tg";
 import type { Account } from "../../shared/types";
 import { commentingApi } from "./api";
 import { AccountPickerSheet } from "./components/AccountPickerSheet";
+import { AiProtectionCard } from "./components/AiProtectionCard";
 import { CommentLogList } from "./components/CommentLogList";
 import {
   CapsuleButton,
@@ -217,6 +218,8 @@ export function CampaignDetailScreen() {
           </div>
         )}
       </Section>
+
+      <AiProtectionCard />
 
       <Section title="Стиль комментариев">
         <div className="card flex flex-col gap-3 p-4">

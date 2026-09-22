@@ -37,6 +37,11 @@ from modules.commenting.worker.registry import (
     ACTION_DETACH,
     publish_campaign_lifecycle,
 )
+from modules.commenting.schemas.ai_protection import (
+    AccountRiskBucket,
+    AiProtectionFeature,
+    AiProtectionStatus,
+)
 from modules.commenting.schemas import (
     AccountPresetCreate,
     AccountPresetRead,
@@ -452,6 +457,82 @@ def remove_blacklist(
     if not ChannelBlacklistRepository(session).delete(campaign_id, entry_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "blacklist entry not found")
     session.commit()
+
+
+# --- ИИ-защита аккаунтов (§ Этап 5) -----------------------------------------
+
+
+_AI_PROTECTION_FEATURES: list[AiProtectionFeature] = [
+    AiProtectionFeature(
+        key="behavior_analysis",
+        label="ИИ анализ поведения",
+        description=(
+            "Anti-Ban Predictor раз в 15 минут пересчитывает риск для всех "
+            "активных аккаунтов (задача health.predict_ban_risk_batch)."
+        ),
+        status="active",
+    ),
+    AiProtectionFeature(
+        key="human_mimicry",
+        label="Имитация человека",
+        description=(
+            "Warming maintenance каждые 5 минут поддерживает человекоподобное "
+            "поведение (задача warming.maintenance_scheduler)."
+        ),
+        status="active",
+    ),
+    AiProtectionFeature(
+        key="ban_shield",
+        label="Защита от банов",
+        description=(
+            "Health-monitor + автопилот раз в 10 минут переводят рискующие "
+            "аккаунты в cooldown/limited и снимают их с нагрузки."
+        ),
+        status="active",
+    ),
+    AiProtectionFeature(
+        key="adaptive_delays",
+        label="Адаптивные задержки",
+        description=(
+            "Задержки постинга берутся из delay-пресета кампании, а FloodWait "
+            "автоматически уводит аккаунт в паузу (floodwait_pause_sec)."
+        ),
+        status="active",
+    ),
+]
+
+
+@router.get("/ai-protection/status", response_model=AiProtectionStatus)
+def get_ai_protection_status(
+    session: Session = Depends(get_session),
+) -> AiProtectionStatus:
+    """Read-only статус защиты для всех аккаунтов текущего инстанса.
+
+    Никаких paywall'ов: защита включена по факту — daemon'ы запущены как
+    cron-задачи воркера. Тут только агрегат для UI-плашки.
+    """
+    from sqlalchemy import func, select
+    from core.models.account import Account
+    from core.models.ban_risk import BanRiskSnapshot
+
+    total = session.execute(select(func.count()).select_from(Account)).scalar_one()
+    rows = session.execute(
+        select(BanRiskSnapshot.risk_level, func.count())
+        .group_by(BanRiskSnapshot.risk_level)
+    ).all()
+    buckets = AccountRiskBucket()
+    covered = 0
+    for level, count in rows:
+        covered += count
+        setattr(buckets, level, count)
+    buckets.unknown = max(0, total - covered)
+
+    return AiProtectionStatus(
+        active=True,
+        features=_AI_PROTECTION_FEATURES,
+        accounts_by_risk=buckets,
+        total_accounts=total,
+    )
 
 
 # --- Логи комментариев -------------------------------------------------------
