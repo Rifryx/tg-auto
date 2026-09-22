@@ -10,6 +10,8 @@ import type {
   CampaignChannel,
   CampaignCreateBody,
   CampaignUpdateBody,
+  CampaignRuntimeSummary,
+  CampaignStats,
   ChannelBlacklistEntry,
   CommentLog,
   DelayPreset,
@@ -44,6 +46,9 @@ export const commentingApi = {
     api.del<void>(`${BASE}/${id}/accounts/${accountId}`),
   logs: (id: number, limit = 50) =>
     api.get<CommentLog[]>(`${BASE}/${id}/logs?limit=${limit}`),
+  stats: (id: number) => api.get<CampaignStats>(`${BASE}/${id}/stats`),
+  runtimeSummary: (id: number) =>
+    api.get<CampaignRuntimeSummary>(`${BASE}/${id}/runtime-summary`),
 
   channels: (id: number) =>
     api.get<CampaignChannel[]>(`${BASE}/${id}/channels`),

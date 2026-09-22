@@ -12,6 +12,7 @@ import { commentingApi } from "./api";
 import { AccountPickerSheet } from "./components/AccountPickerSheet";
 import { AiProtectionCard } from "./components/AiProtectionCard";
 import { CommentLogList } from "./components/CommentLogList";
+import { LaunchAndStats } from "./components/LaunchAndStats";
 import {
   CapsuleButton,
   ConfirmDialog,
@@ -258,7 +259,10 @@ export function CampaignDetailScreen() {
       <CampaignChannelsSection campaignId={campaignId} />
       <CampaignBlacklistSection campaignId={campaignId} />
 
-      {/* Лог */}
+      <LaunchAndStats campaignId={campaignId} />
+
+      {/* Лог этой кампании — изолирован по campaign_id, не пересекается
+         с логами других модулей (§ Этап 6). */}
       <Section title="Лог комментариев">
         {logs.data ? <CommentLogList logs={logs.data} /> : <p className="text-[13px] text-text-tertiary">Загрузка…</p>}
       </Section>

@@ -42,6 +42,10 @@ from modules.commenting.schemas.ai_protection import (
     AiProtectionFeature,
     AiProtectionStatus,
 )
+from modules.commenting.schemas.stats import (
+    CampaignRuntimeSummary,
+    CampaignStats,
+)
 from modules.commenting.schemas import (
     AccountPresetCreate,
     AccountPresetRead,
@@ -532,6 +536,76 @@ def get_ai_protection_status(
         features=_AI_PROTECTION_FEATURES,
         accounts_by_risk=buckets,
         total_accounts=total,
+    )
+
+
+# --- Логи комментариев -------------------------------------------------------
+
+
+# --- Статистика + Runtime-сводка (§ Этап 6) ---------------------------------
+
+
+@router.get("/campaigns/{campaign_id}/stats", response_model=CampaignStats)
+def get_campaign_stats(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> CampaignStats:
+    """Агрегат CommentLog по статусам. Кампанию проверяем — 404 если её нет."""
+    from sqlalchemy import func, select
+    from modules.commenting.models import CommentLog
+
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+
+    rows = session.execute(
+        select(CommentLog.status, func.count())
+        .where(CommentLog.campaign_id == campaign_id)
+        .group_by(CommentLog.status)
+    ).all()
+    counts = {"posted": 0, "failed": 0, "flagged": 0}
+    for st, cnt in rows:
+        if st in counts:
+            counts[st] = cnt
+    total = sum(counts.values())
+    rate = (counts["posted"] * 100) // total if total > 0 else 0
+    return CampaignStats(
+        total=total,
+        posted=counts["posted"],
+        failed=counts["failed"],
+        flagged=counts["flagged"],
+        success_rate_percent=rate,
+    )
+
+
+@router.get(
+    "/campaigns/{campaign_id}/runtime-summary",
+    response_model=CampaignRuntimeSummary,
+)
+def get_campaign_runtime_summary(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> CampaignRuntimeSummary:
+    """Что показать в «блоке запуска»: аккаунты / каналы / лимиты."""
+    from sqlalchemy import func, select
+    from modules.commenting.models import CampaignAccount, CampaignChannel
+
+    campaign = CampaignRepository(session).get(campaign_id)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    accounts_count = session.execute(
+        select(func.count()).select_from(CampaignAccount).where(
+            CampaignAccount.campaign_id == campaign_id
+        )
+    ).scalar_one()
+    channels_count = session.execute(
+        select(func.count()).select_from(CampaignChannel).where(
+            CampaignChannel.campaign_id == campaign_id
+        )
+    ).scalar_one()
+    return CampaignRuntimeSummary(
+        accounts_count=accounts_count,
+        channels_count=channels_count,
+        max_interval_sec=campaign.posting_delay_max_sec,
+        max_comments=campaign.max_comments,
+        enabled=campaign.enabled,
     )
 
 

@@ -158,6 +158,24 @@ export interface AiProtectionStatus {
   total_accounts: number;
 }
 
+/* ── Статистика и runtime-сводка (§ Этап 6) ─────────────────────────── */
+
+export interface CampaignStats {
+  total: number;
+  posted: number;
+  failed: number;
+  flagged: number;
+  success_rate_percent: number;
+}
+
+export interface CampaignRuntimeSummary {
+  accounts_count: number;
+  channels_count: number;
+  max_interval_sec: number;
+  max_comments: number | null;
+  enabled: boolean;
+}
+
 export type CampaignUpdateBody = Partial<CampaignCreateBody>;
 
 /* ── Пресеты (§ Этап 1) ──────────────────────────────────────────────── */
