@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { accountsApi } from "../../../shared/accounts";
 import { projectsApi, ROLE_OPTIONS } from "../../../shared/projects";
+import { Select } from "../../../shared/Select";
 import type { AccountRole } from "../../../shared/types";
 import {
   Field,
@@ -10,9 +11,9 @@ import {
 } from "../../../modules/commenting/components/ui";
 import { CapsuleButton } from "./ui";
 
-/* Секция «Проект / роль / теги» на карточке аккаунта (этап 2, UI).
+/* Секция «Группа аккаунтов / роль / теги» на карточке аккаунта (в API —
+ * project_id). Группа и роль — shared/Select, теги — строка через запятую.
  *
- * Три поля независимо: выбор проекта (dropdown), выбор роли (dropdown),
  * теги (комма-разделённая строка). Сохранение — по нажатию на «Сохранить»
  * или на blur каждого поля. Здесь по-минимуму: единая кнопка внизу секции. */
 
@@ -59,40 +60,30 @@ export function ProjectRoleTagsSection({
       tags.join(", ");
 
   return (
-    <Section title="Проект и роль">
+    <Section title="Группа и роль">
       <div className="card p-4">
-        <Field label="Проект">
-          <select
-            value={localProject ?? ""}
-            onChange={(e) =>
-              setLocalProject(e.target.value === "" ? null : Number(e.target.value))
-            }
-            className="w-full rounded-xl border border-hairline bg-surface-1 px-3 py-2 text-[15px] text-text-primary outline-none"
-          >
-            <option value="">Без проекта</option>
-            {projects.data?.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Роль">
-          <select
-            value={localRole ?? ""}
-            onChange={(e) =>
-              setLocalRole((e.target.value || null) as AccountRole | null)
-            }
-            className="w-full rounded-xl border border-hairline bg-surface-1 px-3 py-2 text-[15px] text-text-primary outline-none"
-          >
-            <option value="">—</option>
-            {ROLE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </Field>
+        {/* Подписи — <p>, не <label>: у Select кнопка внутри. */}
+        <div className="grid gap-x-3 sm:grid-cols-2 sm:items-end">
+          <div className="mb-4">
+            <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">Группа аккаунтов</p>
+            <Select
+              value={localProject != null ? String(localProject) : ""}
+              onChange={(v) => setLocalProject(v === "" ? null : Number(v))}
+              options={[
+                { value: "", label: "Без группы" },
+                ...(projects.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
+              ]}
+            />
+          </div>
+          <div className="mb-4">
+            <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">Роль</p>
+            <Select
+              value={localRole ?? ""}
+              onChange={(v) => setLocalRole((v || null) as AccountRole | null)}
+              options={[{ value: "", label: "Без роли" }, ...ROLE_OPTIONS]}
+            />
+          </div>
+        </div>
         <Field label="Теги (через запятую)">
           <TextInput
             value={localTags}

@@ -1,4 +1,62 @@
+import { Minus, Plus } from "lucide-react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
+
+/* Числовое поле с кнопками −/+ в стиле приложения (вместо нативных стрелок).
+   Значение хранится строкой, чтобы можно было свободно печатать «0.»;
+   кнопки округляют к шагу и держат границы. */
+export function NumberStepper({
+  value,
+  onChange,
+  step = 1,
+  min,
+  max,
+  suffix,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  step?: number;
+  min?: number;
+  max?: number;
+  suffix?: string;
+  ariaLabel?: string;
+}) {
+  const decimals = (String(step).split(".")[1] ?? "").length;
+  const clamp = (n: number) =>
+    Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n));
+  const bump = (dir: 1 | -1) => {
+    const cur = Number(value);
+    const base = Number.isFinite(cur) ? cur : (min ?? 0);
+    onChange(clamp(base + dir * step).toFixed(decimals));
+  };
+  const n = Number(value);
+  const atMin = min != null && Number.isFinite(n) && n <= min;
+  const atMax = max != null && Number.isFinite(n) && n >= max;
+  const btn =
+    "flex h-full w-12 shrink-0 items-center justify-center text-text-secondary transition-colors hover:text-text-primary active:bg-surface-2 disabled:opacity-40 disabled:hover:text-text-secondary";
+
+  return (
+    <div className="flex h-12 w-full items-stretch overflow-hidden rounded-chip border border-hairline bg-surface-1 focus-within:border-strong">
+      <button type="button" aria-label="Уменьшить" disabled={atMin} onClick={() => bump(-1)} className={`${btn} border-r border-hairline`}>
+        <Minus className="h-4 w-4" strokeWidth={2} aria-hidden />
+      </button>
+      <div className="flex min-w-0 flex-1 items-center justify-center gap-1">
+        <input
+          type="text"
+          inputMode="decimal"
+          aria-label={ariaLabel}
+          value={value}
+          onChange={(e) => onChange(e.target.value.replace(",", ".").replace(/[^0-9.]/g, ""))}
+          className="nums w-full min-w-0 bg-transparent text-center text-[16px] font-semibold text-text-primary outline-none"
+        />
+        {suffix && <span className="shrink-0 pr-2 text-[13px] text-text-tertiary">{suffix}</span>}
+      </div>
+      <button type="button" aria-label="Увеличить" disabled={atMax} onClick={() => bump(1)} className={`${btn} border-l border-hairline`}>
+        <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
+      </button>
+    </div>
+  );
+}
 
 /* Капсульная кнопка (§6). При невалидной форме — variant secondary (surface-2),
    не accent. */
@@ -130,6 +188,17 @@ export function Field({
   );
 }
 
+/* Как Field, но <div>: для составных контролов с кнопками (NumberStepper),
+   иначе клик по подписи <label> «нажимает» первую кнопку внутри. */
+export function FieldGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="mb-4">
+      <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">{label}</p>
+      {children}
+    </div>
+  );
+}
+
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${INPUT} ${props.className ?? ""}`} />;
 }
@@ -205,7 +274,7 @@ export function ConfirmDialog({
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center px-4 pb-8 bg-[color-mix(in_srgb,var(--bg-base)_72%,transparent)]"
+      className="fixed inset-0 z-50 flex items-end justify-center px-4 pb-8 lg:items-center lg:pb-0 bg-[color-mix(in_srgb,var(--bg-base)_72%,transparent)]"
       onClick={onCancel}
     >
       <div

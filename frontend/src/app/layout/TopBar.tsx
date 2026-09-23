@@ -18,7 +18,8 @@ export function TopBar() {
 
   return (
     <>
-      <div className="mb-3 flex items-center justify-between gap-2">
+      {/* На десктопе меню, тариф и тема живут в боковой панели. */}
+      <div className="mb-3 flex items-center justify-between gap-2 lg:hidden">
         <button
           type="button"
           onClick={() => {

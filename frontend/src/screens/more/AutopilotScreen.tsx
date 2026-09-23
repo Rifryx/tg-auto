@@ -12,12 +12,12 @@ import {
   type GoalType,
 } from "../../shared/autopilot";
 import { timeAgo } from "../../shared/format";
+import { Select } from "../../shared/Select";
 import {
   CapsuleButton,
   ConfirmDialog,
-  Field,
+  NumberStepper,
   Section,
-  TextInput,
 } from "../../modules/commenting/components/ui";
 import { BackHeader } from "./PersonasScreen";
 
@@ -107,42 +107,36 @@ export function AutopilotScreen() {
 
       <Section title="Новая цель">
         <div className="card flex flex-col gap-4 p-4">
-          <Field label="Тип цели">
-            <select
-              value={goalType}
-              onChange={(e) => {
-                const t = e.target.value as GoalType;
-                setGoalType(t);
-                setRawValue(String(DEFAULT_VALUE[t]));
-              }}
-              className="w-full rounded-xl border border-hairline bg-surface-1 px-3 py-2 text-[15px] text-text-primary outline-none"
-            >
-              {GOAL_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {GOAL_LABEL[t]}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <p className="text-[12px] text-text-tertiary">
+          <div className="grid gap-x-4 lg:grid-cols-2 lg:items-end">
+            <div className="mb-4">
+              <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">Тип цели</p>
+              <Select
+                value={goalType}
+                onChange={(v) => {
+                  const t = v as GoalType;
+                  setGoalType(t);
+                  setRawValue(String(DEFAULT_VALUE[t]));
+                }}
+                options={GOAL_TYPES.map((t) => ({ value: t, label: GOAL_LABEL[t] }))}
+              />
+            </div>
+            <div className="mb-4">
+              <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">
+                {goalType === "keep_low_risk" ? "Макс. средний риск (0–1)" : "Целевое количество"}
+              </p>
+              <NumberStepper
+                value={rawValue}
+                onChange={setRawValue}
+                step={goalType === "keep_low_risk" ? 0.05 : 1}
+                min={goalType === "keep_low_risk" ? 0 : 1}
+                max={goalType === "keep_low_risk" ? 1 : undefined}
+                ariaLabel="Значение цели"
+              />
+            </div>
+          </div>
+          <p className="-mt-1 px-1 text-[12px] text-text-tertiary">
             {GOAL_DESCRIPTION[goalType]}
           </p>
-          <Field
-            label={
-              goalType === "keep_low_risk"
-                ? "Максимальный средний риск (0.0–1.0)"
-                : "Целевое количество"
-            }
-          >
-            <TextInput
-              type="number"
-              value={rawValue}
-              step={goalType === "keep_low_risk" ? "0.05" : "1"}
-              min={goalType === "keep_low_risk" ? "0" : "1"}
-              max={goalType === "keep_low_risk" ? "1" : undefined}
-              onChange={(e) => setRawValue(e.target.value)}
-            />
-          </Field>
           <CapsuleButton
             variant={validValue ? "accent" : "secondary"}
             disabled={!validValue || create.isPending}
@@ -153,6 +147,7 @@ export function AutopilotScreen() {
         </div>
       </Section>
 
+      <div className="lg:grid lg:grid-cols-2 lg:gap-6">
       <Section title={`Цели (${status.data?.goals.length ?? 0})`}>
         {status.data && status.data.goals.length > 0 ? (
           <div className="flex flex-col gap-2">
@@ -210,6 +205,7 @@ export function AutopilotScreen() {
           </p>
         )}
       </Section>
+      </div>
 
       <ConfirmDialog
         open={toDelete != null}
@@ -232,12 +228,12 @@ export function AutopilotScreen() {
 function StatusDot({ status }: { status: string }) {
   const cls =
     status === "executed"
-      ? "bg-success"
+      ? "bg-status-active"
       : status === "failed"
-      ? "bg-danger"
+      ? "bg-status-critical"
       : status === "skipped"
-      ? "bg-warning"
-      : "bg-accent";
+      ? "bg-status-warning"
+      : "bg-status-neutral";
   return <span className={`mt-1.5 inline-block h-2 w-2 rounded-full ${cls}`} />;
 }
 
@@ -257,7 +253,7 @@ function GoalRow({
     <div className="card flex items-center gap-3 px-4 py-3">
       <span
         className={`inline-block h-2 w-2 rounded-full ${
-          goal.enabled ? "bg-success" : "bg-text-tertiary/40"
+          goal.enabled ? "bg-status-active" : "bg-status-neutral"
         }`}
       />
       <div className="min-w-0 flex-1">

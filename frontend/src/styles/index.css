@@ -33,6 +33,18 @@
   .nums {
     font-variant-numeric: tabular-nums;
   }
+
+  /* Нативные стрелки у number-инпутов не тематизируются — убираем везде,
+     шаг меняем своим NumberStepper (−/+). */
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
 }
 
 @layer components {

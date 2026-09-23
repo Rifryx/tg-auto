@@ -1,7 +1,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Check, Info, Upload } from "lucide-react";
+import { ArrowLeft, Check, Eye, EyeOff, Info, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { StickyActionBar } from "../../components/StickyActionBar";
 import { accountsApi, catalogApi } from "../../shared/accounts";
 import { subscribeStream } from "../../shared/api";
 import { useLimit } from "../../shared/limits";
@@ -123,7 +124,7 @@ export function NewAccountFlow() {
   };
 
   return (
-    <div className="flex min-h-full flex-col pb-28 pt-1">
+    <div className="flex min-h-full w-full flex-col pb-28 pt-1 lg:mx-auto lg:max-w-[720px] lg:pb-10">
       <button
         onClick={back}
         className="inline-flex w-fit items-center gap-1 text-[14px] text-text-secondary active:text-text-primary"
@@ -132,7 +133,8 @@ export function NewAccountFlow() {
         Назад
       </button>
 
-      <StepProgress current={step} />
+      {/* Шаги 1–4 есть только у входа по коду; импорт .session — один шаг. */}
+      {method === "code" ? <StepProgress current={step} /> : <div className="mt-4" />}
 
       {error && (
         <p className="mt-4 rounded-chip border border-hairline bg-surface-1 px-4 py-3 text-[13px] text-status-critical">
@@ -222,7 +224,7 @@ export function NewAccountFlow() {
         </div>
       )}
 
-      <StickyBar>
+      <StickyActionBar>
         {step === 1 && method === "code" && (
           <CapsuleButton
             disabled={!phone.trim() || proxyId == null || create.isPending}
@@ -264,7 +266,7 @@ export function NewAccountFlow() {
           </CapsuleButton>
         )}
         {step === 4 && <CapsuleButton onClick={finish}>Открыть аккаунт</CapsuleButton>}
-      </StickyBar>
+      </StickyActionBar>
     </div>
   );
 }
@@ -547,23 +549,23 @@ function ProxyDetailForm({ onCreated }: { onCreated: (p: Proxy) => void }) {
 
   return (
     <div>
-      <div className="mb-3 grid grid-cols-[110px_1fr_110px] gap-2">
+      <div className="mb-3 grid grid-cols-[112px_1fr] items-end gap-2 sm:grid-cols-[120px_1fr_120px]">
         <div>
           <p className="mb-1.5 px-1 text-[12px] text-text-tertiary">Тип</p>
-          <select
+          <Select
             value={type}
-            onChange={(e) => setType(e.target.value as "socks5" | "http")}
-            className={INPUT}
-          >
-            <option value="socks5">socks5</option>
-            <option value="http">http</option>
-          </select>
+            onChange={(v) => setType(v as "socks5" | "http")}
+            options={[
+              { value: "socks5", label: "socks5" },
+              { value: "http", label: "http" },
+            ]}
+          />
         </div>
-        <div>
+        <div className="order-3 col-span-2 sm:order-2 sm:col-span-1">
           <p className="mb-1.5 px-1 text-[12px] text-text-tertiary">Хост</p>
           <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="proxy.example.com" className={INPUT} />
         </div>
-        <div>
+        <div className="order-2 sm:order-3">
           <p className="mb-1.5 px-1 text-[12px] text-text-tertiary">Порт</p>
           <input
             value={port}
@@ -573,33 +575,38 @@ function ProxyDetailForm({ onCreated }: { onCreated: (p: Proxy) => void }) {
           />
         </div>
       </div>
-      <div className="mb-3 grid grid-cols-2 gap-2">
-        <div>
-          <p className="mb-1.5 px-1 text-[12px] text-text-tertiary">
-            Имя пользователя (опционально)
-          </p>
-          <input value={login} onChange={(e) => setLogin(e.target.value)} placeholder="username" className={INPUT} autoComplete="off" />
-        </div>
-        <div>
-          <p className="mb-1.5 px-1 text-[12px] text-text-tertiary">Пароль (опционально)</p>
-          <div className="relative">
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type={showPass ? "text" : "password"}
-              placeholder="password"
-              className={`${INPUT} pr-10`}
-              autoComplete="off"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPass((v) => !v)}
-              aria-label={showPass ? "Скрыть" : "Показать"}
-              className="absolute inset-y-0 right-2 px-2 text-[12px] text-text-tertiary"
-            >
-              {showPass ? "скрыть" : "показать"}
-            </button>
-          </div>
+      <p className="mb-1.5 px-1 text-[12px] text-text-tertiary">Авторизация — необязательно</p>
+      <div className="mb-3 grid grid-cols-2 items-end gap-2">
+        <input
+          value={login}
+          onChange={(e) => setLogin(e.target.value)}
+          placeholder="Логин"
+          aria-label="Логин прокси"
+          className={INPUT}
+          autoComplete="off"
+        />
+        <div className="relative">
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            type={showPass ? "text" : "password"}
+            placeholder="Пароль"
+            aria-label="Пароль прокси"
+            className={`${INPUT} pr-11`}
+            autoComplete="off"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPass((v) => !v)}
+            aria-label={showPass ? "Скрыть пароль" : "Показать пароль"}
+            className="absolute inset-y-0 right-1 flex w-10 items-center justify-center text-text-tertiary hover:text-text-primary"
+          >
+            {showPass ? (
+              <EyeOff className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+            ) : (
+              <Eye className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+            )}
+          </button>
         </div>
       </div>
       <CapsuleButton
@@ -717,13 +724,3 @@ function AutoPickProxyButton({
   );
 }
 
-function StickyBar({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[440px] border-t border-hairline bg-bg-base px-5 pt-3"
-      style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
-    >
-      {children}
-    </div>
-  );
-}
