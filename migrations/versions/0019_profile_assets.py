@@ -58,13 +58,14 @@ def upgrade() -> None:
             "kind IN ('avatar', 'first_name', 'last_name', 'bio', 'username_template')",
             name="profile_asset_kind_allowed",
         ),
-        # ровно одно из value/binary заполнено:
+        # ровно одно из value/binary заполнено. "binary" — зарезервированное
+        # слово Postgres, в сыром SQL CHECK'а обязательно в кавычках.
         sa.CheckConstraint(
-            "(value IS NOT NULL) OR (binary IS NOT NULL)",
+            '(value IS NOT NULL) OR ("binary" IS NOT NULL)',
             name="profile_asset_has_content",
         ),
         sa.CheckConstraint(
-            "NOT (value IS NOT NULL AND binary IS NOT NULL)",
+            'NOT (value IS NOT NULL AND "binary" IS NOT NULL)',
             name="profile_asset_single_content",
         ),
     )

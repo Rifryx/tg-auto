@@ -33,12 +33,13 @@ class ProfileAsset(Base):
             "kind IN ('avatar', 'first_name', 'last_name', 'bio', 'username_template')",
             name="profile_asset_kind_allowed",
         ),
+        # "binary" — зарезервированное слово Postgres, в сыром SQL — в кавычках.
         CheckConstraint(
-            "(value IS NOT NULL) OR (binary IS NOT NULL)",
+            '(value IS NOT NULL) OR ("binary" IS NOT NULL)',
             name="profile_asset_has_content",
         ),
         CheckConstraint(
-            "NOT (value IS NOT NULL AND binary IS NOT NULL)",
+            'NOT (value IS NOT NULL AND "binary" IS NOT NULL)',
             name="profile_asset_single_content",
         ),
         Index("ix_profile_assets_user_kind", "user_id", "kind"),
