@@ -72,7 +72,7 @@ class _FakeClient:
         self.calls: list = []
         self.uploaded_size: int | None = None
 
-    async def upload_file(self, data: bytes):
+    async def upload_file(self, data: bytes, file_name: str | None = None):
         self.calls.append(("upload_file", len(data)))
         self.uploaded_size = len(data)
         # Возвращаем произвольный «файл» — Telethon это ожидает.

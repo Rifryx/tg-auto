@@ -31,10 +31,13 @@ _CONFIG_ENV_VARS = [
 
 
 @pytest.fixture
-def env(monkeypatch):
+def env(monkeypatch, tmp_path):
     """Чистое окружение + сброшенные кэши конфига и crypto."""
     for var in _CONFIG_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
+    # Settings читает .env из cwd — локальный .env разработчика не должен
+    # протекать в тесты «боевого» режима.
+    monkeypatch.chdir(tmp_path)
     get_settings.cache_clear()
     crypto.reset_cache()
     yield monkeypatch

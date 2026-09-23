@@ -114,8 +114,8 @@ def _make_job_and_item(session, account_id, action_type, payload):
         action_type=action_type,
         payload=payload,
         status="running",
+        initiator="u",
         total_count=1,
-        pending_count=1,
     )
     session.add(job)
     session.flush()
@@ -139,7 +139,7 @@ async def test_rate_limited_item_returns_to_pending_and_reschedules(session):
         session,
         account_id=account.id,
         action_type=BulkActionType.VIEW_STORIES.value,
-        payload={"peers": ["@durov"]},
+        payload={"peer_refs": ["@durov"]},
     )
 
     # Обходим клиент-пул: view_stories requires_client=True, но с failing

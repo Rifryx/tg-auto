@@ -182,7 +182,9 @@ async def test_join_channels_rejects_folders_in_bulk(session):
     client = _FakeClient()
     result = await join_run(
         account_id=account_id,
-        payload=JoinChannelsPayload(channel_refs=["https://t.me/addlist/xyz"]),
+        payload=JoinChannelsPayload(
+            channel_refs=["https://t.me/addlist/xyz"], expand_folders=False
+        ),
         session_factory=_factory(session),
         publisher=None,
         client=client,

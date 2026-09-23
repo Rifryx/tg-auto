@@ -127,7 +127,7 @@ async def test_request_pending_saves_email_to_meta(session, monkeypatch):
     _clean(session)
     account_id = _make_account(session)
 
-    async def fake_request_email_setup(*, current_password, new_email, **_kwargs):
+    async def fake_request_email_setup(_client, *, current_password, new_email, **_kwargs):
         from worker.security.recovery_email import EmailPending
         assert current_password == "hunter2"
         assert new_email == "user@example.com"
@@ -163,7 +163,7 @@ async def test_request_no_2fa_reports_reason(session, monkeypatch):
 
     from worker.security.recovery_email import NoPasswordSetError
 
-    async def fake(**_kwargs):
+    async def fake(_client, **_kwargs):
         raise NoPasswordSetError("no 2fa")
 
     import worker.tasks.security as sec_task
@@ -188,7 +188,7 @@ async def test_request_bad_password_reports_reason(session, monkeypatch):
 
     from worker.security.recovery_email import BadCurrentPasswordError
 
-    async def fake(**_kwargs):
+    async def fake(_client, **_kwargs):
         raise BadCurrentPasswordError("wrong")
 
     import worker.tasks.security as sec_task
@@ -208,7 +208,7 @@ async def test_request_auto_confirmed_when_code_length_zero(session, monkeypatch
     _clean(session)
     account_id = _make_account(session)
 
-    async def fake_setup(*, current_password, new_email, **_kwargs):
+    async def fake_setup(_client, *, current_password, new_email, **_kwargs):
         from worker.security.recovery_email import EmailPending
         return EmailPending(email=new_email, code_length=0)
 
