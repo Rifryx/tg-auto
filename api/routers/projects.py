@@ -9,10 +9,12 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from sqlalchemy import select, update
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
+from core.models.account import Account
 from core.repositories.project import ProjectRepository
 from core.repositories.project_channel import ProjectChannelRepository
 from core.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
@@ -91,6 +93,55 @@ def delete_project(
     repo.delete(project_id)
     session.commit()
     return None
+
+
+class ProjectMembersSet(BaseModel):
+    account_ids: list[int] = Field(default_factory=list, max_length=5000)
+
+
+class ProjectMembersRead(BaseModel):
+    project_id: int
+    account_ids: list[int]
+
+
+@router.put("/{project_id}/accounts", response_model=ProjectMembersRead)
+def set_project_accounts(
+    project_id: int,
+    body: ProjectMembersSet,
+    user_id: str = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Задать состав проекта целиком одной транзакцией.
+
+    Переданные аккаунты попадают в проект (если были в другом — переезжают:
+    у аккаунта один project_id), остальные участники проекта отвязываются.
+    """
+    obj = ProjectRepository(session).get(project_id)
+    if obj is None or obj.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Проект не найден")
+
+    ids = set(body.account_ids)
+    if ids:
+        found = set(
+            session.execute(select(Account.id).where(Account.id.in_(ids))).scalars()
+        )
+        missing = ids - found
+        if missing:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"Аккаунты не найдены: {sorted(missing)}",
+            )
+
+    detach = update(Account).where(Account.project_id == project_id)
+    if ids:
+        detach = detach.where(Account.id.notin_(ids))
+    session.execute(detach.values(project_id=None))
+    if ids:
+        session.execute(
+            update(Account).where(Account.id.in_(ids)).values(project_id=project_id)
+        )
+    session.commit()
+    return ProjectMembersRead(project_id=project_id, account_ids=sorted(ids))
 
 
 class ProjectChannelRead(BaseModel):
