@@ -19,6 +19,11 @@ export const projectsApi = {
   update: (id: number, body: ProjectUpdate) =>
     api.patch<Project>(`/projects/${id}`, body),
   remove: (id: number) => api.del<void>(`/projects/${id}`),
+  // Состав группы целиком: остальные участники отвязываются.
+  setAccounts: (id: number, accountIds: number[]) =>
+    api.put<{ project_id: number; account_ids: number[] }>(`/projects/${id}/accounts`, {
+      account_ids: accountIds,
+    }),
 };
 
 export const ROLE_LABEL: Record<AccountRole, string> = {

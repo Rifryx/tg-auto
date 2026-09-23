@@ -8,10 +8,12 @@ export function AccountPickRow({
   account,
   selected,
   onToggle,
+  note,
 }: {
   account: Account;
   selected: boolean;
   onToggle: () => void;
+  note?: string;
 }) {
   return (
     <button
@@ -23,7 +25,10 @@ export function AccountPickRow({
         <p className="truncate text-[15px] font-semibold text-text-primary nums">
           {maskPhone(account.phone)}
         </p>
-        <p className="text-[12px] text-text-tertiary">{STATUS_LABEL[account.status]}</p>
+        <p className="truncate text-[12px] text-text-tertiary">
+          {STATUS_LABEL[account.status]}
+          {note && <span className="text-status-warning"> · {note}</span>}
+        </p>
       </div>
       <span
         className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${

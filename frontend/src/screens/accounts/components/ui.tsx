@@ -135,7 +135,7 @@ export function ConfirmDialog({
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center px-4 pb-8 bg-[color-mix(in_srgb,var(--bg-base)_72%,transparent)]"
+      className="fixed inset-0 z-50 flex items-end justify-center px-4 pb-8 lg:items-center lg:pb-0 bg-[color-mix(in_srgb,var(--bg-base)_72%,transparent)]"
       onClick={onCancel}
     >
       <div

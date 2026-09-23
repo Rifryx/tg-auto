@@ -8,7 +8,7 @@ import { StatusBadge, StatusDot } from "./ui";
 /* Строка аккаунта в списке — мини-карточка (§4/§9 брифа):
    status-dot + маскированный номер + персона слева; бейдж стадии + пресет
    прогрева справа. Тач-таргет ≥ 44px. */
-export function AccountRow({ account }: { account: Account }) {
+export function AccountRow({ account, groupName }: { account: Account; groupName?: string }) {
   const subtitle = account.username ? `@${account.username}` : "Без персоны";
   return (
     <Link
@@ -20,7 +20,10 @@ export function AccountRow({ account }: { account: Account }) {
         <p className="truncate text-[15px] font-semibold text-text-primary nums">
           {maskPhone(account.phone)}
         </p>
-        <p className="truncate text-[13px] text-text-secondary">{subtitle}</p>
+        <p className="truncate text-[13px] text-text-secondary">
+          {subtitle}
+          {groupName && <span className="text-text-tertiary"> · {groupName}</span>}
+        </p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <div className="flex flex-col items-end gap-1">

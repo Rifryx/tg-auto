@@ -2,16 +2,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Bookmark, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { StickyActionBar } from "../../components/StickyActionBar";
 import { accountsApi, catalogApi } from "../../shared/accounts";
 import { useLimit } from "../../shared/limits";
+import { projectsApi } from "../../shared/projects";
 import { Select } from "../../shared/Select";
 import { haptic } from "../../shared/tg";
+import type { Account } from "../../shared/types";
 import { accountPresetsApi, commentingApi, delayPresetsApi } from "./api";
 import { AccountPickRow } from "./components/AccountPickRow";
 import { AiProtectionCard } from "./components/AiProtectionCard";
 import {
   CapsuleButton,
   Field,
+  FieldGroup,
+  NumberStepper,
   RangeField,
   Section,
   SegmentedControl,
@@ -118,6 +123,9 @@ export function NewCampaignScreen() {
   const [verifyDelaySec, setVerifyDelaySec] = useState(300);
 
   const pool = useQuery({ queryKey: ["accounts", "pool"], queryFn: () => accountsApi.list("pool") });
+  const groups = useQuery({ queryKey: ["projects"], queryFn: projectsApi.list });
+  // Все аккаунты (не только pool) — чтобы сказать, сколько из группы сейчас заняты.
+  const allAccounts = useQuery({ queryKey: ["accounts", "all"], queryFn: () => accountsApi.list() });
   const personas = useQuery({ queryKey: ["personas"], queryFn: catalogApi.personas });
   const delayPresets = useQuery({ queryKey: ["delay-presets"], queryFn: delayPresetsApi.list });
   const accountPresets = useQuery({
@@ -215,7 +223,7 @@ export function NewCampaignScreen() {
   };
 
   return (
-    <div className="flex min-h-full flex-col pb-28 pt-1">
+    <div className="flex min-h-full flex-col pb-28 pt-1 lg:pb-10">
       <button
         onClick={() => navigate("/tasks")}
         className="mb-4 inline-flex w-fit items-center gap-1 text-[14px] text-text-secondary active:text-text-primary"
@@ -227,6 +235,8 @@ export function NewCampaignScreen() {
 
       <AiProtectionCard />
 
+      <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-8">
+      <div className="min-w-0">
       <Section title="Основное">
         <Field label="Название">
           <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Промо-кампания" />
@@ -389,51 +399,57 @@ export function NewCampaignScreen() {
           value={workMode}
           onChange={(v) => setWorkMode(v as WorkMode)}
         />
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <Field label="Макс. комментариев (пусто = без лимита)">
+        {/* Однострочные подписи + items-end: поля всегда на одной высоте. */}
+        <div className="mt-3 grid grid-cols-2 items-end gap-3">
+          <Field label="Макс. комментариев">
             <TextInput
               inputMode="numeric"
               value={maxComments}
               onChange={(e) => setMaxComments(e.target.value.replace(/\D/g, ""))}
-              placeholder="100"
-              className="nums"
+              placeholder="Без лимита"
+              className="nums text-center"
             />
           </Field>
-          <Field label="Минимум слов в комменте">
-            <TextInput
-              inputMode="numeric"
+          <FieldGroup label="Мин. слов в комменте">
+            <NumberStepper
               value={String(minWords)}
-              onChange={(e) => setMinWords(Number(e.target.value.replace(/\D/g, "") || "0"))}
-              className="nums"
+              onChange={(v) => setMinWords(Number(v) || 0)}
+              min={0}
+              ariaLabel="Минимум слов"
             />
-          </Field>
+          </FieldGroup>
+          {workMode === "by_time_window" && (
+            <>
+              <FieldGroup label="Окно после поста">
+                <NumberStepper
+                  value={String(windowAfterPost)}
+                  onChange={(v) => setWindowAfterPost(Number(v) || 0)}
+                  step={60}
+                  min={60}
+                  suffix="сек"
+                  ariaLabel="Окно после публикации, сек"
+                />
+              </FieldGroup>
+              <FieldGroup label="Пауза между комментами">
+                <NumberStepper
+                  value={String(pauseBetween)}
+                  onChange={(v) => setPauseBetween(Number(v) || 0)}
+                  step={10}
+                  min={0}
+                  suffix="сек"
+                  ariaLabel="Пауза между комментариями, сек"
+                />
+              </FieldGroup>
+            </>
+          )}
         </div>
-        {workMode === "by_time_window" && (
-          <div className="mt-1 grid grid-cols-2 gap-3">
-            <Field label="Окно после публикации (сек)">
-              <TextInput
-                inputMode="numeric"
-                value={String(windowAfterPost)}
-                onChange={(e) => setWindowAfterPost(Number(e.target.value.replace(/\D/g, "") || "0"))}
-                className="nums"
-              />
-            </Field>
-            <Field label="Пауза между комментами (сек)">
-              <TextInput
-                inputMode="numeric"
-                value={String(pauseBetween)}
-                onChange={(e) => setPauseBetween(Number(e.target.value.replace(/\D/g, "") || "0"))}
-                className="nums"
-              />
-            </Field>
-          </div>
-        )}
         <p className="px-1 text-[12px] text-text-tertiary">
-          Лимиты применяются рантаймом — см. DEFERRED-FEATURES [E2.2]. Значения
-          сохраняются в кампании и активируются, когда фича доедет.
+          Лимиты сохраняются в кампании и начнут применяться с обновлением воркера.
         </p>
       </Section>
 
+      </div>
+      <div className="min-w-0">
       <Section title="Окно активности">
         <div className="flex gap-2">
           <Field label="С">
@@ -550,6 +566,18 @@ export function NewCampaignScreen() {
       </Section>
 
       <Section title="Аккаунты из пула">
+        <AddGroupBar
+          groups={groups.data ?? []}
+          pool={pool.data ?? []}
+          all={allAccounts.data ?? []}
+          onAdd={(ids) =>
+            setSelected((s) => {
+              const n = new Set(s);
+              ids.forEach((id) => n.add(id));
+              return n;
+            })
+          }
+        />
         <AccountPresetBar
           presets={accountPresets.data ?? []}
           selected={selected}
@@ -622,11 +650,14 @@ export function NewCampaignScreen() {
         )}
       </Section>
 
+      </div>
+      </div>
+
       {create.isError && (
         <p className="mb-3 text-[13px] text-status-critical">Не удалось создать кампанию.</p>
       )}
 
-      <StickyBar>
+      <StickyActionBar>
         <CapsuleButton
           variant={valid ? "accent" : "secondary"}
           disabled={!valid || create.isPending}
@@ -634,7 +665,7 @@ export function NewCampaignScreen() {
         >
           {create.isPending ? "Создаём…" : "Создать кампанию"}
         </CapsuleButton>
-      </StickyBar>
+      </StickyActionBar>
     </div>
   );
 }
@@ -662,16 +693,6 @@ function ToggleRow({
   );
 }
 
-function StickyBar({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[440px] border-t border-hairline bg-bg-base px-5 pt-3"
-      style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
-    >
-      {children}
-    </div>
-  );
-}
 
 /* ── Пресеты задержек: чипы (системные + пользовательские) + «Сохранить свой».
    Системные (Мин / Рекомендуемые / Макс) сидятся миграцией 0027. */
@@ -903,6 +924,64 @@ function AccountPresetBar({
       {create.isError && (
         <p className="mt-2 px-1 text-[12px] text-status-critical">
           Не удалось сохранить пресет (возможно, имя занято).
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* «Добавить всю группу»: выбранная группа аккаунтов → её свободные (pool)
+   аккаунты добавляются к выделению. Занятые (прогрев, другая кампания,
+   cooldown) кампания взять не может — показываем, сколько их. */
+function AddGroupBar({
+  groups,
+  pool,
+  all,
+  onAdd,
+}: {
+  groups: { id: number; name: string }[];
+  pool: Account[];
+  all: Account[];
+  onAdd: (ids: number[]) => void;
+}) {
+  const [groupId, setGroupId] = useState<string>("");
+  if (groups.length === 0) return null;
+
+  const gid = groupId ? Number(groupId) : null;
+  const free = gid == null ? [] : pool.filter((a) => a.project_id === gid);
+  const total = gid == null ? 0 : all.filter((a) => a.project_id === gid).length;
+  const busy = total - free.length;
+
+  return (
+    <div className="mb-4 rounded-chip border border-hairline bg-surface-1 p-3">
+      <p className="mb-2 px-1 text-[13px] text-text-tertiary">Добавить группу аккаунтов целиком</p>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Select
+          className="sm:flex-1"
+          value={groupId}
+          onChange={setGroupId}
+          placeholder="Выберите группу"
+          options={groups.map((g) => ({ value: String(g.id), label: g.name }))}
+        />
+        <CapsuleButton
+          variant={free.length > 0 ? "accent" : "secondary"}
+          disabled={free.length === 0}
+          onClick={() => {
+            haptic("light");
+            onAdd(free.map((a) => a.id));
+          }}
+          className="sm:w-auto sm:shrink-0"
+        >
+          {gid == null ? "Добавить группу" : `Добавить ${free.length}`}
+        </CapsuleButton>
+      </div>
+      {gid != null && (
+        <p className="mt-2 px-1 text-[12px] text-text-tertiary">
+          {total === 0
+            ? "В группе пока нет аккаунтов — добавьте их в «Группы аккаунтов»."
+            : busy > 0
+              ? `Свободно ${free.length} из ${total}. Ещё ${busy} ${busy === 1 ? "занят" : "заняты"} (прогрев, другая кампания или отдых) — кампания может взять только свободные.`
+              : `Все ${total} аккаунтов группы свободны.`}
         </p>
       )}
     </div>

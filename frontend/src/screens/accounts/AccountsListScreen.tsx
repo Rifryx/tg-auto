@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Lock, Plus, Users } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { EmptyState } from "../../components/EmptyState";
 import { accountsApi } from "../../shared/accounts";
+import { projectsApi } from "../../shared/projects";
+import { Select } from "../../shared/Select";
 import { LimitBanner } from "../../shared/LimitBanner";
 import { useLimit } from "../../shared/limits";
 import { hapticSelection } from "../../shared/tg";
@@ -23,10 +25,23 @@ export function AccountsListScreen() {
     initial && FILTER_VALUES.includes(initial) ? (initial as AccountFilter) : "all",
   );
 
-  const { data, isLoading, isError } = useQuery({
+  // Группа: "" — все, "none" — без группы, иначе id. Можно прийти по ?group=<id>.
+  const [group, setGroup] = useState<string>(params.get("group") ?? "");
+
+  const { data: byStatus, isLoading, isError } = useQuery({
     queryKey: ["accounts", filter],
     queryFn: () => accountsApi.list(filter),
   });
+  const groups = useQuery({ queryKey: ["projects"], queryFn: projectsApi.list });
+  const groupName = useMemo(
+    () => new Map((groups.data ?? []).map((g) => [g.id, g.name])),
+    [groups.data],
+  );
+  const data = useMemo(() => {
+    if (!byStatus || group === "") return byStatus;
+    if (group === "none") return byStatus.filter((a) => a.project_id == null);
+    return byStatus.filter((a) => a.project_id === Number(group));
+  }, [byStatus, group]);
 
   const limit = useLimit("accounts_max");
   const blocked = limit?.atLimit ?? false;
@@ -61,7 +76,21 @@ export function AccountsListScreen() {
 
       <LimitBanner feature="accounts_max" />
 
-      <FilterPills value={filter} onChange={setFilter} />
+      <div className="lg:flex lg:items-start lg:justify-between lg:gap-4">
+        <FilterPills value={filter} onChange={setFilter} />
+        {(groups.data?.length ?? 0) > 0 && (
+          <Select
+            className="mb-4 lg:w-[260px] lg:shrink-0"
+            value={group}
+            onChange={setGroup}
+            options={[
+              { value: "", label: "Все группы" },
+              { value: "none", label: "Без группы" },
+              ...(groups.data ?? []).map((g) => ({ value: String(g.id), label: g.name })),
+            ]}
+          />
+        )}
+      </div>
 
       {isLoading && <ListSkeleton />}
 
@@ -70,9 +99,13 @@ export function AccountsListScreen() {
       )}
 
       {data && data.length > 0 && (
-        <div className="flex flex-col gap-2">
+        <div className="grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
           {data.map((a) => (
-            <AccountRow key={a.id} account={a} />
+            <AccountRow
+              key={a.id}
+              account={a}
+              groupName={a.project_id != null ? groupName.get(a.project_id) : undefined}
+            />
           ))}
         </div>
       )}
@@ -82,14 +115,14 @@ export function AccountsListScreen() {
           icon={Users}
           title="Пока нет аккаунтов"
           hint={
-            filter === "all"
+            filter === "all" && group === ""
               ? "Подключите Telegram-аккаунт, чтобы начать прогрев."
               : "В этом фильтре аккаунтов нет."
           }
         />
       )}
 
-      {data && data.length === 0 && filter === "all" && (
+      {data && data.length === 0 && filter === "all" && group === "" && (
         <div className="mt-6 flex flex-col gap-2">
           <CapsuleButton
             variant={blocked ? "secondary" : "accent"}

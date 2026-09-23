@@ -200,23 +200,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     # Импорт роутеров здесь (не на уровне модуля): фабрику можно частично
     # переиспользовать/тестировать, не таща весь граф на импорте asgi.
-    from api.routers import (
-        accounts,
-        admin,
-        autopilot,
-        ban_risk,
-        billing,
-        bulk_jobs,
-        login,
-        media_assets,
-        monitoring,
-        personas,
-        profile_assets,
-        projects,
-        proxies,
-    )
-    from modules.commenting.api import router as commenting_router
-    from modules.commenting.api.channels import router as channels_router
+    from api.routing import include_all_routers
 
     app = FastAPI(
         title="Neuro-commenting API",
@@ -232,21 +216,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    app.include_router(accounts.router)
-    app.include_router(login.router)
-    app.include_router(monitoring.router)
-    app.include_router(proxies.router)
-    app.include_router(personas.router)
-    app.include_router(billing.router)
-    app.include_router(bulk_jobs.router)
-    app.include_router(admin.router)
-    app.include_router(ban_risk.router)
-    app.include_router(autopilot.router)
-    app.include_router(projects.router)
-    app.include_router(profile_assets.router)
-    app.include_router(media_assets.router)
-    app.include_router(commenting_router)
-    app.include_router(channels_router)
+    include_all_routers(app)
     return app
 
 

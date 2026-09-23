@@ -158,3 +158,71 @@ async def test_role_check_constraint_blocks_invalid(session):
     _clean(session)
     with pytest.raises(IntegrityError):
         _make_account(session, "+1", role="godlike")
+
+
+# ── PUT /projects/{id}/accounts: состав группы одной транзакцией ────────────
+
+
+def _client(session, user="u1"):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.deps.auth import require_user
+    from api.deps.db import get_session
+    from api.routers.projects import router
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_session] = lambda: session
+    app.dependency_overrides[require_user] = lambda: user
+    return TestClient(app)
+
+
+async def test_set_members_assigns_moves_and_detaches(session):
+    _clean(session)
+    repo = ProjectRepository(session)
+    group_a = repo.create(user_id="u1", name="A")
+    group_b = repo.create(user_id="u1", name="B")
+    session.commit()
+    stays = _make_account(session, "+1", project_id=group_a.id)
+    leaves = _make_account(session, "+2", project_id=group_a.id)
+    moved_in = _make_account(session, "+3", project_id=group_b.id)
+    free = _make_account(session, "+4")
+
+    resp = _client(session).put(
+        f"/projects/{group_a.id}/accounts",
+        json={"account_ids": [stays.id, moved_in.id, free.id]},
+    )
+    assert resp.status_code == 200
+    for acc in (stays, leaves, moved_in, free):
+        session.refresh(acc)
+    assert stays.project_id == group_a.id
+    assert leaves.project_id is None
+    # аккаунт в одной группе: из B переехал в A
+    assert moved_in.project_id == group_a.id
+    assert free.project_id == group_a.id
+
+
+async def test_set_members_empty_clears_group(session):
+    _clean(session)
+    group = ProjectRepository(session).create(user_id="u1", name="A")
+    session.commit()
+    acc = _make_account(session, "+1", project_id=group.id)
+
+    resp = _client(session).put(f"/projects/{group.id}/accounts", json={"account_ids": []})
+    assert resp.status_code == 200
+    session.refresh(acc)
+    assert acc.project_id is None
+
+
+async def test_set_members_rejects_unknown_account_and_foreign_group(session):
+    _clean(session)
+    repo = ProjectRepository(session)
+    mine = repo.create(user_id="u1", name="mine")
+    foreign = repo.create(user_id="u2", name="theirs")
+    session.commit()
+
+    resp = _client(session).put(f"/projects/{mine.id}/accounts", json={"account_ids": [999]})
+    assert resp.status_code == 422
+    resp = _client(session).put(f"/projects/{foreign.id}/accounts", json={"account_ids": []})
+    assert resp.status_code == 404
