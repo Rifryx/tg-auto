@@ -31,6 +31,7 @@ from modules.commenting.repositories import (
 from modules.commenting.schemas import CommentLogCreate
 import structlog
 
+from modules.commenting.worker import limits
 from worker.client_pool import ClientPool
 from worker.health import Governor, around_telethon_call
 from worker.llm import Message, StyleRandomizer, get_provider
@@ -135,6 +136,44 @@ def _persona_for(session, account):
     return PersonaRepository(session).get(account.persona_id)
 
 
+def _limit_skip_reason(session, campaign, post_date_ts: Optional[float], now: datetime) -> Optional[str]:
+    """Причина не комментировать по лимитам кампании (E2.2) или None."""
+    if limits.max_comments_reached(session, campaign):
+        return "max_comments_reached"
+    if limits.window_closed(campaign, limits.post_date_from_ts(post_date_ts), now):
+        return "window_closed"
+    return None
+
+
+async def _generate(ctx, session, campaign, account, provider, context) -> tuple[str, bool]:
+    """Текст коммента с учётом min_words (до 3 попыток)."""
+    system = _build_system_prompt(session, campaign, account)
+    persona = _persona_for(session, account)
+    style = _style(ctx)
+
+    async def once() -> str:
+        raw = await provider.generate(system, context)
+        return style.randomize(raw, persona)
+
+    return await limits.generate_with_min_words(once, campaign.min_words or 0)
+
+
+def _log_below_min_words(session, campaign, account_id, channel_msg_id, text, reply_to) -> None:
+    """Не набрали min_words — коммент не шлём, но фиксируем в логе/статистике."""
+    CommentLogRepository(session).create(
+        CommentLogCreate(
+            campaign_id=campaign.id,
+            account_id=account_id,
+            post_channel_msg_id=channel_msg_id,
+            comment_text=text,
+            status=CommentStatus.FAILED,
+            in_reply_to_message_id=reply_to,
+            error=f"below_min_words:{campaign.min_words}",
+        )
+    )
+    session.commit()
+
+
 # --- задача on_new_post ------------------------------------------------------
 
 
@@ -144,6 +183,7 @@ async def on_new_post(
     channel_msg_id: int,
     in_reply_to: Optional[int] = None,
     thread_depth: int = 0,
+    post_date_ts: Optional[float] = None,
 ) -> int:
     now = _now(ctx)
     rng = _rng(ctx)
@@ -159,6 +199,10 @@ async def on_new_post(
         if not is_within_active_hours(now, campaign):
             log.info("commenting.on_new_post.skip", campaign_id=campaign_id, reason="inactive_hours")
             return 0
+        reason = _limit_skip_reason(session, campaign, post_date_ts, now)
+        if reason:
+            log.info("commenting.on_new_post.skip", campaign_id=campaign_id, reason=reason)
+            return 0
 
         accounts = _assigned_accounts(session, campaign_id)
         if not accounts:
@@ -171,16 +215,17 @@ async def on_new_post(
 
         reply_target = in_reply_to if in_reply_to is not None else channel_msg_id
         provider = ctx.get("llm_provider") or get_provider(campaign.llm_provider)
-        style = _style(ctx)
         delay_lo = campaign.posting_delay_min_sec
         delay_hi = campaign.posting_delay_max_sec
 
         plans = []
         for account in chosen:
-            system = _build_system_prompt(session, campaign, account)
             context = _thread_context(session, campaign_id, channel_msg_id)
-            raw = await provider.generate(system, context)
-            text = style.randomize(raw, _persona_for(session, account))
+            text, ok = await _generate(ctx, session, campaign, account, provider, context)
+            if not ok:
+                _log_below_min_words(session, campaign, account.id, channel_msg_id, text, reply_target)
+                log.info("commenting.on_new_post.skip_account", account_id=account.id, reason="below_min_words")
+                continue
             delay = rng.uniform(delay_lo, delay_hi)
             plans.append((account.id, text, delay))
 
@@ -195,6 +240,7 @@ async def on_new_post(
             channel_msg_id,
             reply_target,
             thread_depth=thread_depth,
+            post_date_ts=post_date_ts,
         )
     log.info(
         "commenting.on_new_post.scheduled",
@@ -217,6 +263,7 @@ async def post_comment(
     channel_msg_id: int,
     in_reply_to_message_id: int,
     thread_depth: int = 0,
+    post_date_ts: Optional[float] = None,
 ) -> Optional[int]:
     now = _now(ctx)
     session_factory = ctx["session_factory"]
@@ -224,19 +271,7 @@ async def post_comment(
     task_queue = _task_queue(ctx)
     log = get_logger()
 
-    with session_factory() as session:
-        campaign = CampaignRepository(session).get(campaign_id)
-        if campaign is None:
-            log.info("commenting.post_comment.skip", account_id=account_id, reason="no_campaign")
-            return None
-        if not is_within_active_hours(now, campaign):
-            log.info("commenting.post_comment.skip", account_id=account_id, reason="inactive_hours")
-            return None
-        discussion_group_id = campaign.discussion_group_id
-
-    # rate-limit governor
-    if not await _governor(ctx).check_and_reserve(account_id, "comment"):
-        run_at = now + timedelta(minutes=GOVERNOR_RETRY_MINUTES)
+    async def reschedule(run_at: datetime) -> None:
         await task_queue.schedule(
             TaskName.COMMENTING_POST_COMMENT,
             run_at,
@@ -246,8 +281,46 @@ async def post_comment(
             channel_msg_id,
             in_reply_to_message_id,
             thread_depth=thread_depth,
+            post_date_ts=post_date_ts,
         )
+
+    with session_factory() as session:
+        campaign = CampaignRepository(session).get(campaign_id)
+        if campaign is None:
+            log.info("commenting.post_comment.skip", account_id=account_id, reason="no_campaign")
+            return None
+        if not is_within_active_hours(now, campaign):
+            log.info("commenting.post_comment.skip", account_id=account_id, reason="inactive_hours")
+            return None
+        # Лимиты перепроверяем при отправке: между планированием и отправкой
+        # мог набраться max_comments или закрыться окно.
+        reason = _limit_skip_reason(session, campaign, post_date_ts, now)
+        if reason:
+            log.info("commenting.post_comment.skip", account_id=account_id, reason=reason)
+            return None
+        wait = limits.pause_wait_until(
+            CampaignAccountRepository(session).get(campaign_id, account_id), campaign, now
+        )
+        discussion_group_id = campaign.discussion_group_id
+
+    if wait is not None:
+        await reschedule(wait)
+        log.info("commenting.post_comment.paused", account_id=account_id, until=wait.isoformat())
+        return None
+
+    # rate-limit governor
+    if not await _governor(ctx).check_and_reserve(account_id, "comment"):
+        await reschedule(now + timedelta(minutes=GOVERNOR_RETRY_MINUTES))
         log.info("commenting.post_comment.rate_limited", account_id=account_id)
+        return None
+
+    # Занимаем слот паузы атомарно (FOR UPDATE): гонка двух задач аккаунта.
+    with session_factory() as session:
+        campaign = CampaignRepository(session).get(campaign_id)
+        wait = limits.claim_post_slot(session, campaign, account_id, now)
+    if wait is not None:
+        await reschedule(wait)
+        log.info("commenting.post_comment.paused", account_id=account_id, until=wait.isoformat())
         return None
 
     pool = _pool(ctx)
@@ -286,7 +359,9 @@ async def post_comment(
         posted_message_id=posted_message_id,
         thread_depth=thread_depth,
     )
-    await maybe_continue_thread(ctx, campaign_id, channel_msg_id, posted_message_id, thread_depth)
+    await maybe_continue_thread(
+        ctx, campaign_id, channel_msg_id, posted_message_id, thread_depth, post_date_ts
+    )
     return posted_message_id
 
 
@@ -296,6 +371,7 @@ async def maybe_continue_thread(
     channel_msg_id: int,
     comment_msg_id: Optional[int],
     thread_depth: int,
+    post_date_ts: Optional[float] = None,
 ) -> bool:
     """Тред-симуляция: с шансом CONTINUE запускает ответ на свой коммент (≤ глубины)."""
     if comment_msg_id is None or thread_depth >= MAX_THREAD_DEPTH:
@@ -308,6 +384,7 @@ async def maybe_continue_thread(
         channel_msg_id,
         in_reply_to=comment_msg_id,
         thread_depth=thread_depth + 1,
+        post_date_ts=post_date_ts,
     )
     get_logger().info(
         "commenting.thread.continue",
@@ -347,6 +424,7 @@ async def on_channel_post(
     channel_msg_id: int,
     in_reply_to: Optional[int] = None,
     thread_depth: int = 0,
+    post_date_ts: Optional[float] = None,
 ) -> int:
     """Пост в канале аккаунта → запланировать ОДИН коммент этим аккаунтом."""
     now = _now(ctx)
@@ -367,6 +445,10 @@ async def on_channel_post(
         if not is_within_active_hours(now, campaign):
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="inactive_hours")
             return 0
+        reason = _limit_skip_reason(session, campaign, post_date_ts, now)
+        if reason:
+            log.info("commenting.on_channel_post.skip", account_id=account_id, reason=reason)
+            return 0
 
         ch = MonitoredChannelRepository(session).get(monitored_channel_id)
         if ch is None or ch.status != "working" or ch.discussion_group_id is None:
@@ -376,11 +458,12 @@ async def on_channel_post(
 
         reply_target = in_reply_to if in_reply_to is not None else channel_msg_id
         provider = ctx.get("llm_provider") or get_provider(campaign.llm_provider)
-        style = _style(ctx)
-        system = _build_system_prompt(session, campaign, account)
         context = _thread_context(session, campaign_id, channel_msg_id)
-        raw = await provider.generate(system, context)
-        text = style.randomize(raw, _persona_for(session, account))
+        text, ok = await _generate(ctx, session, campaign, account, provider, context)
+        if not ok:
+            _log_below_min_words(session, campaign, account_id, channel_msg_id, text, reply_target)
+            log.info("commenting.on_channel_post.skip", account_id=account_id, reason="below_min_words")
+            return 0
         delay = rng.uniform(campaign.posting_delay_min_sec, campaign.posting_delay_max_sec)
 
     run_at = now + timedelta(seconds=delay)
@@ -394,6 +477,7 @@ async def on_channel_post(
         channel_msg_id,
         reply_target,
         thread_depth=thread_depth,
+        post_date_ts=post_date_ts,
     )
     log.info(
         "commenting.on_channel_post.scheduled",
@@ -411,6 +495,7 @@ async def post_channel_comment(
     channel_msg_id: int,
     in_reply_to_message_id: int,
     thread_depth: int = 0,
+    post_date_ts: Optional[float] = None,
 ) -> Optional[int]:
     """Постит коммент аккаунта в discussion-группу его канала (+ governor)."""
     now = _now(ctx)
@@ -419,8 +504,7 @@ async def post_channel_comment(
     task_queue = _task_queue(ctx)
     log = get_logger()
 
-    if not await _governor(ctx).check_and_reserve(account_id, "comment"):
-        run_at = now + timedelta(minutes=GOVERNOR_RETRY_MINUTES)
+    async def reschedule(run_at: datetime) -> None:
         await task_queue.schedule(
             TaskName.COMMENTING_POST_CHANNEL_COMMENT,
             run_at,
@@ -431,8 +515,35 @@ async def post_channel_comment(
             channel_msg_id,
             in_reply_to_message_id,
             thread_depth=thread_depth,
+            post_date_ts=post_date_ts,
         )
+
+    with session_factory() as session:
+        campaign = CampaignRepository(session).get(campaign_id)
+        if campaign is not None:
+            reason = _limit_skip_reason(session, campaign, post_date_ts, now)
+            if reason:
+                log.info("commenting.post_channel_comment.skip", account_id=account_id, reason=reason)
+                return None
+            wait = limits.pause_wait_until(
+                CampaignAccountRepository(session).get(campaign_id, account_id), campaign, now
+            )
+            if wait is not None:
+                await reschedule(wait)
+                log.info("commenting.post_channel_comment.paused", account_id=account_id, until=wait.isoformat())
+                return None
+
+    if not await _governor(ctx).check_and_reserve(account_id, "comment"):
+        await reschedule(now + timedelta(minutes=GOVERNOR_RETRY_MINUTES))
         log.info("commenting.post_channel_comment.rate_limited", account_id=account_id)
+        return None
+
+    with session_factory() as session:
+        campaign = CampaignRepository(session).get(campaign_id)
+        wait = limits.claim_post_slot(session, campaign, account_id, now) if campaign else None
+    if wait is not None:
+        await reschedule(wait)
+        log.info("commenting.post_channel_comment.paused", account_id=account_id, until=wait.isoformat())
         return None
 
     pool = _pool(ctx)
@@ -470,7 +581,7 @@ async def post_channel_comment(
         account_id=account_id, posted_message_id=posted_message_id, thread_depth=thread_depth,
     )
     await maybe_continue_channel_thread(
-        ctx, account_id, channel_msg_id, posted_message_id, thread_depth
+        ctx, account_id, channel_msg_id, posted_message_id, thread_depth, post_date_ts
     )
     return posted_message_id
 
@@ -481,6 +592,7 @@ async def maybe_continue_channel_thread(
     channel_msg_id: int,
     comment_msg_id: Optional[int],
     thread_depth: int,
+    post_date_ts: Optional[float] = None,
 ) -> bool:
     """Тред-симуляция для аккаунт-центричной ветки (ответ на свой же коммент)."""
     if comment_msg_id is None or thread_depth >= MAX_THREAD_DEPTH:
@@ -501,6 +613,7 @@ async def maybe_continue_channel_thread(
         channel_msg_id,
         in_reply_to=comment_msg_id,
         thread_depth=thread_depth + 1,
+        post_date_ts=post_date_ts,
     )
     get_logger().info(
         "commenting.channel_thread.continue",

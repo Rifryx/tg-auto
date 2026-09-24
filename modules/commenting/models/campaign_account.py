@@ -1,10 +1,12 @@
 """Привязка аккаунта к кампании (эксклюзивная: account_id UNIQUE)."""
 
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Integer,
     PrimaryKeyConstraint,
@@ -43,3 +45,7 @@ class CampaignAccount(Base, CreatedAtMixin):
     # Пер-аккаунтная вероятность для post_selection_mode='probability'
     # (§ Этап 2). NULL → используется campaign.probability_percent.
     probability_override: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Последний коммент аккаунта в этой кампании — для pause_between_sec.
+    last_posted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

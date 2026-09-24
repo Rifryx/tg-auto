@@ -28,6 +28,16 @@ from modules.commenting.repositories import CampaignAccountRepository
 from worker.tasks.logging import get_logger
 
 
+def _post_date_kwargs(message: Any) -> dict:
+    """Время публикации поста → kwarg для окна «после поста» (E2.2).
+
+    Берём message.date (дата ПУБЛИКАЦИИ), а не время получения события:
+    после переподключения слушателя событие может прийти позже.
+    """
+    date = getattr(message, "date", None)
+    return {"post_date_ts": date.timestamp()} if date is not None else {}
+
+
 def _passes_post_filter(
     text: Optional[str],
     *,
@@ -110,7 +120,7 @@ def make_new_post_handler(
                     return
 
         await task_queue.enqueue(
-            TaskName.COMMENTING_ON_NEW_POST, campaign_id, message.id
+            TaskName.COMMENTING_ON_NEW_POST, campaign_id, message.id, **_post_date_kwargs(message)
         )
         get_logger().info(
             "commenting.listener.new_post", campaign_id=campaign_id, channel_msg_id=message.id
@@ -143,6 +153,7 @@ def make_channel_post_handler(
             account_id,
             monitored_channel_id,
             message.id,
+            **_post_date_kwargs(message),
         )
         get_logger().info(
             "commenting.channel_listener.new_post",

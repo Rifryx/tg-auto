@@ -96,9 +96,15 @@ backend'а. Каждый пункт — самодостаточное ТЗ: ч�
 
 ## [E2.2] Лимиты работы: `max_comments`, `min_words`, окно и пауза
 
-**Статус:** поля `work_mode / max_comments / min_words /
-window_after_post_sec / pause_between_sec` есть в модели и API, но
-runner их пока не читает — лимиты не применяются.
+**Статус: ✅ СДЕЛАНО (2026-09-24).** `modules/commenting/worker/limits.py`,
+подключено в обе ветки раннера (on_new_post/post_comment и
+on_channel_post/post_channel_comment), миграция 0031
+(`campaign_accounts.last_posted_at`), тесты `tests/test_commenting_limits.py`.
+Известное ограничение: `max_comments` может быть превышен на число
+одновременно отправляющих задач воркера (без резервирования слотов).
+Ниже — исходное ТЗ, для истории.
+
+~~поля есть в модели и API, но runner их пока не читает.~~
 
 **Что должно делать:**
 - `work_mode='by_count'`: перед постингом каждого коммента считать
@@ -148,9 +154,15 @@ runner их пока не читает — лимиты не применяют�
   создавать по одному `CampaignChannel` с `kind='username'` и уже
   резолвленным `resolved_chat_id`.
 
+**Уже есть в проекте:** разворачивание папок реализовано для массового
+действия «вступить в каналы» — `worker/telegram_folders` (используется в
+`modules/bulk/actions/join_channels.py`, флаг `expand_folders`). Резолвер
+кампании должен переиспользовать его, а не писать заново.
+
 **Что писать:**
 1. Модуль `modules/commenting/worker/channel_resolver.py`:
-   - `resolve_folder(client, slug: str) -> list[ResolvedChat]`,
+   - `resolve_folder(client, slug: str) -> list[ResolvedChat]` — обёртка
+     над `worker/telegram_folders`,
    - `resolve_username(client, ref: str) -> ResolvedChat | None`,
    - `resolve_invite(client, hash_: str) -> ResolvedChat | None`.
 2. Таск `commenting.resolve_campaign_channel` (per raw_input), enqueue
@@ -301,3 +313,69 @@ write_as_channel` есть в модели и API. Runtime их пока не ч
 (точка планирования), `modules/commenting/models/comment_log.py`
 (куда добавлять `verified_at`), MEMORY `monitoring-architecture.md`
 (канон правила).
+
+---
+
+## [UI.1] Десктоп-раскладка остальных экранов
+
+**Статус:** на ПК (lg+) у всех экранов есть боковая панель и ширина до
+1200px, но внутри в две колонки разложены только «Новая кампания»,
+«Автопилот», «Группы аккаунтов», форма добавления аккаунта и список
+аккаунтов. Главная, детали аккаунта, детали кампании, прокси, персоны,
+тариф, админка идут одной колонкой.
+
+**Что сделать:** для каждого экрана — `lg:grid` из логических блоков
+(как в `NewCampaignScreen`), списки карточек — `lg:grid-cols-2/3`.
+Шторки `AccountPickerSheet` и `PaymentSheet` на ПК — окно по центру
+(как `GroupMembersSheet`).
+
+---
+
+## [UI.2] «Добавить группу» в уже созданной кампании
+
+**Статус:** кнопка «Добавить группу аккаунтов целиком» есть только в
+`NewCampaignScreen` (`AddGroupBar`). В `CampaignDetailScreen` аккаунты
+добавляются только по одному через `AccountPickerSheet`.
+
+**Что сделать:** переиспользовать `AddGroupBar` (вынести из
+`NewCampaignScreen` в `components/`) в детали кампании; добавлять через
+`commentingApi.attach` по списку свободных аккаунтов группы.
+
+---
+
+## [UI.3] Пресеты аккаунтов vs группы аккаунтов — решить судьбу
+
+**Статус:** две похожие сущности: `commenting.account_presets` (этап 1)
+и группы (`projects`). Группы покрывают сценарий «добавить набор
+аккаунтов в кампанию»; пресет даёт только одно — набор из аккаунтов
+разных групп.
+
+**Что сделать (если пресеты не нужны):** убрать `AccountPresetBar` из
+`NewCampaignScreen`, эндпоинты `/presets/accounts`, модель/репо/схемы и
+миграцию на удаление таблицы `account_presets`. Пресеты ЗАДЕРЖЕК не
+трогать — это другое.
+
+---
+
+## [UI.4] Убрать служебные отсылки из текстов интерфейса
+
+**Статус:** в подсказках «Новой кампании» и деталей кампании видны
+ссылки вида «DEFERRED-FEATURES [E2.1]», «runtime — E4.1» — это жаргон
+для разработчика, пользователю непонятно.
+
+**Что сделать:** заменить на человеческие формулировки («скоро»,
+«начнёт работать в следующем обновлении») или скрыть такие тумблеры до
+реализации runtime.
+
+---
+
+## [DEV.1] Мелкий техдолг, замеченный по ходу
+
+* `frontend/src/screens/more/ProxiesScreen.tsx:109` — ошибка TypeScript:
+  `ProxyOccupancy` передаётся туда, где ждут `Proxy` (нет поля `login`).
+  `tsc --noEmit` падает только на ней.
+* Локальный `.venv`: SQLAlchemy 2.0.34 и Alembic 1.13.2 ниже минимумов из
+  `pyproject.toml` (>=2.0.36, >=1.14.0). CI ставит свежие — поведение
+  может отличаться. Обновить: `pip install -e ".[dev]" --upgrade`.
+* Контейнер `neuro_api` и локальный uvicorn оба слушают порт 8000 —
+  держать запущенным только один.
