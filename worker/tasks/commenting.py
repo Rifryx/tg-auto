@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from modules.commenting.worker.backfill import backfill_channel
 from modules.commenting.worker.channels import (
     leave_channel,
     resolve_channel,
@@ -25,6 +26,7 @@ resolve_channel_impl = resolve_channel
 leave_channel_impl = leave_channel
 sync_campaign_channels_impl = sync_campaign_channels
 sync_account_subscriptions_impl = sync_account_subscriptions
+backfill_channel_impl = backfill_channel
 on_channel_post_impl = on_channel_post
 post_channel_comment_impl = post_channel_comment
 
@@ -35,6 +37,7 @@ __all__ = [
     "leave_channel_impl",
     "sync_campaign_channels_impl",
     "sync_account_subscriptions_impl",
+    "backfill_channel_impl",
     "on_channel_post_impl",
     "post_channel_comment_impl",
 ]

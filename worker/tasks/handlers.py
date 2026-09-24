@@ -33,6 +33,7 @@ from worker.tasks.commenting import (
     post_channel_comment_impl,
     post_comment_impl,
     resolve_channel_impl,
+    backfill_channel_impl,
     sync_account_subscriptions_impl,
     sync_campaign_channels_impl,
 )
@@ -147,6 +148,7 @@ sync_campaign_channels = task(TaskName.COMMENTING_SYNC_CAMPAIGN_CHANNELS.value)(
 sync_account_subscriptions = task(TaskName.COMMENTING_SYNC_ACCOUNT_SUBSCRIPTIONS.value)(
     sync_account_subscriptions_impl
 )
+backfill_channel = task(TaskName.COMMENTING_BACKFILL_CHANNEL.value)(backfill_channel_impl)
 on_channel_post = task(TaskName.COMMENTING_ON_CHANNEL_POST.value)(on_channel_post_impl)
 post_channel_comment = task(TaskName.COMMENTING_POST_CHANNEL_COMMENT.value)(
     post_channel_comment_impl
@@ -181,6 +183,13 @@ TASK_FUNCTIONS = [
         sync_account_subscriptions,
         name=TaskName.COMMENTING_SYNC_ACCOUNT_SUBSCRIPTIONS.value,
         max_tries=2,
+    ),
+    # Backfill истории канала: батчами с паузами, повтор мог бы задвоить
+    # запланированные комментарии — max_tries=1.
+    func(
+        backfill_channel,
+        name=TaskName.COMMENTING_BACKFILL_CHANNEL.value,
+        max_tries=1,
     ),
     func(on_channel_post, name=TaskName.COMMENTING_ON_CHANNEL_POST.value, max_tries=3),
     func(

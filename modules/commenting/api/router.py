@@ -84,6 +84,30 @@ router = APIRouter(
 _CHANNEL_SYNC_FIELDS = {"enabled", "channel_source_mode", "on_not_subscribed_action"}
 
 
+async def _request_backfill_existing(task_queue: TaskQueue, session: Session, campaign_id: int) -> None:
+    """Прогуляться по истории каждого рабочего канала кампании (E2.1)."""
+    from modules.commenting.models import MonitoredChannel
+
+    rows = (
+        session.query(MonitoredChannel.account_id, MonitoredChannel.id)
+        .filter(
+            MonitoredChannel.source_campaign_id == campaign_id,
+            MonitoredChannel.status == "working",
+        )
+        .all()
+    )
+    for account_id, channel_id in rows:
+        try:
+            await task_queue.enqueue(
+                TaskName.COMMENTING_BACKFILL_CHANNEL, account_id, channel_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            get_logger().warning(
+                "commenting.backfill.enqueue_failed",
+                campaign_id=campaign_id, channel_id=channel_id, error=repr(exc),
+            )
+
+
 async def _request_sync(task_queue: TaskQueue, campaign_id: int) -> None:
     """Поставить синхронизацию целевых каналов (E3.2). Мягко: синхронизация
     идемпотентна и перезапускается при следующей правке, поэтому недоступный
@@ -163,6 +187,11 @@ async def patch_campaign(
         )
     if body.model_fields_set & _CHANNEL_SYNC_FIELDS:
         await _request_sync(task_queue, campaign_id)
+    # Смена post_scope на existing/mixed: прогуляться по уже работающим
+    # каналам кампании (E2.1). Первичное «existing» после создания кампании
+    # цепляется сам через resolve_channel — здесь важен как раз PATCH.
+    if "post_scope" in body.model_fields_set and body.post_scope in ("existing", "mixed"):
+        await _request_backfill_existing(task_queue, session, campaign_id)
     return CampaignRead.model_validate(campaign)
 
 

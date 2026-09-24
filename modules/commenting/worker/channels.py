@@ -144,6 +144,12 @@ async def _join_and_resolve(
     }, joined
 
 
+def _campaign_get(session, campaign_id: int):
+    from modules.commenting.repositories import CampaignRepository
+
+    return CampaignRepository(session).get(campaign_id)
+
+
 def _channel_policy(session, source_campaign_id: Optional[int]) -> tuple[Optional[int], str]:
     """(campaign_id, policy) для строки мониторинга.
 
@@ -288,6 +294,20 @@ async def resolve_channel(ctx: dict, channel_id: int) -> str:
                     detail="Аккаунт не был подписан — подписали автоматически.",
                 )
         publish_channel_lifecycle(publisher, account_id, channel_id, ACTION_ATTACH)
+        # Кампания с post_scope in (existing, mixed) — прогуляемся по истории
+        # канала (E2.1); отдельная задача, чтобы не блокировать resolve.
+        if campaign_id is not None:
+            with session_factory() as session:
+                campaign = _campaign_get(session, campaign_id)
+                needs_backfill = (
+                    campaign is not None
+                    and campaign.enabled
+                    and campaign.post_scope in ("existing", "mixed")
+                )
+            if needs_backfill:
+                await _task_queue(ctx).enqueue(
+                    TaskName.COMMENTING_BACKFILL_CHANNEL, account_id, channel_id
+                )
         log.info(
             "commenting.resolve_channel.working",
             channel_id=channel_id, account_id=account_id,
@@ -485,6 +505,18 @@ async def sync_account_subscriptions(ctx: dict, account_id: int, campaign_id: in
             known.add(ent.id)
             created += 1
             publish_channel_lifecycle(publisher, account_id, row_id, ACTION_ATTACH)
+            # Кампания с post_scope in (existing, mixed) — уже подписанные
+            # каналы тоже отбэкфилить (E2.1).
+            with session_factory() as session:
+                campaign = _campaign_get(session, campaign_id)
+                if (
+                    campaign is not None
+                    and campaign.enabled
+                    and campaign.post_scope in ("existing", "mixed")
+                ):
+                    await _task_queue(ctx).enqueue(
+                        TaskName.COMMENTING_BACKFILL_CHANNEL, account_id, row_id
+                    )
     finally:
         await pool.release(account_id)
 

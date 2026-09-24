@@ -58,9 +58,17 @@ backend'а. Каждый пункт — самодостаточное ТЗ: ч�
 
 ## [E2.1] Backfill существующих постов (`post_scope='existing' | 'mixed'`)
 
-**Статус:** поле `campaigns.post_scope` есть в схеме и API (миграция 0028),
-но воркер обрабатывает только новые посты (listener). Значения `existing`
-и `mixed` пока эквивалентны `new`.
+**Статус: ✅ СДЕЛАНО (2026-09-24).** `modules/commenting/worker/backfill.py`:
+задача `commenting.backfill_channel` идёт по истории канала через
+Telethon `iter_messages`, батчами 100, паузы 60–120с, hard cap 200 постов.
+Триггеры: успешный `resolve_channel` для «кампанийного» канала (E3.2),
+`sync_account_subscriptions` при `by_account_subscriptions`, PATCH
+`post_scope` через API. Дедуп по `CommentLog(account_id, post_channel_msg_id)`
+через новый индекс (миграция 0033). Фильтр keywords/probability тот же,
+что у listener'а. Тесты: `tests/test_commenting_backfill.py` (10). Ниже — исходное ТЗ.
+
+~~поле `campaigns.post_scope` есть в схеме и API, но воркер обрабатывает
+только новые посты. Значения `existing` и `mixed` пока эквивалентны `new`.~~
 
 **Что должно делать:**
 - Одноразовый (или разовый на кампанию/канал) проход по истории привязанных
