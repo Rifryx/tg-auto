@@ -41,7 +41,7 @@ from telethon.errors import (
     UserNotParticipantError,
 )
 
-from modules.commenting.worker import limits
+from modules.commenting.worker import delivery, limits
 from modules.commenting.worker.alerts import auto_blacklist, raise_alert
 from worker.client_pool import ClientPool
 from worker.health import Governor, around_telethon_call
@@ -126,6 +126,9 @@ def _build_system_prompt(session, campaign, account) -> str:
         if persona is not None:
             tags = ", ".join(persona.personality_tags or [])
             prompt = f"{prompt}\n\nТы — {persona.name}. Черты: {tags}."
+    # use_emojis=False: явно просим LLM не использовать эмодзи; ниже в
+    # _generate ещё раз почистим safety net'ом (E4.1).
+    prompt += delivery.emoji_prompt_suffix(campaign)
     return prompt
 
 
@@ -272,14 +275,14 @@ def _limit_skip_reason(session, campaign, post_date_ts: Optional[float], now: da
 
 
 async def _generate(ctx, session, campaign, account, provider, context) -> tuple[str, bool]:
-    """Текст коммента с учётом min_words (до 3 попыток)."""
+    """Текст коммента с учётом min_words (до 3 попыток) и стиля (E4.1)."""
     system = _build_system_prompt(session, campaign, account)
     persona = _persona_for(session, account)
     style = _style(ctx)
 
     async def once() -> str:
         raw = await provider.generate(system, context)
-        return style.randomize(raw, persona)
+        return delivery.apply_style(raw, campaign, persona, style)
 
     return await limits.generate_with_min_words(once, campaign.min_words or 0)
 
@@ -453,17 +456,24 @@ async def post_comment(
         log.info("commenting.post_comment.paused", account_id=account_id, until=wait.isoformat())
         return None
 
+    # Кампания нужна для delivery.deliver_comment: use_stickers / attach_image /
+    # write_as_channel читаются оттуда. Берём свежую (могли поменять флаги за
+    # время между планированием и отправкой).
+    with session_factory() as session:
+        campaign_row = CampaignRepository(session).get(campaign_id)
+
     pool = _pool(ctx)
     client = await pool.get(account_id)
     try:
-        sent = await around_telethon_call(
-            lambda: client.send_message(
-                discussion_group_id, text, reply_to=in_reply_to_message_id
-            ),
+        sent, delivery_mode = await delivery.deliver_comment(
+            ctx, client, campaign_row,
             account_id=account_id,
-            session_factory=session_factory,
-            publisher=publisher,
+            discussion_group_id=discussion_group_id,
+            text=text,
+            reply_to=in_reply_to_message_id,
             now=now,
+            publisher=publisher,
+            rng=_rng(ctx),
         )
     except ACCESS_ERRORS as exc:
         await _handle_access_error(
@@ -700,17 +710,24 @@ async def post_channel_comment(
         mon_username = mon.channel_ref if mon else None
         mon_tg_id = mon.channel_tg_id if mon else None
 
+    # Кампания нужна для delivery.deliver_comment: use_stickers / attach_image /
+    # write_as_channel читаются оттуда. Берём свежую (могли поменять флаги за
+    # время между планированием и отправкой).
+    with session_factory() as session:
+        campaign_row = CampaignRepository(session).get(campaign_id)
+
     pool = _pool(ctx)
     client = await pool.get(account_id)
     try:
-        sent = await around_telethon_call(
-            lambda: client.send_message(
-                discussion_group_id, text, reply_to=in_reply_to_message_id
-            ),
+        sent, delivery_mode = await delivery.deliver_comment(
+            ctx, client, campaign_row,
             account_id=account_id,
-            session_factory=session_factory,
-            publisher=publisher,
+            discussion_group_id=discussion_group_id,
+            text=text,
+            reply_to=in_reply_to_message_id,
             now=now,
+            publisher=publisher,
+            rng=_rng(ctx),
         )
     except ACCESS_ERRORS as exc:
         await _handle_access_error(

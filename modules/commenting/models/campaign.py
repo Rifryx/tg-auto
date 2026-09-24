@@ -90,6 +90,11 @@ class Campaign(Base, TimestampMixin):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Владелец кампании — Telegram id (строка, как в require_user). Nullable
+    # для совместимости со старыми кампаниями; у новых заполняется в create.
+    owner_user_id: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String, nullable=False)
     # Легаси-поле (каналы переехали на аккаунты); допускаем NULL.
     target_channel: Mapped[Optional[str]] = mapped_column(String, nullable=True)

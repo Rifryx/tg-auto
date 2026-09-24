@@ -15,6 +15,8 @@ from typing import Optional
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
@@ -159,8 +161,10 @@ def create_campaign(
     body: CampaignCreate,
     session: Session = Depends(get_session),
     _limit: None = Depends(enforce_limit("campaigns_active_max")),
+    user_id: str = Depends(require_user),
 ) -> CampaignRead:
     campaign = CampaignRepository(session).create(body)
+    campaign.owner_user_id = user_id
     session.commit()
     return CampaignRead.model_validate(campaign)
 
@@ -630,6 +634,72 @@ def get_ai_protection_status(
         accounts_by_risk=buckets,
         total_accounts=total,
     )
+
+
+# --- Картинки кампании (E4.1) ------------------------------------------------
+
+
+class MediaLinkBody(BaseModel):
+    media_asset_ids: list[int] = Field(default_factory=list, max_length=200)
+
+
+class MediaLinkRead(BaseModel):
+    campaign_id: int
+    media_asset_ids: list[int]
+
+
+@router.get("/campaigns/{campaign_id}/media", response_model=MediaLinkRead)
+def list_campaign_media(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> MediaLinkRead:
+    from modules.commenting.models import CampaignMediaAsset
+
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    ids = list(
+        session.query(CampaignMediaAsset.media_asset_id)
+        .filter(CampaignMediaAsset.campaign_id == campaign_id)
+        .order_by(CampaignMediaAsset.created_at.asc())
+    )
+    return MediaLinkRead(campaign_id=campaign_id, media_asset_ids=[i for (i,) in ids])
+
+
+@router.put("/campaigns/{campaign_id}/media", response_model=MediaLinkRead)
+def set_campaign_media(
+    campaign_id: int,
+    body: MediaLinkBody,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> MediaLinkRead:
+    """Приложить к кампании выбранные картинки владельца одной транзакцией."""
+    from core.models.media_asset import MediaAsset
+    from modules.commenting.models import CampaignMediaAsset
+
+    campaign = CampaignRepository(session).get(campaign_id)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    ids = set(body.media_asset_ids)
+    if ids:
+        owned = set(
+            session.execute(
+                select(MediaAsset.id).where(
+                    MediaAsset.id.in_(ids), MediaAsset.user_id == user_id
+                )
+            ).scalars()
+        )
+        missing = ids - owned
+        if missing:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"Не найдено или не принадлежит вам: {sorted(missing)}",
+            )
+    session.query(CampaignMediaAsset).filter(
+        CampaignMediaAsset.campaign_id == campaign_id
+    ).delete()
+    for aid in ids:
+        session.add(CampaignMediaAsset(campaign_id=campaign_id, media_asset_id=aid))
+    session.commit()
+    return MediaLinkRead(campaign_id=campaign_id, media_asset_ids=sorted(ids))
 
 
 # --- Алерты целевых каналов (E3.2) ------------------------------------------

@@ -231,13 +231,13 @@ export function CampaignDetailScreen() {
           />
           <StyleToggle
             label="Комментировать стикерами"
-            hint="Runtime — DEFERRED [E4.1]."
+            hint="~25% комментариев уйдут стикером из пака аккаунта."
             checked={c.use_stickers}
             onChange={(v) => save.mutate({ use_stickers: v })}
           />
           <StyleToggle
             label="Картинка к комментарию"
-            hint="Runtime — DEFERRED [E4.1]."
+            hint="Приложится случайная картинка (~40%) из добавленных к кампании."
             checked={c.attach_image}
             onChange={(v) => save.mutate({ attach_image: v })}
           />

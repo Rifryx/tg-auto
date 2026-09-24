@@ -289,19 +289,19 @@ export function NewCampaignScreen() {
           />
           <ToggleRow
             label="Комментировать стикерами"
-            hint="Часть комментариев уходит стикером из пака аккаунта (runtime — E4.1)."
+            hint="~25% комментариев уйдут стикером из первого пака аккаунта."
             checked={useStickers}
             onChange={setUseStickers}
           />
           <ToggleRow
             label="Картинка к комментарию"
-            hint="Прикладывает медиа-ассет к тексту (runtime — E4.1)."
+            hint="Приложится случайная картинка (~40%). Добавьте картинки к кампании в её деталях."
             checked={attachImage}
             onChange={setAttachImage}
           />
           <ToggleRow
             label="Писать от имени канала"
-            hint="Аккаунт должен быть админом канала с правом post. Иначе флаг игнорируется (E4.1)."
+            hint="Требует права post_messages в канале. Если прав нет — коммент уйдёт от аккаунта."
             checked={writeAsChannel}
             onChange={setWriteAsChannel}
           />

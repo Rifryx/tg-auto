@@ -253,8 +253,20 @@ on_channel_post/post_channel_comment), миграция 0031
 
 ## [E4.1] Стиль коммента: emojis / stickers / attach_image / write_as_channel
 
-**Статус:** флаги `use_emojis / use_stickers / attach_image /
-write_as_channel` есть в модели и API. Runtime их пока не читает.
+**Статус: ✅ СДЕЛАНО (2026-09-24).** `modules/commenting/worker/delivery.py`:
+* `use_emojis`: инструкция в system prompt + strip эмодзи safety-net'ом;
+* `use_stickers`: первый стикер-пак аккаунта (кеш per-account на задачу),
+  ~25% комментов уходит стикером; без пака — тексом молча;
+* `attach_image`: картинки владельца привязываются к кампании через
+  `commenting.campaign_media_assets` (миграция 0034), ~40% комментов
+  уходит с картинкой; без привязанных — текстом;
+* `write_as_channel`: `channels.getSendAs` (кеш на группу), если аккаунт
+  может писать от канала — send_as=channel; иначе от аккаунта.
+Также добавлен `campaigns.owner_user_id` (проставляется при create),
+эндпоинты `GET/PUT /campaigns/{id}/media` для привязки картинок владельца.
+Тесты: `tests/test_commenting_delivery.py` (18). Ниже — исходное ТЗ.
+
+~~флаги есть в модели и API. Runtime их пока не читает.~~
 
 **Что должно делать:**
 - `use_emojis` (default TRUE): если FALSE — при генерации LLM просить
