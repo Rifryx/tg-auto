@@ -67,6 +67,15 @@ export const commentingApi = {
   removeBlacklist: (id: number, entryId: number) =>
     api.del<void>(`${BASE}/${id}/blacklist/${entryId}`),
 
+  media: (id: number) =>
+    api.get<{ campaign_id: number; media_asset_ids: number[] }>(
+      `${BASE}/${id}/media`,
+    ),
+  setMedia: (id: number, media_asset_ids: number[]) =>
+    api.put<{ campaign_id: number; media_asset_ids: number[] }>(
+      `${BASE}/${id}/media`,
+      { media_asset_ids },
+    ),
   alerts: (id: number) => api.get<ChannelAlert[]>(`${BASE}/${id}/alerts`),
   resolveAlert: (alertId: number) =>
     api.post<ChannelAlert>(`/modules/commenting/alerts/${alertId}/resolve`),

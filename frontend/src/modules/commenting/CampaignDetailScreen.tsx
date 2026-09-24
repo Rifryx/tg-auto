@@ -11,6 +11,7 @@ import type { Account } from "../../shared/types";
 import { commentingApi } from "./api";
 import { AccountPickerSheet } from "./components/AccountPickerSheet";
 import { AiProtectionCard } from "./components/AiProtectionCard";
+import { CampaignMediaSection } from "./components/CampaignMediaSection";
 import { CommentLogList } from "./components/CommentLogList";
 import { LaunchAndStats } from "./components/LaunchAndStats";
 import {
@@ -255,6 +256,8 @@ export function CampaignDetailScreen() {
           />
         </div>
       </Section>
+
+      {c.attach_image && <CampaignMediaSection campaignId={campaignId} />}
 
       <CampaignChannelsSection campaignId={campaignId} />
       <CampaignBlacklistSection campaignId={campaignId} />

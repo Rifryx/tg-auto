@@ -76,6 +76,15 @@ export async function apiFetch<T = unknown>(
   return (await res.json()) as T;
 }
 
+/* Тянет бинарный ответ (для превью медиа): наш `<img>` не может пробросить
+   Telegram-заголовки, поэтому забираем байты через apiBlob и делаем ObjectURL.
+   Возвращает Blob — вызывающий сам делает URL.createObjectURL и revokeObjectURL. */
+export async function apiBlob(path: string): Promise<Blob> {
+  const res = await fetch(`${BASE_URL}${path}`, { headers: authHeaders() });
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
+  return await res.blob();
+}
+
 export const api = {
   get: <T>(path: string) => apiFetch<T>(path),
   post: <T>(path: string, body?: unknown) =>
