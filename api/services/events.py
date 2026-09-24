@@ -29,6 +29,8 @@ MONITORING_CHANNELS = (
     "health.snapshot_updated",
     # bulk-операции (этап 5 УТП): mini-app держит live-прогресс bulk-job'ов.
     "bulk.progress",
+    # алерты целевых каналов нейрокомментинга (E3.2) — карточки на главной.
+    "commenting.alerts",
 )
 
 

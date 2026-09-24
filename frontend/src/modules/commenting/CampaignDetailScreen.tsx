@@ -24,7 +24,7 @@ import {
   TextInput,
   Toggle,
 } from "./components/ui";
-import type { CampaignUpdateBody, LLMProvider } from "./types";
+import type { CampaignUpdateBody, ChannelAlert, LLMProvider } from "./types";
 
 const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
   { value: "deepseek", label: "DeepSeek" },
@@ -260,6 +260,7 @@ export function CampaignDetailScreen() {
       <CampaignBlacklistSection campaignId={campaignId} />
 
       <LaunchAndStats campaignId={campaignId} />
+      <ChannelAlertsSection campaignId={campaignId} />
 
       {/* Лог этой кампании — изолирован по campaign_id, не пересекается
          с логами других модулей (§ Этап 6). */}
@@ -515,6 +516,66 @@ function CampaignBlacklistSection({ campaignId }: { campaignId: number }) {
             Пусто. Каналы с ошибками доступа попадают сюда автоматически.
           </p>
         )}
+      </div>
+    </Section>
+  );
+}
+
+/* ── Проблемы с целевыми каналами (E3.2) ─────────────────────────────
+   Открытые алерты кампании: не подписан / нет доступа / ушёл в ЧС /
+   подписан автоматически. Закрываются сами, когда канал снова заработал,
+   или вручную «Скрыть». Пустой список — блок не показываем. */
+const ALERT_TEXT: Record<ChannelAlert["kind"], { label: string; tone: string }> = {
+  not_subscribed: { label: "Не подписан на канал", tone: "text-status-warning" },
+  access_lost: { label: "Нет доступа к обсуждению", tone: "text-status-critical" },
+  blacklisted: { label: "Канал в чёрном списке", tone: "text-status-critical" },
+  auto_subscribed: { label: "Подписан автоматически", tone: "text-status-active" },
+};
+
+function ChannelAlertsSection({ campaignId }: { campaignId: number }) {
+  const qc = useQueryClient();
+  const list = useQuery({
+    queryKey: ["campaign", campaignId, "alerts"],
+    queryFn: () => commentingApi.alerts(campaignId),
+    refetchInterval: 30_000,
+  });
+  const resolve = useMutation({
+    mutationFn: (alertId: number) => commentingApi.resolveAlert(alertId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campaign", campaignId, "alerts"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+
+  if (!list.data || list.data.length === 0) return null;
+
+  return (
+    <Section title={`Проблемы с каналами (${list.data.length})`}>
+      <div className="card flex flex-col gap-1.5 p-3">
+        {list.data.map((a) => {
+          const meta = ALERT_TEXT[a.kind];
+          return (
+            <div
+              key={a.id}
+              className="flex items-start justify-between gap-3 rounded-chip border border-hairline bg-surface-1 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <p className={`text-[14px] font-medium ${meta.tone}`}>{meta.label}</p>
+                <p className="truncate text-[12px] text-text-secondary">
+                  Аккаунт #{a.account_id} · {a.channel_ref}
+                </p>
+                {a.detail && <p className="text-[12px] text-text-tertiary">{a.detail}</p>}
+              </div>
+              <button
+                onClick={() => resolve.mutate(a.id)}
+                disabled={resolve.isPending}
+                className="shrink-0 rounded-pill border border-hairline px-2.5 py-1 text-[12px] text-text-secondary hover:text-text-primary disabled:opacity-50"
+              >
+                Скрыть
+              </button>
+            </div>
+          );
+        })}
       </div>
     </Section>
   );

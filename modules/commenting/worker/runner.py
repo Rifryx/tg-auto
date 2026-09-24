@@ -31,7 +31,18 @@ from modules.commenting.repositories import (
 from modules.commenting.schemas import CommentLogCreate
 import structlog
 
+from telethon.errors import (
+    ChannelInvalidError,
+    ChannelPrivateError,
+    ChatAdminRequiredError,
+    ChatGuestSendForbiddenError,
+    ChatWriteForbiddenError,
+    UserBannedInChannelError,
+    UserNotParticipantError,
+)
+
 from modules.commenting.worker import limits
+from modules.commenting.worker.alerts import auto_blacklist, raise_alert
 from worker.client_pool import ClientPool
 from worker.health import Governor, around_telethon_call
 from worker.llm import Message, StyleRandomizer, get_provider
@@ -136,6 +147,121 @@ def _persona_for(session, account):
     return PersonaRepository(session).get(account.persona_id)
 
 
+def _blacklisted(session, campaign_id: int, *, chat_id: Optional[int], ref: Optional[str]) -> bool:
+    """Канал в чёрном списке кампании (по id канала или username без «@»)."""
+    from modules.commenting.repositories import ChannelBlacklistRepository
+
+    username = (ref or "").lstrip("@") or None
+    return (
+        ChannelBlacklistRepository(session).find(campaign_id, chat_id=chat_id, username=username)
+        is not None
+    )
+
+
+# Ошибки доступа при отправке (E3.2). Не роняем задачу (иначе воркер
+# повторит отправку впустую), а разбираем: лог + алерт + действие.
+_NO_ACCESS = (ChannelPrivateError, ChannelInvalidError)
+_NOT_MEMBER = (UserNotParticipantError, ChatGuestSendForbiddenError)
+_NO_RIGHTS = (ChatWriteForbiddenError, UserBannedInChannelError, ChatAdminRequiredError)
+ACCESS_ERRORS = _NO_ACCESS + _NOT_MEMBER + _NO_RIGHTS
+
+
+async def _handle_access_error(
+    ctx: dict,
+    exc: Exception,
+    *,
+    campaign_id: int,
+    account_id: int,
+    channel_msg_id: int,
+    text: str,
+    reply_to: int,
+    channel_ref: Optional[str],
+    channel_tg_id: Optional[int],
+    monitored_channel_id: Optional[int],
+    blacklist_username: Optional[str] = None,
+) -> None:
+    """channel_ref — ключ алертов (исходная ссылка, как у резолвера, чтобы он
+    сам закрыл алерт после переподписки); blacklist_username — username канала
+    для ЧС."""
+    from modules.commenting.worker.channels import ACTION_DETACH, publish_channel_lifecycle
+
+    publisher = ctx.get("publisher")
+    err = type(exc).__name__
+    ref = channel_ref or (f"tg:{channel_tg_id}" if channel_tg_id else "?")
+    rejoin = False
+    detach = False
+
+    with ctx["session_factory"]() as session:
+        CommentLogRepository(session).create(
+            CommentLogCreate(
+                campaign_id=campaign_id, account_id=account_id,
+                post_channel_msg_id=channel_msg_id, comment_text=text,
+                status=CommentStatus.FAILED, in_reply_to_message_id=reply_to,
+                error=f"access:{err}",
+            )
+        )
+        session.commit()
+        mon_repo = MonitoredChannelRepository(session)
+
+        if isinstance(exc, _NO_ACCESS):
+            # Канал закрыт/недоступен — в ЧС кампании, чтобы не пытаться снова.
+            username = (blacklist_username or channel_ref or "").lstrip("@") or None
+            if username and username.startswith("tg:"):
+                username = None
+            added = (channel_tg_id is not None or username is not None) and auto_blacklist(
+                session, campaign_id=campaign_id, chat_id=channel_tg_id,
+                username=username, reason=err,
+            )
+            if added:
+                raise_alert(
+                    session, publisher, campaign_id=campaign_id, account_id=account_id,
+                    channel_ref=ref, kind="blacklisted",
+                    detail=f"Канал недоступен ({err}) — добавлен в чёрный список кампании.",
+                )
+            detach = True
+        elif isinstance(exc, _NOT_MEMBER):
+            campaign = CampaignRepository(session).get(campaign_id)
+            subscribe = campaign is not None and campaign.on_not_subscribed_action == "subscribe_and_notify"
+            raise_alert(
+                session, publisher, campaign_id=campaign_id, account_id=account_id,
+                channel_ref=ref, kind="not_subscribed",
+                detail=(
+                    "Аккаунт не состоит в канале/обсуждении — подписываем заново."
+                    if subscribe and monitored_channel_id
+                    else "Аккаунт не состоит в канале/обсуждении — коммент не отправлен."
+                ),
+            )
+            rejoin = bool(subscribe and monitored_channel_id)
+            detach = not rejoin
+        else:
+            raise_alert(
+                session, publisher, campaign_id=campaign_id, account_id=account_id,
+                channel_ref=ref, kind="access_lost",
+                detail=f"Нет прав писать в обсуждение ({err}).",
+            )
+            detach = True
+
+        if monitored_channel_id is not None:
+            if rejoin:
+                row = mon_repo.get(monitored_channel_id)
+                if row is not None:
+                    row.status = "pending"
+                    row.error = None
+            else:
+                mon_repo.mark_failed(monitored_channel_id, f"access:{err}")
+            session.commit()
+
+    if monitored_channel_id is not None:
+        if rejoin:
+            await _task_queue(ctx).enqueue(TaskName.COMMENTING_RESOLVE_CHANNEL, monitored_channel_id)
+        if detach or rejoin:
+            publish_channel_lifecycle(publisher, account_id, monitored_channel_id, ACTION_DETACH)
+    get_logger().warning(
+        "commenting.post.access_error", account_id=account_id, campaign_id=campaign_id,
+        error=err, rejoin=rejoin,
+    )
+
+
 def _limit_skip_reason(session, campaign, post_date_ts: Optional[float], now: datetime) -> Optional[str]:
     """Причина не комментировать по лимитам кампании (E2.2) или None."""
     if limits.max_comments_reached(session, campaign):
@@ -202,6 +328,9 @@ async def on_new_post(
         reason = _limit_skip_reason(session, campaign, post_date_ts, now)
         if reason:
             log.info("commenting.on_new_post.skip", campaign_id=campaign_id, reason=reason)
+            return 0
+        if _blacklisted(session, campaign_id, chat_id=None, ref=campaign.target_channel):
+            log.info("commenting.on_new_post.skip", campaign_id=campaign_id, reason="blacklisted")
             return 0
 
         accounts = _assigned_accounts(session, campaign_id)
@@ -302,6 +431,7 @@ async def post_comment(
             CampaignAccountRepository(session).get(campaign_id, account_id), campaign, now
         )
         discussion_group_id = campaign.discussion_group_id
+        target_channel = campaign.target_channel
 
     if wait is not None:
         await reschedule(wait)
@@ -335,6 +465,13 @@ async def post_comment(
             publisher=publisher,
             now=now,
         )
+    except ACCESS_ERRORS as exc:
+        await _handle_access_error(
+            ctx, exc, campaign_id=campaign_id, account_id=account_id,
+            channel_msg_id=channel_msg_id, text=text, reply_to=in_reply_to_message_id,
+            channel_ref=target_channel, channel_tg_id=None, monitored_channel_id=None,
+        )
+        return None
     finally:
         await pool.release(account_id)
 
@@ -455,6 +592,9 @@ async def on_channel_post(
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="channel_not_working")
             return 0
         discussion_group_id = ch.discussion_group_id
+        if _blacklisted(session, campaign_id, chat_id=ch.channel_tg_id, ref=ch.channel_ref):
+            log.info("commenting.on_channel_post.skip", account_id=account_id, reason="blacklisted")
+            return 0
 
         reply_target = in_reply_to if in_reply_to is not None else channel_msg_id
         provider = ctx.get("llm_provider") or get_provider(campaign.llm_provider)
@@ -546,6 +686,20 @@ async def post_channel_comment(
         log.info("commenting.post_channel_comment.paused", account_id=account_id, until=wait.isoformat())
         return None
 
+    with session_factory() as session:
+        mon = next(
+            (
+                r
+                for r in MonitoredChannelRepository(session).list_by_discussion_group(discussion_group_id)
+                if r.account_id == account_id
+            ),
+            None,
+        )
+        mon_id = mon.id if mon else None
+        mon_ref = mon.input_ref if mon else None
+        mon_username = mon.channel_ref if mon else None
+        mon_tg_id = mon.channel_tg_id if mon else None
+
     pool = _pool(ctx)
     client = await pool.get(account_id)
     try:
@@ -558,6 +712,14 @@ async def post_channel_comment(
             publisher=publisher,
             now=now,
         )
+    except ACCESS_ERRORS as exc:
+        await _handle_access_error(
+            ctx, exc, campaign_id=campaign_id, account_id=account_id,
+            channel_msg_id=channel_msg_id, text=text, reply_to=in_reply_to_message_id,
+            channel_ref=mon_ref, channel_tg_id=mon_tg_id, monitored_channel_id=mon_id,
+            blacklist_username=mon_username,
+        )
+        return None
     finally:
         await pool.release(account_id)
 

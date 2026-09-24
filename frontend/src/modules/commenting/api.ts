@@ -12,6 +12,7 @@ import type {
   CampaignUpdateBody,
   CampaignRuntimeSummary,
   CampaignStats,
+  ChannelAlert,
   ChannelBlacklistEntry,
   CommentLog,
   DelayPreset,
@@ -65,6 +66,10 @@ export const commentingApi = {
   ) => api.post<ChannelBlacklistEntry>(`${BASE}/${id}/blacklist`, body),
   removeBlacklist: (id: number, entryId: number) =>
     api.del<void>(`${BASE}/${id}/blacklist/${entryId}`),
+
+  alerts: (id: number) => api.get<ChannelAlert[]>(`${BASE}/${id}/alerts`),
+  resolveAlert: (alertId: number) =>
+    api.post<ChannelAlert>(`/modules/commenting/alerts/${alertId}/resolve`),
 };
 
 /* Пресеты аккаунтов и задержек (§ Этап 1). Delay-list возвращает системные

@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
 from typing import Any, Optional
@@ -33,6 +34,7 @@ logger = logging.getLogger("bot.notifier")
 _ACCOUNT_STATUS_CHANNEL = "account_status"
 _BAN_RISK_CHANNEL = "health.ban_risk_updated"
 _AUTOPILOT_CHANNEL = "autopilot.events"
+_COMMENTING_ALERTS_CHANNEL = "commenting.alerts"
 
 
 def _fmt_account_status(payload: dict[str, Any]) -> Optional[str]:
@@ -103,10 +105,36 @@ def _fmt_autopilot(payload: dict[str, Any]) -> Optional[str]:
     return "\n".join(lines)
 
 
+_CHANNEL_ALERT_TITLE = {
+    "not_subscribed": "📭 <b>Аккаунт #{account} не подписан на канал</b>",
+    "auto_subscribed": "✅ <b>Аккаунт #{account} подписан на канал автоматически</b>",
+    "access_lost": "⛔ <b>Аккаунт #{account} потерял доступ к обсуждению</b>",
+    "blacklisted": "🚫 <b>Канал добавлен в чёрный список кампании</b>",
+}
+
+
+def _fmt_commenting_alert(payload: dict[str, Any]) -> Optional[str]:
+    """Алерт целевого канала нейрокомментинга (E3.2)."""
+    title = _CHANNEL_ALERT_TITLE.get(payload.get("kind") or "")
+    if title is None:
+        return None
+    # Ссылку и детали вводит пользователь — экранируем под parse_mode=HTML.
+    lines = [
+        title.format(account=payload.get("account_id")),
+        f"Канал: <code>{html.escape(str(payload.get('channel') or '—'))}</code>",
+    ]
+    if payload.get("campaign_id") is not None:
+        lines.append(f"Кампания: <code>#{payload['campaign_id']}</code>")
+    if payload.get("detail"):
+        lines.append(html.escape(str(payload["detail"])))
+    return "\n".join(lines)
+
+
 _HANDLERS = {
     _ACCOUNT_STATUS_CHANNEL: _fmt_account_status,
     _BAN_RISK_CHANNEL: _fmt_ban_risk,
     _AUTOPILOT_CHANNEL: _fmt_autopilot,
+    _COMMENTING_ALERTS_CHANNEL: _fmt_commenting_alert,
 }
 
 

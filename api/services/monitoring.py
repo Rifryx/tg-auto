@@ -81,7 +81,7 @@ def _alerts(session: Session, severity: Optional[str]) -> list[dict[str, Any]]:
         _ALERTS_LIMIT
     )
     rows = session.execute(stmt).all()
-    return [
+    items = [
         {
             "id": r.id,
             "account_id": r.account_id,
@@ -90,6 +90,57 @@ def _alerts(session: Session, severity: Optional[str]) -> list[dict[str, Any]]:
             "severity": _SEVERITY.get(r.event_type, "warning"),
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "meta": r.meta,
+        }
+        for r in rows
+    ]
+    if severity in (None, "warning"):
+        items += _channel_alerts(session)
+        items.sort(key=lambda a: a["created_at"] or "", reverse=True)
+        items = items[:_ALERTS_LIMIT]
+    return items
+
+
+# Открытые алерты целевых каналов нейрокомментинга (E3.2). «Подписали сами»
+# на главной не показываем — это не требует действий (уходит только пушем).
+_CHANNEL_ALERT_KINDS_ON_DASHBOARD = ("not_subscribed", "access_lost", "blacklisted")
+
+
+def _channel_alerts(session: Session) -> list[dict[str, Any]]:
+    from modules.commenting.models import ChannelAlert
+
+    rows = session.execute(
+        select(
+            ChannelAlert.id,
+            ChannelAlert.account_id,
+            Account.phone,
+            ChannelAlert.kind,
+            ChannelAlert.created_at,
+            ChannelAlert.campaign_id,
+            ChannelAlert.channel_ref,
+            ChannelAlert.detail,
+        )
+        .join(Account, Account.id == ChannelAlert.account_id)
+        .where(
+            ChannelAlert.resolved.is_(False),
+            ChannelAlert.kind.in_(_CHANNEL_ALERT_KINDS_ON_DASHBOARD),
+        )
+        .order_by(ChannelAlert.created_at.desc())
+        .limit(_ALERTS_LIMIT)
+    ).all()
+    return [
+        {
+            "id": r.id,
+            "account_id": r.account_id,
+            "phone": r.phone,
+            "event_type": f"commenting.{r.kind}",
+            "severity": "warning",
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "meta": {
+                "campaign_id": r.campaign_id,
+                "channel": r.channel_ref,
+                "detail": r.detail,
+                "channel_alert_id": r.id,
+            },
         }
         for r in rows
     ]

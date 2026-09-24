@@ -4,6 +4,7 @@ import {
   Ban,
   ChevronRight,
   KeyRound,
+  MailX,
   MessagesSquare,
   ShieldAlert,
   Timer,
@@ -23,6 +24,10 @@ const EVENT_ICON: Record<string, LucideIcon> = {
   proxy_down: WifiOff,
   session_revoked: KeyRound,
   auth_failed: KeyRound,
+  // Целевые каналы нейрокомментинга (E3.2).
+  "commenting.not_subscribed": MailX,
+  "commenting.access_lost": Ban,
+  "commenting.blacklisted": Ban,
 };
 const EVENT_LABEL: Record<string, string> = {
   flood_wait: "Флуд-контроль",
@@ -31,6 +36,9 @@ const EVENT_LABEL: Record<string, string> = {
   proxy_down: "Прокси недоступен",
   session_revoked: "Сессия сброшена",
   auth_failed: "Ошибка входа",
+  "commenting.not_subscribed": "Не подписан на канал",
+  "commenting.access_lost": "Нет доступа к обсуждению",
+  "commenting.blacklisted": "Канал ушёл в чёрный список",
 };
 
 /* Карточка алерта: левая цветная полоса 4px по severity (§7), иконка, аккаунт. */
@@ -38,9 +46,13 @@ export function AlertCard({ alert, count = 1 }: { alert: Alert; count?: number }
   const Icon = EVENT_ICON[alert.event_type] ?? AlertTriangle;
   const bar = alert.severity === "critical" ? "bg-status-critical" : "bg-status-warning";
   const tone = alert.severity === "critical" ? "text-status-critical" : "text-status-warning";
+  // Алерты каналов ведут в кампанию, где их можно разобрать; остальные — в аккаунт.
+  const campaignId = alert.event_type.startsWith("commenting.") ? alert.meta?.campaign_id : null;
+  const channel = typeof alert.meta?.channel === "string" ? alert.meta.channel : null;
+  const who = alert.phone ? maskPhone(alert.phone) : `Аккаунт #${alert.account_id}`;
   return (
     <Link
-      to={`/accounts/${alert.account_id}`}
+      to={campaignId ? `/modules/commenting/campaigns/${campaignId}` : `/accounts/${alert.account_id}`}
       className="card relative flex items-center gap-3 overflow-hidden py-3 pl-5 pr-4 active:bg-surface-2"
     >
       <span className={`absolute inset-y-0 left-0 w-1 ${bar}`} aria-hidden />
@@ -50,7 +62,7 @@ export function AlertCard({ alert, count = 1 }: { alert: Alert; count?: number }
           {EVENT_LABEL[alert.event_type] ?? alert.event_type}
         </p>
         <p className="truncate text-[12px] text-text-tertiary nums">
-          {alert.phone ? maskPhone(alert.phone) : `Аккаунт #${alert.account_id}`}
+          {channel ? `${who} · ${channel}` : who}
         </p>
       </div>
       {count > 1 && (

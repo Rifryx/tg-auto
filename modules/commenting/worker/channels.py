@@ -26,6 +26,7 @@ import structlog
 from core.queue import TaskQueue
 from core.queue.task_names import TaskName
 from modules.commenting.repositories import MonitoredChannelRepository
+from modules.commenting.worker.alerts import raise_alert, resolve_alerts
 from worker.client_pool import ClientPool
 from worker.health import around_telethon_call
 from worker.telegram_folders import join_folder
@@ -70,12 +71,30 @@ _public_ref = public_ref
 # --- resolve_channel ---------------------------------------------------------
 
 
+class NotSubscribed(Exception):
+    """Аккаунт не подписан на канал, а политика запрещает вступать (notify_only)."""
+
+
 async def _join_and_resolve(
-    client: Any, input_ref: str, *, account_id: int, session_factory, publisher, now
-) -> dict:
-    """Вступает в канал и разрешает его discussion-группу. Возвращает техполя."""
+    client: Any,
+    input_ref: str,
+    *,
+    account_id: int,
+    session_factory,
+    publisher,
+    now,
+    allow_join: bool = True,
+) -> tuple[dict, bool]:
+    """Разрешает канал и его discussion-группу; при необходимости вступает.
+
+    Сначала проверяем членство БЕЗ вступления (инвайт — CheckChatInvite,
+    публичный — ``entity.left``). Не подписан и ``allow_join=False`` →
+    :class:`NotSubscribed`. Возвращает (техполя, joined) — joined=True, если
+    вступили именно сейчас.
+    """
     from telethon.tl.functions.channels import GetFullChannelRequest, JoinChannelRequest
-    from telethon.tl.functions.messages import ImportChatInviteRequest
+    from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
+    from telethon.tl.types import ChatInviteAlready
 
     invite = _invite_hash(input_ref)
 
@@ -88,14 +107,29 @@ async def _join_and_resolve(
             now=now,
         )
 
+    joined = False
     if invite is not None:
-        updates = await _call(lambda: client(ImportChatInviteRequest(invite)))
-        chats = getattr(updates, "chats", None) or []
-        entity = chats[0] if chats else None
+        info = await _call(lambda: client(CheckChatInviteRequest(invite)))
+        if isinstance(info, ChatInviteAlready):
+            entity = info.chat
+        else:
+            if not allow_join:
+                raise NotSubscribed(input_ref)
+            updates = await _call(lambda: client(ImportChatInviteRequest(invite)))
+            chats = getattr(updates, "chats", None) or []
+            entity = chats[0] if chats else None
+            joined = True
     else:
         ref = _public_ref(input_ref)
         entity = await _call(lambda: client.get_entity(ref))
-        await _call(lambda: client(JoinChannelRequest(entity)))
+        was_member = not getattr(entity, "left", False)
+        if not was_member and not allow_join:
+            raise NotSubscribed(input_ref)
+        if allow_join:
+            # Join идемпотентен — зовём всегда, как и раньше (у ручных каналов
+            # entity.left может быть неизвестен).
+            await _call(lambda: client(JoinChannelRequest(entity)))
+            joined = not was_member
 
     if entity is None:
         raise RuntimeError(f"cannot resolve entity for {input_ref!r}")
@@ -107,7 +141,26 @@ async def _join_and_resolve(
         "channel_tg_id": getattr(entity, "id", None),
         "title": getattr(entity, "title", None),
         "discussion_group_id": linked,
-    }
+    }, joined
+
+
+def _channel_policy(session, source_campaign_id: Optional[int]) -> tuple[Optional[int], str]:
+    """(campaign_id, policy) для строки мониторинга.
+
+    policy: ``join`` — вступать молча (каналы, добавленные вручную на аккаунте,
+    как раньше); ``join_notify`` — вступить и уведомить; ``notify`` — не
+    вступать, только уведомить (campaigns.on_not_subscribed_action).
+    """
+    if source_campaign_id is None:
+        return None, "join"
+    from modules.commenting.repositories import CampaignRepository
+
+    campaign = CampaignRepository(session).get(source_campaign_id)
+    if campaign is None:
+        return None, "join"
+    if campaign.on_not_subscribed_action == "notify_only":
+        return campaign.id, "notify"
+    return campaign.id, "join_notify"
 
 
 async def _resolve_folder(
@@ -148,6 +201,21 @@ async def resolve_channel(ctx: dict, channel_id: int) -> str:
         account_id = ch.account_id
         input_ref = ch.input_ref
         is_folder = ch.is_folder
+        source_campaign_id = ch.source_campaign_id
+        campaign_id, policy = _channel_policy(session, source_campaign_id)
+
+    if is_folder and policy == "notify":
+        # Развернуть папку можно только вступив в неё — при «только
+        # уведомлять» не вступаем, а сообщаем пользователю.
+        with session_factory() as session:
+            MonitoredChannelRepository(session).mark_failed(channel_id, "not_subscribed")
+            session.commit()
+            raise_alert(
+                session, publisher, campaign_id=campaign_id, account_id=account_id,
+                channel_ref=input_ref, kind="not_subscribed",
+                detail="Папку можно развернуть только подписавшись — включите «Подписаться + уведомить».",
+            )
+        return "not_subscribed"
 
     pool = _pool(ctx)
     client = None
@@ -169,7 +237,10 @@ async def resolve_channel(ctx: dict, channel_id: int) -> str:
                 for ref in child_refs:
                     if repo.get_by_account_input(account_id, ref) is not None:
                         continue
-                    children.append(repo.create(account_id, ref, is_folder=False).id)
+                    child = repo.create(account_id, ref, is_folder=False)
+                    # Дочерние каналы папки кампании — тоже «кампанийные».
+                    child.source_campaign_id = source_campaign_id
+                    children.append(child.id)
                 # Папка-строка выполнила роль контейнера — помечаем working.
                 repo.mark_working(
                     channel_id, channel_ref=slug, channel_tg_id=None,
@@ -188,13 +259,34 @@ async def resolve_channel(ctx: dict, channel_id: int) -> str:
             )
             return "folder"
 
-        info = await _join_and_resolve(
-            client, input_ref, account_id=account_id,
-            session_factory=session_factory, publisher=publisher, now=now,
-        )
+        try:
+            info, joined = await _join_and_resolve(
+                client, input_ref, account_id=account_id,
+                session_factory=session_factory, publisher=publisher, now=now,
+                allow_join=policy != "notify",
+            )
+        except NotSubscribed:
+            with session_factory() as session:
+                MonitoredChannelRepository(session).mark_failed(channel_id, "not_subscribed")
+                session.commit()
+                raise_alert(
+                    session, publisher, campaign_id=campaign_id, account_id=account_id,
+                    channel_ref=input_ref, kind="not_subscribed",
+                    detail="Аккаунт не подписан на канал; кампания настроена только уведомлять.",
+                )
+            log.info("commenting.resolve_channel.not_subscribed", channel_id=channel_id)
+            return "not_subscribed"
         with session_factory() as session:
             MonitoredChannelRepository(session).mark_working(channel_id, **info)
             session.commit()
+            # Канал заработал — открытые «не подписан»/«нет доступа» больше не актуальны.
+            resolve_alerts(session, account_id=account_id, channel_ref=input_ref)
+            if joined and policy == "join_notify":
+                raise_alert(
+                    session, publisher, campaign_id=campaign_id, account_id=account_id,
+                    channel_ref=input_ref, kind="auto_subscribed",
+                    detail="Аккаунт не был подписан — подписали автоматически.",
+                )
         publish_channel_lifecycle(publisher, account_id, channel_id, ACTION_ATTACH)
         log.info(
             "commenting.resolve_channel.working",
@@ -214,6 +306,193 @@ async def resolve_channel(ctx: dict, channel_id: int) -> str:
     finally:
         if client is not None:
             await pool.release(account_id)
+
+
+# --- синхронизация целевых каналов кампании (E3.2) ----------------------------
+
+# Сколько каналов из подписок аккаунта берём максимум и пауза между
+# GetFullChannel — чтобы разбор подписок не ловил FloodWait.
+SUBSCRIPTIONS_MAX = 200
+SUBSCRIPTIONS_PAUSE_SEC = (1.0, 3.0)
+
+
+def _campaign_account_ids(session, campaign_id: int) -> list[int]:
+    from core.repositories.account import AccountRepository
+    from modules.commenting.repositories import CampaignAccountRepository
+
+    ids = []
+    accounts = AccountRepository(session)
+    for link in CampaignAccountRepository(session).list_by_campaign(campaign_id):
+        acc = accounts.get(link.account_id)
+        if acc is not None and acc.status == "assigned":
+            ids.append(acc.id)
+    return ids
+
+
+def _drop_rows(session, publisher, rows) -> None:
+    """Удаляет «кампанийные» строки мониторинга и снимает их слушатели."""
+    detach = [(r.account_id, r.id) for r in rows if r.status == "working"]
+    for r in rows:
+        session.delete(r)
+    session.commit()
+    for account_id, channel_id in detach:
+        publish_channel_lifecycle(publisher, account_id, channel_id, ACTION_DETACH)
+
+
+async def sync_campaign_channels(ctx: dict, campaign_id: int) -> dict:
+    """Приводит мониторинг аккаунтов кампании к её настройкам целевых каналов.
+
+    Идемпотентна — вызывается после любой правки (привязка/отвязка аккаунта,
+    добавление/удаление ссылки, смена режима или политики, включение).
+
+    * ``explicit_links``: каждому аккаунту — строка на каждую ссылку кампании
+      (``source_campaign_id``); лишние «кампанийные» строки удаляются; строки
+      в ``failed`` переразрешаются (например, после смены политики на
+      «подписаться»). Ручные каналы аккаунта не трогаем.
+    * ``by_account_subscriptions``: у каждого аккаунта разбираем его подписки
+      (задача ``sync_account_subscriptions``); строки ушедших аккаунтов удаляем.
+    * Кампания выключена/удалена — снимаем все её строки.
+    """
+    from modules.commenting.models import MonitoredChannel
+    from modules.commenting.repositories import CampaignChannelRepository, CampaignRepository
+
+    session_factory = ctx["session_factory"]
+    publisher = ctx.get("publisher")
+    task_queue = _task_queue(ctx)
+    to_resolve: list[int] = []
+    subs_accounts: list[int] = []
+
+    with session_factory() as session:
+        campaign = CampaignRepository(session).get(campaign_id)
+        owned = (
+            session.query(MonitoredChannel)
+            .filter(MonitoredChannel.source_campaign_id == campaign_id)
+            .all()
+        )
+        if campaign is None or not campaign.enabled:
+            _drop_rows(session, publisher, owned)
+            return {"removed": len(owned), "resolve": 0}
+
+        account_ids = _campaign_account_ids(session, campaign_id)
+        repo = MonitoredChannelRepository(session)
+        stale = [r for r in owned if r.account_id not in account_ids]
+
+        if campaign.channel_source_mode == "explicit_links":
+            links = CampaignChannelRepository(session).list_by_campaign(campaign_id)
+            wanted = {(a, l.raw_input): l for a in account_ids for l in links}
+            # Дочерние каналы папок тоже «кампанийные», но их нет в links —
+            # держим их, пока в кампании есть хоть одна папка.
+            has_folder = any(l.kind == "folder" for l in links)
+            for r in owned:
+                if r in stale:
+                    continue
+                if (r.account_id, r.input_ref) not in wanted and not (has_folder and not r.is_folder):
+                    stale.append(r)
+            for (account_id, raw), link in wanted.items():
+                row = repo.get_by_account_input(account_id, raw)
+                if row is None:
+                    row = repo.create(account_id, raw, is_folder=link.kind == "folder")
+                    row.source_campaign_id = campaign_id
+                    session.flush()
+                    to_resolve.append(row.id)
+                elif row.source_campaign_id == campaign_id and row.status == "failed":
+                    row.status = "pending"
+                    row.error = None
+                    to_resolve.append(row.id)
+                # Ручная строка аккаунта с той же ссылкой уже мониторится — не дублируем.
+            session.commit()
+        else:
+            subs_accounts = account_ids
+
+        _drop_rows(session, publisher, stale)
+
+    for channel_id in to_resolve:
+        await task_queue.enqueue(TaskName.COMMENTING_RESOLVE_CHANNEL, channel_id)
+    for account_id in subs_accounts:
+        await task_queue.enqueue(
+            TaskName.COMMENTING_SYNC_ACCOUNT_SUBSCRIPTIONS, account_id, campaign_id
+        )
+    get_logger().info(
+        "commenting.sync_campaign_channels",
+        campaign_id=campaign_id, resolve=len(to_resolve),
+        subscriptions=len(subs_accounts), removed=len(stale),
+    )
+    return {"removed": len(stale), "resolve": len(to_resolve)}
+
+
+async def sync_account_subscriptions(ctx: dict, account_id: int, campaign_id: int) -> int:
+    """Режим «по подпискам аккаунта»: каналы, на которые аккаунт уже подписан.
+
+    Берём диалоги аккаунта, оставляем каналы-трансляции с группой обсуждения
+    (без неё комментировать некуда) и заводим по ним рабочие строки
+    мониторинга (вступать не нужно — аккаунт уже в канале). Не больше
+    ``SUBSCRIPTIONS_MAX`` каналов, с паузами между запросами.
+    """
+    import asyncio
+    import random
+
+    from telethon.tl.functions.channels import GetFullChannelRequest
+
+    session_factory = ctx["session_factory"]
+    publisher = ctx.get("publisher")
+    now = _now(ctx)
+    rng = ctx.get("rng") or random.Random()
+    sleep = ctx.get("sleep") or asyncio.sleep
+    pool = _pool(ctx)
+
+    async def _call(factory):
+        return await around_telethon_call(
+            factory, account_id=account_id, session_factory=session_factory,
+            publisher=publisher, now=now,
+        )
+
+    with session_factory() as session:
+        known = {r.channel_tg_id for r in MonitoredChannelRepository(session).list_by_account(account_id)}
+
+    created = 0
+    client = await pool.get(account_id)
+    try:
+        dialogs = await _call(lambda: client.get_dialogs(limit=None))
+        for dialog in dialogs:
+            if created >= SUBSCRIPTIONS_MAX:
+                break
+            ent = getattr(dialog, "entity", None)
+            if not getattr(ent, "broadcast", False) or getattr(ent, "left", False):
+                continue
+            if ent.id in known:
+                continue
+            full = await _call(lambda: client(GetFullChannelRequest(ent)))
+            linked = getattr(getattr(full, "full_chat", None), "linked_chat_id", None)
+            await sleep(rng.uniform(*SUBSCRIPTIONS_PAUSE_SEC))
+            if not linked:
+                continue  # комментарии в канале выключены
+            ref = f"@{ent.username}" if getattr(ent, "username", None) else f"tg:{ent.id}"
+            with session_factory() as session:
+                repo = MonitoredChannelRepository(session)
+                row = repo.create(account_id, ref, is_folder=False)
+                row.source_campaign_id = campaign_id
+                session.flush()
+                repo.mark_working(
+                    row.id,
+                    channel_ref=getattr(ent, "username", None) or ref,
+                    channel_tg_id=ent.id,
+                    title=getattr(ent, "title", None),
+                    discussion_group_id=linked,
+                    subscribed=True,
+                )
+                session.commit()
+                row_id = row.id
+            known.add(ent.id)
+            created += 1
+            publish_channel_lifecycle(publisher, account_id, row_id, ACTION_ATTACH)
+    finally:
+        await pool.release(account_id)
+
+    get_logger().info(
+        "commenting.sync_account_subscriptions", account_id=account_id,
+        campaign_id=campaign_id, created=created,
+    )
+    return created
 
 
 # --- leave_channel -----------------------------------------------------------

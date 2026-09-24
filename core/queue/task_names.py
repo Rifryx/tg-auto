@@ -39,6 +39,8 @@ class TaskName(str, Enum):
     # Аккаунт-центричный мониторинг каналов (у каждого аккаунта свои каналы):
     COMMENTING_RESOLVE_CHANNEL = "commenting.resolve_channel"
     COMMENTING_LEAVE_CHANNEL = "commenting.leave_channel"
+    COMMENTING_SYNC_CAMPAIGN_CHANNELS = "commenting.sync_campaign_channels"
+    COMMENTING_SYNC_ACCOUNT_SUBSCRIPTIONS = "commenting.sync_account_subscriptions"
     COMMENTING_ON_CHANNEL_POST = "commenting.on_channel_post"
     COMMENTING_POST_CHANNEL_COMMENT = "commenting.post_channel_comment"
 

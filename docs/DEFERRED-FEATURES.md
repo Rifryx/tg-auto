@@ -142,7 +142,13 @@ on_channel_post/post_channel_comment), миграция 0031
 
 ## [E3.1] Folder-links (`t.me/addlist/...`, `t.me/list/...`)
 
-**Статус:** классификатор `classify_channel_input` относит такие ссылки
+**Статус: ✅ СДЕЛАНО вместе с E3.2 (2026-09-24).** Ссылки кампании (в т.ч.
+папки) синхронизируются в `MonitoredChannel` аккаунтов, а папки раскрывает
+готовый резолвер (`worker/telegram_folders.join_folder`). Ограничение: папка
+раскрывается только при политике «Подписаться + уведомить» — при «Только
+уведомить» создаётся алерт `not_subscribed`. Ниже — исходное ТЗ.
+
+Было: классификатор `classify_channel_input` относит такие ссылки
 к `kind='folder'` и БД хранит их, но резолвер (папка → набор чатов)
 не реализован. В UI показываем «распознан пак-каналов, но пока не
 поддерживается».
@@ -182,8 +188,17 @@ on_channel_post/post_channel_comment), миграция 0031
 
 ## [E3.2] Runtime целевых каналов: резолвер + not-subscribed handler + auto-blacklist
 
-**Статус:** схема (Campaign.channel_source_mode / on_not_subscribed_action)
-и CRUD целевых каналов/ЧС есть. Воркер их пока не читает.
+**Статус: ✅ СДЕЛАНО (2026-09-24).** Миграция 0032
+(`monitored_channels.source_campaign_id`, таблица `commenting.channel_alerts`);
+`worker/channels.py`: `sync_campaign_channels`, `sync_account_subscriptions`,
+политика notify/join в `resolve_channel`; `worker/alerts.py`; раннер разбирает
+ошибки доступа (ЧС / переподписка / «нет доступа»); алерты — в бот
+(`commenting.alerts`), на дашборд и в детали кампании. Тесты:
+`tests/test_commenting_channel_sync.py`.
+Известное: in-app лента уведомлений отдельно не сделана — используются
+карточки алертов дашборда. Ниже — исходное ТЗ.
+
+~~схема есть, воркер их пока не читает.~~
 
 **Что должно делать:**
 1. **Резолвер** для `explicit_links`: при attach аккаунта или создании

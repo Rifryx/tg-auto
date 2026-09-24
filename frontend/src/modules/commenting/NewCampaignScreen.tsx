@@ -530,26 +530,26 @@ export function NewCampaignScreen() {
                         kind === "folder" ? "text-status-warning" : "text-text-secondary"
                       }`}
                     >
-                      {raw} · {kind === "folder" ? "папка (скоро)" : kind}
+                      {raw} · {kind === "folder" ? "папка" : kind === "invite" ? "приглашение" : "канал"}
                     </span>
                   );
                 })}
               </div>
             )}
             <p className="mt-2 px-1 text-[12px] text-text-tertiary">
-              Папки (`t.me/addlist/…`) сохраняются, но пока не резолвятся —
-              см. DEFERRED-FEATURES [E3.1].
+              Каждый аккаунт кампании получит эти каналы в мониторинг. Папки
+              (`t.me/addlist/…`) раскрываются в каналы, но только при режиме
+              «Подписаться + уведомить» — чтобы увидеть каналы папки, в неё нужно вступить.
             </p>
           </div>
         ) : (
           <p className="mt-2 px-1 text-[12px] text-text-tertiary">
-            Каждый аккаунт комментирует только каналы, на которые он подписан.
-            Убедитесь, что у аккаунтов настроены `Мониторинг` — иначе очередь
-            будет пустой.
+            Каждый аккаунт комментирует каналы, на которые он уже подписан в
+            Telegram (до 200 каналов, только с открытыми комментариями).
           </p>
         )}
         <div className="mt-4">
-          <Field label="Если аккаунт не подписан">
+          <FieldGroup label="Если аккаунт не подписан">
             <SegmentedControl
               options={[
                 { value: "notify_only", label: "Только уведомить" },
@@ -558,11 +558,11 @@ export function NewCampaignScreen() {
               value={onNotSubscribed}
               onChange={(v) => setOnNotSubscribed(v as OnNotSubscribedAction)}
             />
-          </Field>
+          </FieldGroup>
           <p className="px-1 text-[12px] text-text-tertiary">
-            Пуш-уведомления при обнаружении отсутствия подписки — через тот же
-            канал, что и алерты по прокси. Runtime-обработчик — см.
-            DEFERRED-FEATURES [E3.2].
+            Уведомление приходит в Telegram-бот и появляется на главной и в
+            деталях кампании. Каналы, к которым пропал доступ, автоматически
+            попадают в чёрный список кампании.
           </p>
         </div>
       </Section>

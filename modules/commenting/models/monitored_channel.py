@@ -49,6 +49,14 @@ class MonitoredChannel(Base, TimestampMixin):
     title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     discussion_group_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
 
+    # Строка создана синхронизацией кампании (E3.2), а не вручную на аккаунте.
+    source_campaign_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey(f"{COMMENTING_SCHEMA}.campaigns.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="pending")
     subscribed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     error: Mapped[Optional[str]] = mapped_column(String, nullable=True)
