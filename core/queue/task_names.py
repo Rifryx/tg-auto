@@ -42,6 +42,7 @@ class TaskName(str, Enum):
     COMMENTING_SYNC_CAMPAIGN_CHANNELS = "commenting.sync_campaign_channels"
     COMMENTING_SYNC_ACCOUNT_SUBSCRIPTIONS = "commenting.sync_account_subscriptions"
     COMMENTING_BACKFILL_CHANNEL = "commenting.backfill_channel"
+    COMMENTING_VERIFY_COMMENT = "commenting.verify_comment"
     COMMENTING_ON_CHANNEL_POST = "commenting.on_channel_post"
     COMMENTING_POST_CHANNEL_COMMENT = "commenting.post_channel_comment"
 

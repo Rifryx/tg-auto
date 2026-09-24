@@ -310,8 +310,19 @@ on_channel_post/post_channel_comment), миграция 0031
 
 ## [E4.2] Verify-after-post seam (live-verification gate)
 
-**Статус:** поля `verify_after_post`, `verify_delay_sec` (default 300)
-есть в модели/API. Задача-«верификатор» не запланирована.
+**Статус: ✅ СДЕЛАНО (2026-09-24).** `modules/commenting/worker/verify.py`:
+задача `commenting.verify_comment(comment_log_id)` — тем же аккаунтом,
+что постил, читает `posted_message_id` в discussion-группе. Если None →
+`status=flagged`, `error=removed_by_moderator`, `removed_at=now`, алерт
+`commenting.alerts` (kind=`comment_removed`). Если ok → `verified_at=now`.
+Аккаунт не в pool/assigned → скипаем (не «удалено»). Ошибка сети/доступа
+тоже скипается, а не помечает как удалённый. Планирование — после
+успешной вставки CommentLog в обеих ветках раннера. Миграция 0035:
+`comment_logs.verified_at`, `comment_logs.removed_at`. Бот-нотифаер
+поддерживает kind `comment_removed`. Тесты
+`tests/test_commenting_verify.py` (10). Ниже — исходное ТЗ.
+
+~~поля есть в модели/API. Задача-верификатор не запланирована.~~
 
 **Что должно делать:**
 - Если `verify_after_post=TRUE`: после успешного `post_comment`

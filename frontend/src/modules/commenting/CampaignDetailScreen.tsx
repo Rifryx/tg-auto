@@ -250,7 +250,7 @@ export function CampaignDetailScreen() {
           />
           <StyleToggle
             label="Контроль удаления комментариев"
-            hint={`Через ${c.verify_delay_sec}с — тот же аккаунт (DEFERRED [E4.2]).`}
+            hint={`Через ${c.verify_delay_sec}с тот же аккаунт перечитывает свой коммент; если модератор снял — пометим и уведомим.`}
             checked={c.verify_after_post}
             onChange={(v) => save.mutate({ verify_after_post: v })}
           />

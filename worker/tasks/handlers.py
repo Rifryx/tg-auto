@@ -35,6 +35,7 @@ from worker.tasks.commenting import (
     resolve_channel_impl,
     backfill_channel_impl,
     sync_account_subscriptions_impl,
+    verify_comment_impl,
     sync_campaign_channels_impl,
 )
 from worker.tasks.bulk import dispatch_impl as bulk_dispatch_impl, item_impl as bulk_item_impl
@@ -149,6 +150,7 @@ sync_account_subscriptions = task(TaskName.COMMENTING_SYNC_ACCOUNT_SUBSCRIPTIONS
     sync_account_subscriptions_impl
 )
 backfill_channel = task(TaskName.COMMENTING_BACKFILL_CHANNEL.value)(backfill_channel_impl)
+verify_comment = task(TaskName.COMMENTING_VERIFY_COMMENT.value)(verify_comment_impl)
 on_channel_post = task(TaskName.COMMENTING_ON_CHANNEL_POST.value)(on_channel_post_impl)
 post_channel_comment = task(TaskName.COMMENTING_POST_CHANNEL_COMMENT.value)(
     post_channel_comment_impl
@@ -190,6 +192,12 @@ TASK_FUNCTIONS = [
         backfill_channel,
         name=TaskName.COMMENTING_BACKFILL_CHANNEL.value,
         max_tries=1,
+    ),
+    # Verify-after-post: пропускаем при ошибке (не «удалено»), max_tries=2.
+    func(
+        verify_comment,
+        name=TaskName.COMMENTING_VERIFY_COMMENT.value,
+        max_tries=2,
     ),
     func(on_channel_post, name=TaskName.COMMENTING_ON_CHANNEL_POST.value, max_tries=3),
     func(

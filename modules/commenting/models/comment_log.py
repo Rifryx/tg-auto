@@ -1,10 +1,12 @@
 """Лог опубликованных/неудачных комментариев (append-only)."""
 
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Index,
     String,
@@ -53,3 +55,10 @@ class CommentLog(Base, CreatedAtMixin):
     in_reply_to_message_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False)
     error: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Verify-after-post (E4.2): когда коммент был подтверждён / снят модератором.
+    verified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    removed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

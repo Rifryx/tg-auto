@@ -307,7 +307,7 @@ export function NewCampaignScreen() {
           />
           <ToggleRow
             label="Контроль удаления комментариев"
-            hint={`Через ${verifyDelaySec}с тот же аккаунт проверит, что коммент виден в чате (runtime — E4.2).`}
+            hint={`Через ${verifyDelaySec}с тот же аккаунт перечитывает свой коммент; если модератор снял — пометим и уведомим.`}
             checked={verifyAfterPost}
             onChange={setVerifyAfterPost}
           />

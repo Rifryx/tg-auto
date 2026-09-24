@@ -169,6 +169,19 @@ _NO_RIGHTS = (ChatWriteForbiddenError, UserBannedInChannelError, ChatAdminRequir
 ACCESS_ERRORS = _NO_ACCESS + _NOT_MEMBER + _NO_RIGHTS
 
 
+async def _schedule_verify(ctx: dict, campaign_id: int, comment_log_id: Optional[int], posted_message_id: Optional[int], now: datetime) -> None:
+    if comment_log_id is None or posted_message_id is None:
+        return
+    with ctx["session_factory"]() as session:
+        campaign = CampaignRepository(session).get(campaign_id)
+    if campaign is None or not campaign.verify_after_post:
+        return
+    run_at = now + timedelta(seconds=campaign.verify_delay_sec)
+    await _task_queue(ctx).schedule(
+        TaskName.COMMENTING_VERIFY_COMMENT, run_at, comment_log_id
+    )
+
+
 async def _handle_access_error(
     ctx: dict,
     exc: Exception,
@@ -486,8 +499,9 @@ async def post_comment(
         await pool.release(account_id)
 
     posted_message_id = getattr(sent, "id", None)
+    comment_log_id = None
     with session_factory() as session:
-        CommentLogRepository(session).create(
+        row = CommentLogRepository(session).create(
             CommentLogCreate(
                 campaign_id=campaign_id,
                 account_id=account_id,
@@ -499,6 +513,11 @@ async def post_comment(
             )
         )
         session.commit()
+        comment_log_id = row.id
+    # Verify-after-post (E4.2): расписываем задачу тем же аккаунтом на now +
+    # verify_delay_sec. Кампанию берём свежую — verify_after_post могли
+    # включить/выключить между планированием и отправкой коммента.
+    await _schedule_verify(ctx, campaign_id, comment_log_id, posted_message_id, now)
 
     log.info(
         "commenting.post_comment.posted",
@@ -741,8 +760,9 @@ async def post_channel_comment(
         await pool.release(account_id)
 
     posted_message_id = getattr(sent, "id", None)
+    comment_log_id = None
     with session_factory() as session:
-        CommentLogRepository(session).create(
+        row = CommentLogRepository(session).create(
             CommentLogCreate(
                 campaign_id=campaign_id,
                 account_id=account_id,
@@ -754,6 +774,11 @@ async def post_channel_comment(
             )
         )
         session.commit()
+        comment_log_id = row.id
+    # Verify-after-post (E4.2): расписываем задачу тем же аккаунтом на now +
+    # verify_delay_sec. Кампанию берём свежую — verify_after_post могли
+    # включить/выключить между планированием и отправкой коммента.
+    await _schedule_verify(ctx, campaign_id, comment_log_id, posted_message_id, now)
 
     log.info(
         "commenting.post_channel_comment.posted",

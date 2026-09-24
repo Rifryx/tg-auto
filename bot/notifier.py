@@ -110,21 +110,25 @@ _CHANNEL_ALERT_TITLE = {
     "auto_subscribed": "✅ <b>Аккаунт #{account} подписан на канал автоматически</b>",
     "access_lost": "⛔ <b>Аккаунт #{account} потерял доступ к обсуждению</b>",
     "blacklisted": "🚫 <b>Канал добавлен в чёрный список кампании</b>",
+    # Verify-after-post (E4.2): коммент аккаунта пропал из чата.
+    "comment_removed": "🗑 <b>Модератор снял коммент аккаунта #{account}</b>",
 }
 
 
 def _fmt_commenting_alert(payload: dict[str, Any]) -> Optional[str]:
-    """Алерт целевого канала нейрокомментинга (E3.2)."""
+    """Алерт нейрокомментинга: E3.2 (каналы) и E4.2 (verify_after_post)."""
     title = _CHANNEL_ALERT_TITLE.get(payload.get("kind") or "")
     if title is None:
         return None
     # Ссылку и детали вводит пользователь — экранируем под parse_mode=HTML.
-    lines = [
-        title.format(account=payload.get("account_id")),
-        f"Канал: <code>{html.escape(str(payload.get('channel') or '—'))}</code>",
-    ]
+    lines = [title.format(account=payload.get("account_id"))]
+    channel = payload.get("channel")
+    if channel:
+        lines.append(f"Канал: <code>{html.escape(str(channel))}</code>")
     if payload.get("campaign_id") is not None:
         lines.append(f"Кампания: <code>#{payload['campaign_id']}</code>")
+    if payload.get("posted_message_id") is not None:
+        lines.append(f"Сообщение: <code>#{payload['posted_message_id']}</code>")
     if payload.get("detail"):
         lines.append(html.escape(str(payload["detail"])))
     return "\n".join(lines)
