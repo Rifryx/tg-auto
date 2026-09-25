@@ -36,7 +36,11 @@ from worker.tasks.commenting import (
 )
 from worker.tasks.bulk import dispatch_impl as bulk_dispatch_impl, item_impl as bulk_item_impl
 from modules.shilling.worker.executor import execute_step as shilling_execute_step_impl
-from modules.shilling.worker.orchestrator import failover as shilling_failover_impl
+from modules.shilling.worker.orchestrator import (
+    failover as shilling_failover_impl,
+    process_target as shilling_process_target_impl,
+    start_campaign as shilling_start_campaign_impl,
+)
 from worker.tasks.dispatch import task
 from worker.tasks.health import (
     check_account_impl,
@@ -64,11 +68,8 @@ from worker.tasks.warming import (
 _STUB_TASKS = [
     TaskName.ACCOUNT_RETIRE,
     TaskName.ACCOUNT_ACKNOWLEDGE_BAN,
-    # Модуль shilling: остальные тела — промпты 4.4–4.5; пока заглушки, чтобы
-    # диспетчер покрывал полный TaskName и инвариант registered_names() держался.
-    # EXECUTE_STEP (4.2) и FAILOVER (4.3) уже реализованы — см. ниже.
-    TaskName.SHILLING_START_CAMPAIGN,
-    TaskName.SHILLING_PROCESS_TARGET,
+    # Модуль shilling: DRY_RUN — промпт 4.5 (пока заглушка). START_CAMPAIGN,
+    # PROCESS_TARGET (4.4), EXECUTE_STEP (4.2), FAILOVER (4.3) реализованы ниже.
     TaskName.SHILLING_DRY_RUN,
 ]
 
@@ -157,8 +158,13 @@ login_start = task(TaskName.ACCOUNT_LOGIN_START.value)(login_start_impl)
 login_confirm = task(TaskName.ACCOUNT_LOGIN_CONFIRM.value)(login_confirm_impl)
 login_password = task(TaskName.ACCOUNT_LOGIN_PASSWORD.value)(login_password_impl)
 
-# Модуль shilling (§5): исполнитель одного шага сценария (промпт 4.2) +
-# ротация резерва при бане (промпт 4.3).
+# Модуль shilling (§5): оркестратор (4.4), исполнитель шага (4.2), failover (4.3).
+shilling_start_campaign = task(TaskName.SHILLING_START_CAMPAIGN.value)(
+    shilling_start_campaign_impl
+)
+shilling_process_target = task(TaskName.SHILLING_PROCESS_TARGET.value)(
+    shilling_process_target_impl
+)
 shilling_execute_step = task(TaskName.SHILLING_EXECUTE_STEP.value)(
     shilling_execute_step_impl
 )
@@ -187,6 +193,16 @@ TASK_FUNCTIONS = [
     func(login_start, name=TaskName.ACCOUNT_LOGIN_START.value, max_tries=3),
     func(login_confirm, name=TaskName.ACCOUNT_LOGIN_CONFIRM.value, max_tries=3),
     func(login_password, name=TaskName.ACCOUNT_LOGIN_PASSWORD.value, max_tries=3),
+    func(
+        shilling_start_campaign,
+        name=TaskName.SHILLING_START_CAMPAIGN.value,
+        max_tries=2,
+    ),
+    func(
+        shilling_process_target,
+        name=TaskName.SHILLING_PROCESS_TARGET.value,
+        max_tries=2,
+    ),
     func(
         shilling_execute_step,
         name=TaskName.SHILLING_EXECUTE_STEP.value,
