@@ -18,6 +18,12 @@ from core.models.profile_asset import ProfileAsset
 from core.models.project import Project
 from core.models.project_channel import ProjectChannel
 from core.models.proxy import Proxy
+from core.models.shilling import (
+    ShillingCampaign,
+    ShillingScenario,
+    ShillingScenarioRole,
+    ShillingScenarioStep,
+)
 from core.models.subscription import Subscription
 from core.models.warming_activity import WarmingActivity
 
@@ -44,6 +50,10 @@ __all__ = [
     "Project",
     "ProjectChannel",
     "Proxy",
+    "ShillingCampaign",
+    "ShillingScenario",
+    "ShillingScenarioRole",
+    "ShillingScenarioStep",
     "Subscription",
     "WarmingActivity",
 ]
