@@ -5,6 +5,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { haptic } from "../../shared/tg";
 import { timeAgo } from "../../shared/format";
 import { shillingApi } from "./api";
+import { AccountsTab } from "./components/AccountsTab";
 import { ScenarioBuilder } from "./components/ScenarioBuilder";
 import type { CampaignReadiness, CampaignStatus, ExecutionStatus } from "./types";
 
@@ -132,7 +133,7 @@ export function ShillingDetailScreen() {
 
       {tab === "overview" && <OverviewTab campaignId={campaignId} />}
       {tab === "scenario" && <ScenarioBuilder campaignId={campaignId} />}
-      {tab === "accounts" && <TabPlaceholder title="Аккаунты и роли" prompt="7.1" />}
+      {tab === "accounts" && <AccountsTab campaignId={campaignId} />}
       {tab === "targets" && <TabPlaceholder title="Целевые каналы" prompt="7.2" />}
       {tab === "history" && <TabPlaceholder title="История и статистика" prompt="7.3" />}
       {tab === "blacklist" && <TabPlaceholder title="Чёрный список" prompt="7.3" />}
