@@ -35,6 +35,7 @@ from worker.tasks.commenting import (
     resolve_channel_impl,
 )
 from worker.tasks.bulk import dispatch_impl as bulk_dispatch_impl, item_impl as bulk_item_impl
+from modules.shilling.worker.dry_run import dry_run as shilling_dry_run_impl
 from modules.shilling.worker.executor import execute_step as shilling_execute_step_impl
 from modules.shilling.worker.orchestrator import (
     failover as shilling_failover_impl,
@@ -68,9 +69,6 @@ from worker.tasks.warming import (
 _STUB_TASKS = [
     TaskName.ACCOUNT_RETIRE,
     TaskName.ACCOUNT_ACKNOWLEDGE_BAN,
-    # Модуль shilling: DRY_RUN — промпт 4.5 (пока заглушка). START_CAMPAIGN,
-    # PROCESS_TARGET (4.4), EXECUTE_STEP (4.2), FAILOVER (4.3) реализованы ниже.
-    TaskName.SHILLING_DRY_RUN,
 ]
 
 
@@ -169,6 +167,7 @@ shilling_execute_step = task(TaskName.SHILLING_EXECUTE_STEP.value)(
     shilling_execute_step_impl
 )
 shilling_failover = task(TaskName.SHILLING_FAILOVER.value)(shilling_failover_impl)
+shilling_dry_run = task(TaskName.SHILLING_DRY_RUN.value)(shilling_dry_run_impl)
 
 TASK_FUNCTIONS = [
     func(task(name.value)(_make_stub(name.value)), name=name.value, max_tries=3)
@@ -210,6 +209,8 @@ TASK_FUNCTIONS = [
     ),
     # failover: 1 попытка — повторный реролл при сбое только запутает ротацию.
     func(shilling_failover, name=TaskName.SHILLING_FAILOVER.value, max_tries=1),
+    # dry-run: 1 попытка — это симуляция для UI, ретрай бессмысленен.
+    func(shilling_dry_run, name=TaskName.SHILLING_DRY_RUN.value, max_tries=1),
     # Recovery-email flow (этап 7, backlog #1): max_tries=1 — при
     # EmailUnconfirmedError мы уже сохранили pending, повторный вызов только
     # спутает Telegram.

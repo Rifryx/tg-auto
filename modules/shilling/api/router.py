@@ -12,7 +12,8 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
@@ -704,3 +705,62 @@ async def dry_run_campaign(
         TaskName.SHILLING_DRY_RUN, campaign_id, test_target, job_id
     )
     return {"job_id": job_id}
+
+
+@router.get("/campaigns/{campaign_id}/dry-run/{job_id}/stream")
+async def dry_run_stream(
+    campaign_id: int,
+    job_id: str,
+    request: Request,
+) -> StreamingResponse:
+    """SSE-поток событий сухого прогона (start/step/done).
+
+    Подписывается на per-job Redis-канал ``shilling.dry_run.{job_id}``,
+    куда воркер публикует прогресс симуляции.
+    """
+    import asyncio
+    import json as _json
+
+    import redis.asyncio as aioredis
+
+    from core.config import get_settings
+    from modules.shilling.worker.dry_run import dry_run_channel
+
+    channel = dry_run_channel(job_id)
+    redis_client = aioredis.from_url(get_settings().redis_url)
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe(channel)
+
+    async def event_source():
+        try:
+            yield ": connected\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    message = await asyncio.wait_for(
+                        pubsub.get_message(ignore_subscribe_messages=True, timeout=15),
+                        timeout=20,
+                    )
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                if message is None:
+                    yield ": keepalive\n\n"
+                    continue
+                data = message.get("data")
+                if isinstance(data, (bytes, bytearray)):
+                    data = data.decode()
+                yield f"data: {data}\n\n"
+                # Закрываем поток после финального события.
+                try:
+                    if _json.loads(data).get("event") == "done":
+                        break
+                except (TypeError, ValueError):
+                    pass
+        finally:
+            await pubsub.unsubscribe(channel)
+            await pubsub.aclose()
+            await redis_client.aclose()
+
+    return StreamingResponse(event_source(), media_type="text/event-stream")
