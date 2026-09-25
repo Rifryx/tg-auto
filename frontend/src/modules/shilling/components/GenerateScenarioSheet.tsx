@@ -54,6 +54,7 @@ export function GenerateScenarioSheet({
             : null,
       }),
     onSuccess: (res) => setDraft(res),
+    meta: { silent: true }, // inline-сообщение в форме
   });
 
   const apply = useMutation({
@@ -102,6 +103,7 @@ export function GenerateScenarioSheet({
       onApplied();
       onClose();
     },
+    meta: { silent: true }, // inline-сообщение в превью
   });
 
   if (!open) return null;

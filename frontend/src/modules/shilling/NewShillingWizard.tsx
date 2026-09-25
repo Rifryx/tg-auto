@@ -80,6 +80,7 @@ export function NewShillingWizard() {
       return c.id;
     },
     onSuccess: () => setStep(1),
+    meta: { silent: true }, // inline-сообщение под кнопками
   });
 
   const finish = useMutation({
@@ -109,6 +110,7 @@ export function NewShillingWizard() {
       return id;
     },
     onSuccess: (id) => navigate(`/modules/shilling/campaigns/${id}`),
+    meta: { silent: true }, // inline-сообщение под кнопками
   });
 
   const step1Valid = draft.name.trim().length > 0 && draft.brand_name.trim().length > 0;

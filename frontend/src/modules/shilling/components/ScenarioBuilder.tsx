@@ -139,6 +139,7 @@ function ScenarioEditor({
   const deleteRole = useMutation({
     mutationFn: (id: number) => shillingApi.removeRole(scenarioId, id),
     onSuccess: invalidateRoles,
+    meta: { silent: true }, // ошибку показываем inline (роль с репликами)
   });
 
   const addStep = useMutation({

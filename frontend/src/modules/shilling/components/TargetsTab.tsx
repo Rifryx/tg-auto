@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { useRef, useState } from "react";
+import { showToast } from "../../../shared/toast";
 import { shillingApi } from "../api";
 import type { Target, TargetStatus } from "../types";
 
@@ -18,7 +19,6 @@ export function TargetsTab({ campaignId }: { campaignId: number }) {
   const [input, setInput] = useState("");
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
-  const [toast, setToast] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const targets = useQuery({
@@ -38,7 +38,7 @@ export function TargetsTab({ campaignId }: { campaignId: number }) {
     onSuccess: (created, vars) => {
       invalidate();
       if (created.length < vars.length) {
-        flash(`Добавлено ${created.length} из ${vars.length} (дубли пропущены)`);
+        showToast(`Добавлено ${created.length} из ${vars.length} (дубли пропущены)`, "info");
       }
     },
   });
@@ -47,16 +47,11 @@ export function TargetsTab({ campaignId }: { campaignId: number }) {
     onSuccess: invalidate,
   });
 
-  const flash = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2500);
-  };
-
   const submitOne = () => {
     const v = input.trim();
     if (!v) return;
     if (!isValidRef(v)) {
-      flash("Формат: @username или t.me/…");
+      showToast("Формат: @username или t.me/…", "error");
       return;
     }
     add.mutate([v]);
@@ -168,12 +163,6 @@ export function TargetsTab({ campaignId }: { campaignId: number }) {
               Добавить
             </button>
           </div>
-        </div>
-      )}
-
-      {toast && (
-        <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-pill bg-surface-2 px-4 py-2 text-[13px] text-text-primary shadow-lg">
-          {toast}
         </div>
       )}
     </div>

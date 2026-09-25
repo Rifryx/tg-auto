@@ -70,6 +70,7 @@ export function DryRunSimulator({
       });
     },
     onError: () => setError("Не удалось запустить прогон"),
+    meta: { silent: true }, // inline-сообщение в модалке
   });
 
   if (!open) return null;
