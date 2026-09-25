@@ -3,6 +3,7 @@ import { ArrowLeft, Check, Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { accountsApi, catalogApi } from "../../shared/accounts";
+import { projectsApi } from "../../shared/projects";
 import { Select } from "../../shared/Select";
 import { maskPhone } from "../../shared/format";
 import { statusDotClass } from "../../shared/status";
@@ -10,6 +11,7 @@ import { haptic } from "../../shared/tg";
 import type { Account } from "../../shared/types";
 import { commentingApi } from "./api";
 import { AccountPickerSheet } from "./components/AccountPickerSheet";
+import { AddGroupBar } from "./components/AddGroupBar";
 import { AiProtectionCard } from "./components/AiProtectionCard";
 import { CampaignMediaSection } from "./components/CampaignMediaSection";
 import { CommentLogList } from "./components/CommentLogList";
@@ -51,6 +53,8 @@ export function CampaignDetailScreen() {
     queryFn: () => commentingApi.accounts(campaignId),
   });
   const allAccounts = useQuery({ queryKey: ["accounts", "all"], queryFn: () => accountsApi.list() });
+  const pool = useQuery({ queryKey: ["accounts", "pool"], queryFn: () => accountsApi.list("pool") });
+  const groups = useQuery({ queryKey: ["projects"], queryFn: projectsApi.list });
   const personas = useQuery({ queryKey: ["personas"], queryFn: catalogApi.personas });
   const logs = useQuery({
     queryKey: ["campaign", campaignId, "logs"],
@@ -122,6 +126,8 @@ export function CampaignDetailScreen() {
         />
       </div>
 
+      <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-8">
+      <div className="min-w-0">
       {/* Настройки — автосохранение onBlur */}
       <Section title="Настройки">
         <div className="card p-4">
@@ -192,6 +198,13 @@ export function CampaignDetailScreen() {
           </button>
         }
       >
+        <AddGroupBar
+          groups={groups.data ?? []}
+          pool={pool.data ?? []}
+          all={allAccounts.data ?? []}
+          onAdd={(ids) => attach.mutate(ids.filter((id) => !attachedIds.includes(id)))}
+          actionLabelPending={attach.isPending ? "Добавляем…" : undefined}
+        />
         {attachedIds.length === 0 ? (
           <p className="px-1 text-[13px] text-text-tertiary">Аккаунты не привязаны.</p>
         ) : (
@@ -258,7 +271,9 @@ export function CampaignDetailScreen() {
       </Section>
 
       {c.attach_image && <CampaignMediaSection campaignId={campaignId} />}
+      </div>
 
+      <div className="min-w-0">
       <CampaignChannelsSection campaignId={campaignId} />
       <CampaignBlacklistSection campaignId={campaignId} />
 
@@ -270,6 +285,8 @@ export function CampaignDetailScreen() {
       <Section title="Лог комментариев">
         {logs.data ? <CommentLogList logs={logs.data} /> : <p className="text-[13px] text-text-tertiary">Загрузка…</p>}
       </Section>
+      </div>
+      </div>
 
       <CapsuleButton variant="danger" onClick={() => setConfirmDelete(true)}>
         Удалить кампанию

@@ -5,7 +5,8 @@ import { useNavigate } from "react-router-dom";
 import { maskHost } from "../../shared/format";
 import { LimitBanner } from "../../shared/LimitBanner";
 import { useLimit } from "../../shared/limits";
-import type { Proxy, ProxyType } from "../../shared/types";
+import type { ProxyType } from "../../shared/types";
+import type { ProxyOccupancy } from "./api";
 import {
   CapsuleButton,
   ConfirmDialog,
@@ -23,12 +24,12 @@ const TYPE_OPTIONS: { value: ProxyType; label: string }[] = [
   { value: "http", label: "HTTP" },
 ];
 
-const PROXY_DOT: Record<Proxy["status"], string> = {
+const PROXY_DOT: Record<ProxyOccupancy["status"], string> = {
   alive: "bg-status-active",
   dead: "bg-status-critical",
   unchecked: "bg-status-neutral",
 };
-const PROXY_LABEL: Record<Proxy["status"], string> = {
+const PROXY_LABEL: Record<ProxyOccupancy["status"], string> = {
   alive: "жив",
   dead: "мёртв",
   unchecked: "не пров.",
@@ -41,7 +42,7 @@ export function ProxiesScreen() {
   const [port, setPort] = useState("1080");
   const [type, setType] = useState<ProxyType>("socks5");
   const [geo, setGeo] = useState("");
-  const [toDelete, setToDelete] = useState<Proxy | null>(null);
+  const [toDelete, setToDelete] = useState<ProxyOccupancy | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   // Пул (этап 3, backlog #2): вместе с проксями получаем занятость по
@@ -92,7 +93,7 @@ export function ProxiesScreen() {
         }
       >
         {list.data && list.data.length > 0 ? (
-          <div className="flex flex-col gap-2">
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 xl:grid-cols-3">
             {list.data.map((p) => (
               <div key={p.id} className="card flex items-center gap-3 px-4 py-3">
                 <span className={`h-2 w-2 shrink-0 rounded-full ${PROXY_DOT[p.status]}`} aria-hidden />

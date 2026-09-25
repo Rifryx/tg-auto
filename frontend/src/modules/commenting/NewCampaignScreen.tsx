@@ -8,9 +8,9 @@ import { useLimit } from "../../shared/limits";
 import { projectsApi } from "../../shared/projects";
 import { Select } from "../../shared/Select";
 import { haptic } from "../../shared/tg";
-import type { Account } from "../../shared/types";
-import { accountPresetsApi, commentingApi, delayPresetsApi } from "./api";
+import { commentingApi, delayPresetsApi } from "./api";
 import { AccountPickRow } from "./components/AccountPickRow";
+import { AddGroupBar } from "./components/AddGroupBar";
 import { AiProtectionCard } from "./components/AiProtectionCard";
 import {
   CapsuleButton,
@@ -25,7 +25,6 @@ import {
   Toggle,
 } from "./components/ui";
 import type {
-  AccountPreset,
   ChannelSourceMode,
   DelayPreset,
   LLMProvider,
@@ -128,10 +127,6 @@ export function NewCampaignScreen() {
   const allAccounts = useQuery({ queryKey: ["accounts", "all"], queryFn: () => accountsApi.list() });
   const personas = useQuery({ queryKey: ["personas"], queryFn: catalogApi.personas });
   const delayPresets = useQuery({ queryKey: ["delay-presets"], queryFn: delayPresetsApi.list });
-  const accountPresets = useQuery({
-    queryKey: ["account-presets"],
-    queryFn: accountPresetsApi.list,
-  });
 
   const keywordsList = useMemo(
     () =>
@@ -581,14 +576,6 @@ export function NewCampaignScreen() {
             })
           }
         />
-        <AccountPresetBar
-          presets={accountPresets.data ?? []}
-          selected={selected}
-          onApply={(p) => setSelected(new Set(p.account_ids))}
-          onSaved={() => {
-            /* invalidate handled inside */
-          }}
-        />
         {pool.data && pool.data.length > 0 ? (
           <div className="mt-3 flex flex-col gap-2">
             {pool.data.map((a) => {
@@ -821,170 +808,6 @@ function DelayPresetBar({
       {create.isError && (
         <p className="mt-2 px-1 text-[12px] text-status-critical">
           Не удалось сохранить пресет (возможно, имя занято).
-        </p>
-      )}
-    </div>
-  );
-}
-
-/* ── Пресеты аккаунтов: чипы (только пользовательские) + «Сохранить свой»
-   из текущего выделения. Применение — заменяет выделение целиком. */
-function AccountPresetBar({
-  presets,
-  selected,
-  onApply,
-}: {
-  presets: AccountPreset[];
-  selected: Set<number>;
-  onApply: (p: AccountPreset) => void;
-  onSaved: () => void;
-}) {
-  const qc = useQueryClient();
-  const [saving, setSaving] = useState(false);
-  const [name, setName] = useState("");
-
-  const create = useMutation({
-    mutationFn: () =>
-      accountPresetsApi.create({
-        name: name.trim(),
-        account_ids: Array.from(selected),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["account-presets"] });
-      setSaving(false);
-      setName("");
-      haptic("light");
-    },
-  });
-  const remove = useMutation({
-    mutationFn: (id: number) => accountPresetsApi.remove(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["account-presets"] }),
-  });
-
-  const canSave = selected.size > 0 && name.trim().length > 0 && !create.isPending;
-
-  return (
-    <div>
-      {presets.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {presets.map((p) => (
-            <span
-              key={p.id}
-              className="inline-flex items-center gap-1 rounded-pill border border-hairline bg-surface-1 px-3 py-1 text-[13px] text-text-secondary"
-            >
-              <button onClick={() => onApply(p)} className="font-medium active:text-text-primary">
-                {p.name}
-                <span className="ml-1.5 text-text-tertiary">({p.account_ids.length})</span>
-              </button>
-              <button
-                onClick={() => {
-                  if (window.confirm(`Удалить пресет «${p.name}»?`)) remove.mutate(p.id);
-                }}
-                className="text-text-tertiary active:text-status-critical"
-                aria-label="Удалить пресет"
-              >
-                <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      {!saving ? (
-        <button
-          onClick={() => setSaving(true)}
-          disabled={selected.size === 0}
-          className="inline-flex items-center gap-1 rounded-pill border border-dashed border-hairline px-3 py-1 text-[13px] text-text-secondary disabled:opacity-40 active:text-text-primary"
-        >
-          <Bookmark className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
-          Сохранить как пресет ({selected.size})
-        </button>
-      ) : (
-        <div className="flex items-center gap-2">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Название пресета аккаунтов"
-            className="min-h-[40px] flex-1 rounded-chip border border-hairline bg-surface-1 px-3 text-[14px] text-text-primary outline-none focus:border-strong"
-            autoFocus
-          />
-          <CapsuleButton
-            variant="accent"
-            disabled={!canSave}
-            onClick={() => create.mutate()}
-            className="w-auto px-4"
-          >
-            {create.isPending ? "…" : "Сохранить"}
-          </CapsuleButton>
-          <CapsuleButton
-            variant="secondary"
-            onClick={() => { setSaving(false); setName(""); }}
-            className="w-auto px-4"
-          >
-            Отмена
-          </CapsuleButton>
-        </div>
-      )}
-      {create.isError && (
-        <p className="mt-2 px-1 text-[12px] text-status-critical">
-          Не удалось сохранить пресет (возможно, имя занято).
-        </p>
-      )}
-    </div>
-  );
-}
-
-/* «Добавить всю группу»: выбранная группа аккаунтов → её свободные (pool)
-   аккаунты добавляются к выделению. Занятые (прогрев, другая кампания,
-   cooldown) кампания взять не может — показываем, сколько их. */
-function AddGroupBar({
-  groups,
-  pool,
-  all,
-  onAdd,
-}: {
-  groups: { id: number; name: string }[];
-  pool: Account[];
-  all: Account[];
-  onAdd: (ids: number[]) => void;
-}) {
-  const [groupId, setGroupId] = useState<string>("");
-  if (groups.length === 0) return null;
-
-  const gid = groupId ? Number(groupId) : null;
-  const free = gid == null ? [] : pool.filter((a) => a.project_id === gid);
-  const total = gid == null ? 0 : all.filter((a) => a.project_id === gid).length;
-  const busy = total - free.length;
-
-  return (
-    <div className="mb-4 rounded-chip border border-hairline bg-surface-1 p-3">
-      <p className="mb-2 px-1 text-[13px] text-text-tertiary">Добавить группу аккаунтов целиком</p>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <Select
-          className="sm:flex-1"
-          value={groupId}
-          onChange={setGroupId}
-          placeholder="Выберите группу"
-          options={groups.map((g) => ({ value: String(g.id), label: g.name }))}
-        />
-        <CapsuleButton
-          variant={free.length > 0 ? "accent" : "secondary"}
-          disabled={free.length === 0}
-          onClick={() => {
-            haptic("light");
-            onAdd(free.map((a) => a.id));
-          }}
-          className="sm:w-auto sm:shrink-0"
-        >
-          {gid == null ? "Добавить группу" : `Добавить ${free.length}`}
-        </CapsuleButton>
-      </div>
-      {gid != null && (
-        <p className="mt-2 px-1 text-[12px] text-text-tertiary">
-          {total === 0
-            ? "В группе пока нет аккаунтов — добавьте их в «Группы аккаунтов»."
-            : busy > 0
-              ? `Свободно ${free.length} из ${total}. Ещё ${busy} ${busy === 1 ? "занят" : "заняты"} (прогрев, другая кампания или отдых) — кампания может взять только свободные.`
-              : `Все ${total} аккаунтов группы свободны.`}
         </p>
       )}
     </div>

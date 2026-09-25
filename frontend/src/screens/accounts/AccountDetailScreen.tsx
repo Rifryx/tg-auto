@@ -127,6 +127,8 @@ export function AccountDetailScreen() {
         <StatusBadge status={acc.status} />
       </div>
 
+      <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-8">
+      <div className="min-w-0">
       {/* Профиль — редактируемый в стиле Telegram (автосохранение onBlur). */}
       <Section title="Профиль">
         <div className="card p-4">
@@ -232,6 +234,8 @@ export function AccountDetailScreen() {
 
       {/* 2d. Управление 2FA — recovery email (этап 7) */}
       <TwoFactorSection accountId={accountId} />
+      </div>
+      <div className="min-w-0">
 
       {/* 3. Прокси — read-инфо + смена через селект */}
       <Section title="Прокси">
@@ -393,6 +397,8 @@ export function AccountDetailScreen() {
         <CapsuleButton variant="danger" onClick={() => setConfirmDelete(true)}>
           Удалить безвозвратно
         </CapsuleButton>
+      </div>
+      </div>
       </div>
 
       <ConfirmDialog

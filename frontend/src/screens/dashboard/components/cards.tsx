@@ -81,7 +81,7 @@ export function StageCard({ status, count }: { status: AccountStatus; count: num
   return (
     <Link
       to={`/accounts?status=${status}`}
-      className="card flex w-[128px] shrink-0 flex-col justify-between p-4 active:bg-surface-2"
+      className="card flex w-[128px] shrink-0 flex-col justify-between p-4 active:bg-surface-2 lg:w-auto"
     >
       <div className="mb-4 flex items-center gap-2">
         <span className={`h-2 w-2 rounded-full ${statusDotClass(status)}`} aria-hidden />
