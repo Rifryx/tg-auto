@@ -16,12 +16,20 @@ from api.deps.auth import require_user
 from api.deps.db import get_session
 from modules.shilling.api import service
 from modules.shilling.repositories import (
+    BlacklistRepository,
+    CampaignAccountRepository,
     CampaignRepository,
+    CampaignTargetRepository,
     ScenarioRepository,
     ScenarioRoleRepository,
     ScenarioStepRepository,
 )
 from modules.shilling.schemas import (
+    AttachAccountRequest,
+    BlacklistCreate,
+    BlacklistRead,
+    CampaignAccountRead,
+    CampaignAccountUpdate,
     CampaignCreate,
     CampaignRead,
     CampaignUpdate,
@@ -35,6 +43,8 @@ from modules.shilling.schemas import (
     StepRead,
     StepReorderRequest,
     StepUpdate,
+    TargetBulkCreate,
+    TargetRead,
 )
 
 router = APIRouter(
@@ -341,4 +351,186 @@ def reorder_steps_endpoint(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except service.ShillingValidation as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    session.commit()
+
+
+# --- Аккаунты кампании -------------------------------------------------------
+
+
+@router.get(
+    "/campaigns/{campaign_id}/accounts",
+    response_model=list[CampaignAccountRead],
+)
+def list_campaign_accounts(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> list[CampaignAccountRead]:
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    links = CampaignAccountRepository(session).list_by_campaign(campaign_id)
+    return [CampaignAccountRead.model_validate(link) for link in links]
+
+
+@router.post(
+    "/campaigns/{campaign_id}/accounts",
+    response_model=CampaignAccountRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def attach_account(
+    campaign_id: int,
+    body: AttachAccountRequest,
+    session: Session = Depends(get_session),
+) -> CampaignAccountRead:
+    try:
+        link = service.attach_account(
+            session,
+            campaign_id,
+            body.account_id,
+            role_id=body.role_id,
+            is_reserve=body.is_reserve,
+        )
+    except service.ShillingNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except service.ShillingConflict as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except service.ShillingValidation as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    session.commit()
+    return CampaignAccountRead.model_validate(link)
+
+
+@router.patch(
+    "/campaigns/{campaign_id}/accounts/{account_id}",
+    response_model=CampaignAccountRead,
+)
+def patch_campaign_account(
+    campaign_id: int,
+    account_id: int,
+    body: CampaignAccountUpdate,
+    session: Session = Depends(get_session),
+) -> CampaignAccountRead:
+    try:
+        link = service.update_account_link(session, campaign_id, account_id, body)
+    except service.ShillingNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except service.ShillingValidation as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    session.commit()
+    return CampaignAccountRead.model_validate(link)
+
+
+@router.delete(
+    "/campaigns/{campaign_id}/accounts/{account_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+def detach_account(
+    campaign_id: int,
+    account_id: int,
+    session: Session = Depends(get_session),
+) -> None:
+    try:
+        service.detach_account(session, campaign_id, account_id)
+    except service.ShillingNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    session.commit()
+
+
+# --- Целевые каналы ----------------------------------------------------------
+
+
+@router.get("/campaigns/{campaign_id}/targets", response_model=list[TargetRead])
+def list_targets(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> list[TargetRead]:
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    items = CampaignTargetRepository(session).list_by_campaign(campaign_id)
+    return [TargetRead.model_validate(i) for i in items]
+
+
+@router.post(
+    "/campaigns/{campaign_id}/targets",
+    response_model=list[TargetRead],
+    status_code=status.HTTP_201_CREATED,
+)
+def add_targets(
+    campaign_id: int,
+    body: TargetBulkCreate,
+    session: Session = Depends(get_session),
+) -> list[TargetRead]:
+    """Bulk-добавление: нормализация + дедуп. Возвращает только созданные."""
+    try:
+        created = service.add_targets_bulk(session, campaign_id, body.raw_inputs)
+    except service.ShillingNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    session.commit()
+    return [TargetRead.model_validate(t) for t in created]
+
+
+@router.delete(
+    "/campaigns/{campaign_id}/targets/{target_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+def delete_target(
+    campaign_id: int,
+    target_id: int,
+    session: Session = Depends(get_session),
+) -> None:
+    if not CampaignTargetRepository(session).delete(campaign_id, target_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "target not found")
+    session.commit()
+
+
+# --- Чёрный список -----------------------------------------------------------
+
+
+@router.get(
+    "/campaigns/{campaign_id}/blacklist", response_model=list[BlacklistRead]
+)
+def list_blacklist(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> list[BlacklistRead]:
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    items = BlacklistRepository(session).list_by_campaign(campaign_id)
+    return [BlacklistRead.model_validate(i) for i in items]
+
+
+@router.post(
+    "/campaigns/{campaign_id}/blacklist",
+    response_model=BlacklistRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_blacklist(
+    campaign_id: int,
+    body: BlacklistCreate,
+    session: Session = Depends(get_session),
+) -> BlacklistRead:
+    """Ручное добавление в ЧС (auto=False). Воркер добавляет с auto=True."""
+    from sqlalchemy.exc import IntegrityError
+
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    try:
+        entry = BlacklistRepository(session).create(campaign_id, body, auto=False)
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "already blacklisted") from None
+    return BlacklistRead.model_validate(entry)
+
+
+@router.delete(
+    "/campaigns/{campaign_id}/blacklist/{entry_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+def remove_blacklist(
+    campaign_id: int,
+    entry_id: int,
+    session: Session = Depends(get_session),
+) -> None:
+    if not BlacklistRepository(session).delete(campaign_id, entry_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "blacklist entry not found")
     session.commit()
