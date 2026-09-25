@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageSquarePlus, Plus, Smile } from "lucide-react";
+import { useState } from "react";
 import { shillingApi } from "../api";
 import type { Role, Step } from "../types";
 import { RoleCard } from "./RoleCard";
+import { ScenarioPreview } from "./ScenarioPreview";
 import { StepBubble } from "./StepBubble";
 
 /* Конструктор сценария: слева редактор (роли + шаги), справа — превью (6.2).
@@ -44,22 +46,51 @@ export function ScenarioBuilder({ campaignId }: { campaignId: number }) {
     );
   }
 
+  return <BuilderBody scenarioId={scenario.data.id} campaignId={campaignId} />;
+}
+
+function BuilderBody({
+  scenarioId,
+  campaignId,
+}: {
+  scenarioId: number;
+  campaignId: number;
+}) {
+  // Общий hover-стейт для двусторонней подсветки редактор↔превью.
+  const [activeStepId, setActiveStepId] = useState<number | null>(null);
+
   return (
     <div className="grid gap-4 lg:grid-cols-5">
       <div className="lg:col-span-3">
-        <ScenarioEditor scenarioId={scenario.data.id} />
+        <ScenarioEditor
+          scenarioId={scenarioId}
+          activeStepId={activeStepId}
+          onHover={setActiveStepId}
+        />
       </div>
-      {/* Превью — промпт 6.2 */}
-      <div className="hidden lg:col-span-2 lg:block">
-        <div className="card sticky top-4 p-6 text-center text-[13px] text-text-tertiary">
-          Живое превью диалога появится здесь (промпт 6.2).
+      <div className="lg:col-span-2">
+        <div className="lg:sticky lg:top-4">
+          <ScenarioPreview
+            campaignId={campaignId}
+            scenarioId={scenarioId}
+            activeStepId={activeStepId}
+            onHover={setActiveStepId}
+          />
         </div>
       </div>
     </div>
   );
 }
 
-function ScenarioEditor({ scenarioId }: { scenarioId: number }) {
+function ScenarioEditor({
+  scenarioId,
+  activeStepId,
+  onHover,
+}: {
+  scenarioId: number;
+  activeStepId: number | null;
+  onHover: (stepId: number | null) => void;
+}) {
   const qc = useQueryClient();
   const rolesKey = ["shilling", "scenario", scenarioId, "roles"];
   const stepsKey = ["shilling", "scenario", scenarioId, "steps"];
@@ -189,6 +220,9 @@ function ScenarioEditor({ scenarioId }: { scenarioId: number }) {
                   roles={roleList}
                   roleIndex={roleIdx}
                   replyTargetOrder={replyOrder}
+                  active={activeStepId === step.id}
+                  onHoverStart={() => onHover(step.id)}
+                  onHoverEnd={() => onHover(null)}
                   onEditText={(text) => editStep.mutate({ id: step.id, text })}
                   onDelete={() => deleteStep.mutate(step.id)}
                 />

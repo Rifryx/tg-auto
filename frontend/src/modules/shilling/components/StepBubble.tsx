@@ -13,6 +13,9 @@ export function StepBubble({
   onDelete,
   onCyclePauseHint,
   replyTargetOrder,
+  active,
+  onHoverStart,
+  onHoverEnd,
 }: {
   step: Step;
   index: number; // 1-based порядковый номер в списке
@@ -22,13 +25,20 @@ export function StepBubble({
   onDelete: () => void;
   onCyclePauseHint?: () => void;
   replyTargetOrder: number | null; // порядковый номер шага, на который отвечает
+  active?: boolean;
+  onHoverStart?: () => void;
+  onHoverEnd?: () => void;
 }) {
   const role = roles[roleIndex];
   const color = role ? roleColor(role, roleIndex) : "#888";
   const isReaction = step.step_type === "reaction";
 
   return (
-    <div className="flex items-start gap-2">
+    <div
+      className="flex items-start gap-2"
+      onMouseEnter={onHoverStart}
+      onMouseLeave={onHoverEnd}
+    >
       <RoleAvatar name={role?.name ?? "?"} color={color} size={24} />
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 flex items-center gap-1.5">
@@ -38,7 +48,12 @@ export function StepBubble({
           <span className="text-[10px] text-text-tertiary">#{index}</span>
         </div>
 
-        <div className="rounded-chip rounded-tl-sm border border-hairline bg-surface-1 px-3 py-2">
+        <div
+          className={[
+            "rounded-chip rounded-tl-sm border px-3 py-2 transition-all",
+            active ? "border-accent bg-surface-2 ring-1 ring-accent" : "border-hairline bg-surface-1",
+          ].join(" ")}
+        >
           {isReaction ? (
             <span className="text-[20px]">{step.reaction_emoji || "👍"}</span>
           ) : (
