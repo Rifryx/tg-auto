@@ -14,6 +14,7 @@ import {
   TextInput,
 } from "../commenting/components/ui";
 import { shillingApi } from "./api";
+import { ScenarioBuilder } from "./components/ScenarioBuilder";
 import type { LLMProvider } from "./types";
 
 const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
@@ -58,33 +59,56 @@ export function NewShillingWizard() {
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) =>
     setDraft((d) => ({ ...d, [k]: v }));
 
-  const create = useMutation({
+  // Кампания создаётся при переходе на шаг «Сценарий» — конструктору нужен
+  // реальный campaignId (сценарий/роли/шаги пишутся через API кампании).
+  const [draftId, setDraftId] = useState<number | null>(null);
+
+  const basics = () => ({
+    name: draft.name.trim(),
+    brand_name: draft.brand_name.trim() || null,
+    llm_provider: draft.llm_provider,
+  });
+
+  const ensureCampaign = useMutation({
     mutationFn: async () => {
-      const campaign = await shillingApi.create({
-        name: draft.name.trim(),
-        brand_name: draft.brand_name.trim() || null,
-        llm_provider: draft.llm_provider,
+      if (draftId != null) {
+        await shillingApi.update(draftId, basics());
+        return draftId;
+      }
+      const c = await shillingApi.create(basics());
+      setDraftId(c.id);
+      return c.id;
+    },
+    onSuccess: () => setStep(1),
+  });
+
+  const finish = useMutation({
+    mutationFn: async () => {
+      let id = draftId;
+      if (id == null) {
+        const c = await shillingApi.create(basics());
+        id = c.id;
+        setDraftId(c.id);
+      }
+      await shillingApi.update(id, {
         reply_delay_min_sec: draft.reply_min,
         reply_delay_max_sec: draft.reply_max,
         target_delay_min_sec: draft.target_min,
         target_delay_max_sec: draft.target_max,
-        msg_limit_per_hour: draft.msg_limit_per_hour
-          ? Number(draft.msg_limit_per_hour)
-          : null,
+        msg_limit_per_hour: draft.msg_limit_per_hour ? Number(draft.msg_limit_per_hour) : null,
         msg_limit_total: draft.msg_limit_total ? Number(draft.msg_limit_total) : null,
       });
-      // Привязываем аккаунты и цели (роли назначаются позже, в конструкторе).
       for (const accId of draft.accountIds) {
-        await shillingApi.attach(campaign.id, { account_id: accId });
+        await shillingApi.attach(id, { account_id: accId }).catch(() => {});
       }
       const targets = draft.targetsRaw
         .split(/[\n,]/)
         .map((t) => t.trim())
         .filter(Boolean);
-      if (targets.length) await shillingApi.addTargets(campaign.id, targets);
-      return campaign;
+      if (targets.length) await shillingApi.addTargets(id, targets);
+      return id;
     },
-    onSuccess: (campaign) => navigate(`/modules/shilling/campaigns/${campaign.id}`),
+    onSuccess: (id) => navigate(`/modules/shilling/campaigns/${id}`),
   });
 
   const step1Valid = draft.name.trim().length > 0 && draft.brand_name.trim().length > 0;
@@ -105,7 +129,14 @@ export function NewShillingWizard() {
 
       <div className="mt-6">
         {step === 0 && <StepBasics draft={draft} set={set} />}
-        {step === 1 && <StepScenarioPlaceholder />}
+        {step === 1 &&
+          (draftId != null ? (
+            <ScenarioBuilder campaignId={draftId} />
+          ) : (
+            <div className="card p-6 text-center text-[13px] text-text-tertiary">
+              Подготавливаем кампанию…
+            </div>
+          ))}
         {step === 2 && <StepLaunch draft={draft} set={set} />}
       </div>
 
@@ -115,28 +146,34 @@ export function NewShillingWizard() {
             Назад
           </CapsuleButton>
         )}
-        {step < 2 ? (
+        {step === 0 && (
           <CapsuleButton
-            variant={step === 0 && !step1Valid ? "secondary" : "accent"}
-            disabled={step === 0 && !step1Valid}
-            onClick={() => setStep((s) => s + 1)}
+            variant={step1Valid ? "accent" : "secondary"}
+            disabled={!step1Valid || ensureCampaign.isPending}
+            onClick={() => ensureCampaign.mutate()}
           >
+            {ensureCampaign.isPending ? "Готовим…" : "Далее"}
+          </CapsuleButton>
+        )}
+        {step === 1 && (
+          <CapsuleButton variant="accent" onClick={() => setStep(2)}>
             Далее
           </CapsuleButton>
-        ) : (
+        )}
+        {step === 2 && (
           <CapsuleButton
             variant="accent"
-            disabled={create.isPending || !step1Valid}
-            onClick={() => create.mutate()}
+            disabled={finish.isPending || !step1Valid}
+            onClick={() => finish.mutate()}
           >
-            {create.isPending ? "Создаём…" : "Создать кампанию"}
+            {finish.isPending ? "Создаём…" : "Создать кампанию"}
           </CapsuleButton>
         )}
       </div>
 
-      {create.isError && (
+      {(ensureCampaign.isError || finish.isError) && (
         <p className="mt-3 text-[13px] text-status-critical">
-          Не удалось создать кампанию. Проверьте данные и попробуйте снова.
+          Что-то пошло не так. Проверьте данные и попробуйте снова.
         </p>
       )}
     </div>
@@ -211,18 +248,6 @@ function StepBasics({
           onChange={(v) => set("llm_provider", v)}
         />
       </div>
-    </div>
-  );
-}
-
-function StepScenarioPlaceholder() {
-  return (
-    <div className="card p-6 text-center">
-      <p className="text-[15px] font-medium text-text-secondary">Конструктор сценария</p>
-      <p className="mx-auto mt-1 max-w-[280px] text-[13px] text-text-tertiary">
-        Роли и реплики диалога настраиваются в конструкторе (появится в промпте
-        6.1). Пока пропустите шаг — сценарий можно собрать на экране кампании.
-      </p>
     </div>
   );
 }
@@ -332,7 +357,7 @@ function StepLaunch({
       <div className="card flex flex-col gap-2 p-4">
         <CheckRow ok={draft.accountIds.length > 0} label={`Аккаунты: ${draft.accountIds.length}`} />
         <CheckRow ok={targetsCount > 0} label={`Цели: ${targetsCount}`} />
-        <CheckRow ok label="Сценарий соберёте на экране кампании" muted />
+        <CheckRow ok label="Сценарий собран на шаге 2" muted />
       </div>
 
       <AccountPickerSheet
