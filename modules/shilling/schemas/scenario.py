@@ -119,3 +119,39 @@ class StepRead(ORMModel):
 
 class StepReorderRequest(BaseModel):
     step_ids: list[int] = Field(min_length=1)
+
+
+# --- ИИ-генерация сценария ---------------------------------------------------
+
+
+class GenerateRoleInput(BaseModel):
+    """Опциональная роль на входе генерации (если роли задаёт пользователь)."""
+
+    name: str = Field(min_length=1)
+    character: str = ""
+
+
+class ScenarioGenerateRequest(BaseModel):
+    topic: str = Field(min_length=1)
+    brand_name: Optional[str] = None  # если None — берётся из кампании
+    persons_count: int = Field(default=2, ge=2, le=10)
+    steps_count: Optional[int] = Field(default=None, ge=2, le=30)
+    roles: Optional[list[GenerateRoleInput]] = None
+
+
+class GeneratedRoleRead(BaseModel):
+    name: str
+    character: str = ""
+
+
+class GeneratedStepRead(BaseModel):
+    role: str
+    text: str
+    reply_to_step: Optional[int] = None
+
+
+class GeneratedScenarioRead(BaseModel):
+    """Черновик сценария от ИИ — фронт решает, применять ли через PUT."""
+
+    roles: list[GeneratedRoleRead]
+    steps: list[GeneratedStepRead]

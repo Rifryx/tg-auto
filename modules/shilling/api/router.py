@@ -43,7 +43,9 @@ from modules.shilling.schemas import (
     CampaignStats,
     CampaignUpdate,
     ExecutionLogRead,
+    GeneratedScenarioRead,
     RoleCreate,
+    ScenarioGenerateRequest,
     RoleRead,
     RoleUpdate,
     ScenarioCreate,
@@ -167,6 +169,61 @@ def put_campaign_scenario(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     session.commit()
     return ScenarioRead.model_validate(scenario)
+
+
+@router.post(
+    "/campaigns/{campaign_id}/scenario/generate",
+    response_model=GeneratedScenarioRead,
+)
+async def generate_scenario(
+    campaign_id: int,
+    body: ScenarioGenerateRequest,
+    session: Session = Depends(get_session),
+) -> GeneratedScenarioRead:
+    """ИИ-генерация черновика сценария. НЕ сохраняет — фронт применяет через PUT."""
+    from modules.shilling.llm import (
+        GeneratedRole,
+        ScenarioGenerationError,
+        ScenarioGenerator,
+    )
+    from worker.llm import get_provider
+
+    campaign = CampaignRepository(session).get(campaign_id)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+
+    brand = body.brand_name or campaign.brand_name
+    if not brand:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "brand_name is required (pass it or set it on the campaign)",
+        )
+
+    forced_roles = (
+        [GeneratedRole(name=r.name, character=r.character) for r in body.roles]
+        if body.roles
+        else None
+    )
+    generator = ScenarioGenerator(get_provider(campaign.llm_provider))
+    try:
+        draft = await generator.generate(
+            topic=body.topic,
+            brand_name=brand,
+            persons_count=body.persons_count,
+            steps_count=body.steps_count,
+            roles=forced_roles,
+        )
+    except ScenarioGenerationError as exc:
+        # 502: внешний LLM не дал пригодного результата (не вина клиента).
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+    return GeneratedScenarioRead(
+        roles=[{"name": r.name, "character": r.character} for r in draft.roles],
+        steps=[
+            {"role": s.role, "text": s.text, "reply_to_step": s.reply_to_step}
+            for s in draft.steps
+        ],
+    )
 
 
 # --- Роли сценария -----------------------------------------------------------
