@@ -7,6 +7,7 @@ import { timeAgo } from "../../shared/format";
 import { shillingApi } from "./api";
 import { AccountsTab } from "./components/AccountsTab";
 import { BlacklistTab } from "./components/BlacklistTab";
+import { DryRunSimulator } from "./components/DryRunSimulator";
 import { HistoryTab } from "./components/HistoryTab";
 import { ScenarioBuilder } from "./components/ScenarioBuilder";
 import { TargetsTab } from "./components/TargetsTab";
@@ -38,6 +39,7 @@ export function ShillingDetailScreen() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("overview");
+  const [dryRunOpen, setDryRunOpen] = useState(false);
 
   const campaign = useQuery({
     queryKey: ["shilling", "campaign", campaignId],
@@ -149,6 +151,16 @@ export function ShillingDetailScreen() {
           haptic("light");
           toggle.mutate();
         }}
+        onDryRun={() => setDryRunOpen(true)}
+      />
+
+      <DryRunSimulator
+        open={dryRunOpen}
+        campaignId={campaignId}
+        onClose={() => setDryRunOpen(false)}
+        onStart={() => {
+          if (!isRunning) toggle.mutate();
+        }}
       />
     </div>
   );
@@ -237,11 +249,13 @@ function StickyLaunchPanel({
   isRunning,
   busy,
   onToggle,
+  onDryRun,
 }: {
   readiness?: CampaignReadiness;
   isRunning: boolean;
   busy: boolean;
   onToggle: () => void;
+  onDryRun: () => void;
 }) {
   const canRun = readiness?.can_run ?? false;
   const checks = readiness
@@ -267,23 +281,33 @@ function StickyLaunchPanel({
             </span>
           ))}
         </div>
-        <button
-          onClick={onToggle}
-          disabled={busy || (!isRunning && !canRun)}
-          className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-pill bg-accent px-5 text-[14px] font-semibold text-accent-on active:opacity-80 disabled:opacity-40"
-        >
-          {isRunning ? (
-            <>
-              <Pause className="h-4 w-4" strokeWidth={2.2} aria-hidden />
-              Остановить
-            </>
-          ) : (
-            <>
-              <Rocket className="h-4 w-4" strokeWidth={2.2} aria-hidden />
-              Запустить
-            </>
+        <div className="flex shrink-0 items-center gap-2">
+          {!isRunning && (
+            <button
+              onClick={onDryRun}
+              className="inline-flex h-10 items-center gap-1.5 rounded-pill bg-surface-2 px-4 text-[13px] font-medium text-text-secondary active:text-text-primary"
+            >
+              Сухой прогон
+            </button>
           )}
-        </button>
+          <button
+            onClick={onToggle}
+            disabled={busy || (!isRunning && !canRun)}
+            className="inline-flex h-10 items-center gap-1.5 rounded-pill bg-accent px-5 text-[14px] font-semibold text-accent-on active:opacity-80 disabled:opacity-40"
+          >
+            {isRunning ? (
+              <>
+                <Pause className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+                Остановить
+              </>
+            ) : (
+              <>
+                <Rocket className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+                Запустить
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
