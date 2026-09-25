@@ -3,7 +3,7 @@ from core.models.account_health import AccountHealth
 from core.models.account_status_history import AccountStatusHistory
 from core.models.autopilot import AutopilotAction, AutopilotGoal
 from core.models.ban_risk import BanRiskSnapshot
-from core.models.base import COMMENTING_SCHEMA, Base
+from core.models.base import COMMENTING_SCHEMA, SHILLING_SCHEMA, Base
 from core.models.bulk_job import BulkJob, BulkJobItem
 from core.models.commenting import (
     Campaign,
@@ -32,6 +32,7 @@ __all__ = [
     "BulkJob",
     "BulkJobItem",
     "COMMENTING_SCHEMA",
+    "SHILLING_SCHEMA",
     "Campaign",
     "CampaignAccount",
     "CommentLog",
