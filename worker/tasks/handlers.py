@@ -62,6 +62,14 @@ from worker.tasks.warming import (
 _STUB_TASKS = [
     TaskName.ACCOUNT_RETIRE,
     TaskName.ACCOUNT_ACKNOWLEDGE_BAN,
+    # Модуль shilling: имена объявлены (промпт 2.4, нужны API start/stop/
+    # dry-run). Реальные тела — промпты 4.2–4.5; пока заглушки, чтобы
+    # диспетчер покрывал полный TaskName и инвариант registered_names() держался.
+    TaskName.SHILLING_START_CAMPAIGN,
+    TaskName.SHILLING_PROCESS_TARGET,
+    TaskName.SHILLING_EXECUTE_STEP,
+    TaskName.SHILLING_FAILOVER,
+    TaskName.SHILLING_DRY_RUN,
 ]
 
 

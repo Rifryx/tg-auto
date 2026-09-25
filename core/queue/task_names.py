@@ -42,6 +42,15 @@ class TaskName(str, Enum):
     COMMENTING_ON_CHANNEL_POST = "commenting.on_channel_post"
     COMMENTING_POST_CHANNEL_COMMENT = "commenting.post_channel_comment"
 
+    # --- Модуль shilling ---
+    # Идентификаторы задач объявлены здесь (нужны API-роутам start/stop/dry-run,
+    # промпт 2.4); регистрация обработчиков и бизнес-логика — промпты 4.1–4.5.
+    SHILLING_START_CAMPAIGN = "shilling.start_campaign"
+    SHILLING_PROCESS_TARGET = "shilling.process_target"
+    SHILLING_EXECUTE_STEP = "shilling.execute_step"
+    SHILLING_FAILOVER = "shilling.failover"
+    SHILLING_DRY_RUN = "shilling.dry_run"
+
 
 class QueueName(str, Enum):
     """Логические очереди arq.

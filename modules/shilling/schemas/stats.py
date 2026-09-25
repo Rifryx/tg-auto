@@ -1,0 +1,40 @@
+"""Агрегатные схемы для UI: статистика и чеклист готовности к запуску.
+
+См. docs/neuroshilling-spec.md § 4 (эндпоинты /readiness и /stats) и
+docs/neuroshilling-ui-ux.md § 5.5 (Sticky launch-панель).
+"""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+
+class CampaignStats(BaseModel):
+    """Агрегат ExecutionLog по статусам за всё время кампании."""
+
+    total: int = 0
+    sent: int = 0
+    failed: int = 0
+    skipped: int = 0
+    replaced: int = 0
+    success_rate_percent: int = Field(default=0, ge=0, le=100)
+
+
+class ReadinessCheck(BaseModel):
+    """Единичная строка чеклиста готовности."""
+
+    ok: bool
+    label: str  # человекочитаемая метка, напр. «Аккаунты выбраны 4/4»
+    reason: str | None = None  # почему не ok, если false
+
+
+class CampaignReadiness(BaseModel):
+    """Полный чеклист + агрегат can_run.
+
+    Порядок полей отражает порядок отображения в StickyLaunchPanel.
+    """
+
+    accounts: ReadinessCheck
+    scenario: ReadinessCheck
+    targets: ReadinessCheck
+    can_run: bool  # true, если все три ok
