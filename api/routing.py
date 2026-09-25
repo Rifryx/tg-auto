@@ -28,6 +28,7 @@ def include_all_routers(app: FastAPI) -> None:
     )
     from modules.commenting.api import router as commenting_router
     from modules.commenting.api.channels import router as channels_router
+    from modules.shilling.api import router as shilling_router
 
     for router in (
         accounts.router,
@@ -45,5 +46,6 @@ def include_all_routers(app: FastAPI) -> None:
         media_assets.router,
         commenting_router,
         channels_router,
+        shilling_router,
     ):
         app.include_router(router)
