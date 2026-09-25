@@ -414,8 +414,11 @@ on_channel_post/post_channel_comment), миграция 0031
 * ✅ ~~`ProxiesScreen.tsx:109` — ошибка TypeScript~~ **fixed (2026-09-25):**
   `toDelete` и `PROXY_DOT/PROXY_LABEL` теперь типизированы через
   `ProxyOccupancy` (это то, что реально приходит из `pool()`).
-* Локальный `.venv`: SQLAlchemy 2.0.34 и Alembic 1.13.2 ниже минимумов из
-  `pyproject.toml` (>=2.0.36, >=1.14.0). CI ставит свежие — поведение
-  может отличаться. Обновить: `pip install -e ".[dev]" --upgrade`.
-* Контейнер `neuro_api` и локальный uvicorn оба слушают порт 8000 —
-  держать запущенным только один.
+* ✅ ~~Локальный `.venv`: SQLAlchemy 2.0.34/Alembic 1.13.2 ниже минимумов~~
+  **fixed (2026-09-25):** обновлено до 2.1.0 / 1.20.0 (как в CI); все 522
+  теста проходят.
+* ✅ ~~Двойной API на порту 8000~~ **fixed (2026-09-25):** сервис `api`
+  в `docker-compose.yml` вынесен в профиль `prod` — `docker compose up`
+  без `--profile prod` его не поднимает и не мешает локальному uvicorn.
+  Плюс `docker update --restart=no neuro_api` — старый контейнер сам
+  не воскреснет.

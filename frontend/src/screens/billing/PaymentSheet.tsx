@@ -43,7 +43,7 @@ export function PaymentSheet({ plan, onClose, onPaid }: PaymentSheetProps) {
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-50 flex items-end justify-center lg:items-center lg:p-8">
       <div
         onClick={onClose}
         className="absolute inset-0 bg-black/60"
@@ -51,10 +51,9 @@ export function PaymentSheet({ plan, onClose, onPaid }: PaymentSheetProps) {
       <div
         role="dialog"
         aria-modal="true"
-        className="absolute inset-x-0 bottom-0 mx-auto max-w-[440px] rounded-t-[28px] border border-hairline bg-bg-elevated"
-        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)" }}
+        className="relative mx-auto w-full max-w-[440px] rounded-t-[28px] border border-hairline bg-bg-elevated pb-[calc(env(safe-area-inset-bottom)+16px)] lg:max-w-[480px] lg:rounded-[28px] lg:pb-4"
       >
-        <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-white/15" aria-hidden />
+        <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-white/15 lg:hidden" aria-hidden />
 
         <div className="flex items-start justify-between px-5 pt-4">
           <div>
