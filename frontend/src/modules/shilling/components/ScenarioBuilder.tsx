@@ -3,6 +3,7 @@ import { MessageSquarePlus, Plus, Smile } from "lucide-react";
 import { useState } from "react";
 import { shillingApi } from "../api";
 import type { Role, Step } from "../types";
+import { GenerateScenarioSheet } from "./GenerateScenarioSheet";
 import { RoleCard } from "./RoleCard";
 import { ScenarioPreview } from "./ScenarioPreview";
 import { StepBubble } from "./StepBubble";
@@ -58,6 +59,12 @@ function BuilderBody({
 }) {
   // Общий hover-стейт для двусторонней подсветки редактор↔превью.
   const [activeStepId, setActiveStepId] = useState<number | null>(null);
+  const [genOpen, setGenOpen] = useState(false);
+
+  const campaign = useQuery({
+    queryKey: ["shilling", "campaign", campaignId],
+    queryFn: () => shillingApi.get(campaignId),
+  });
 
   return (
     <div className="grid gap-4 lg:grid-cols-5">
@@ -75,9 +82,19 @@ function BuilderBody({
             scenarioId={scenarioId}
             activeStepId={activeStepId}
             onHover={setActiveStepId}
+            onGenerate={() => setGenOpen(true)}
           />
         </div>
       </div>
+
+      <GenerateScenarioSheet
+        open={genOpen}
+        campaignId={campaignId}
+        scenarioId={scenarioId}
+        defaultBrand={campaign.data?.brand_name ?? null}
+        onClose={() => setGenOpen(false)}
+        onApplied={() => setActiveStepId(null)}
+      />
     </div>
   );
 }
