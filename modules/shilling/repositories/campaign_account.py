@@ -11,7 +11,6 @@ from modules.shilling.models import ShillingCampaignAccount
 
 if TYPE_CHECKING:  # pragma: no cover
     from modules.shilling.schemas.campaign_account import (
-        AttachAccountRequest,
         CampaignAccountUpdate,
     )
 

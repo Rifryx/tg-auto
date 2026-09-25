@@ -13,11 +13,10 @@ from __future__ import annotations
 
 import random
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 
-from core.repositories.account import AccountRepository
 from core.repositories.ban_risk import BanRiskRepository
 from modules.shilling.repositories import (
     CampaignAccountRepository,
@@ -95,7 +94,6 @@ async def dry_run(
 
         link_repo = CampaignAccountRepository(session)
         role_repo = ScenarioRoleRepository(session)
-        acc_repo = AccountRepository(session)
         risk_repo = BanRiskRepository(session)
 
         unique = campaign.unique_messages

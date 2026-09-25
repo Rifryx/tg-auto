@@ -20,6 +20,7 @@ from api.deps.auth import require_user
 from api.deps.db import get_session
 from api.deps.limits import enforce_limit
 from api.deps.queue import get_task_queue
+from core.billing.plans import FeatureKey
 from core.queue import TaskQueue
 from core.queue.task_names import TaskName
 from modules.shilling.api import service
@@ -52,7 +53,6 @@ from modules.shilling.schemas import (
     RoleUpdate,
     ScenarioCreate,
     ScenarioRead,
-    ScenarioUpdate,
     StepCreate,
     StepRead,
     StepReorderRequest,
@@ -69,13 +69,13 @@ router = APIRouter(
 
 
 def _enforce_child_limit(
-    session: Session, user_id: str, feature: str, current_count: int
+    session: Session, user_id: str, feature: FeatureKey, current_count: int
 ) -> None:
     """Per-parent лимит (цели/шаги) → 402 при достижении, как enforce_limit."""
     from api.services import billing as billing_service
 
     try:
-        billing_service.check_count_limit(session, user_id, feature, current_count)  # type: ignore[arg-type]
+        billing_service.check_count_limit(session, user_id, feature, current_count)
     except billing_service.LimitExceededError as exc:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,

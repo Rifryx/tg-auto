@@ -228,4 +228,4 @@ async def test_execute_step_ban_triggers_failover(session):
     assert TaskName.SHILLING_FAILOVER in names
     # лог failed записан
     logs = ExecutionLogRepository(session).list_by_campaign(ids["campaign_id"])
-    assert any(l.status == "failed" for l in logs)
+    assert any(log.status == "failed" for log in logs)

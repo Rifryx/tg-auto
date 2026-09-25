@@ -13,9 +13,13 @@ from sqlalchemy.orm import Session
 
 from core.enums import AccountStatus
 from core.repositories.account import AccountRepository
-from modules.shilling.models import ShillingCampaignAccount, ShillingScenarioStep, ShillingTarget
+from modules.shilling.models import (
+    ShillingCampaignAccount,
+    ShillingScenario,
+    ShillingScenarioStep,
+    ShillingTarget,
+)
 from modules.shilling.repositories import (
-    BlacklistRepository,
     CampaignAccountRepository,
     CampaignRepository,
     CampaignTargetRepository,
@@ -57,16 +61,14 @@ def upsert_scenario_for_campaign(
     session: Session,
     campaign_id: int,
     data,
-) -> "modules.shilling.models.ShillingScenario":
+) -> ShillingScenario:
     """PUT /campaigns/{id}/scenario — создать или заменить сценарий кампании.
 
     Реализация: если у кампании уже есть сценарий, ЗАМЕНЯЕМ его новым
-    (старый удаляется каскадом вместе с ролями/шагами — sceneriario_id в
+    (старый удаляется каскадом вместе с ролями/шагами — scenario_id в
     таблицах ролей/шагов идёт с ondelete=CASCADE через FK на scenarios.id).
     Флаг ``ai_generated`` и ``persons_count`` из тела применяются.
     """
-    from modules.shilling.models import ShillingCampaign, ShillingScenario
-
     campaign = CampaignRepository(session).get(campaign_id)
     if campaign is None:
         raise ShillingNotFound(f"campaign {campaign_id} not found")

@@ -150,7 +150,7 @@ async def test_ban_triggers_failover_and_reserve_completes(session):
     fo = [e for e in spy.enqueued if e[0] == TaskName.SHILLING_FAILOVER]
     assert len(fo) == 1
     logs = ExecutionLogRepository(session).list_by_campaign(campaign.id)
-    assert any(l.status == "failed" and l.account_id == primary_id for l in logs)
+    assert any(log.status == "failed" and log.account_id == primary_id for log in logs)
 
     # 2) failover(...) с аргументами из очереди → повышает резерв + шлёт execute_step.
     _, args, kwargs = fo[0]
@@ -169,4 +169,4 @@ async def test_ban_triggers_failover_and_reserve_completes(session):
     sent = await executor.execute_step(ctx, *ex_args, **ex_kwargs)
     assert sent == 999
     logs = ExecutionLogRepository(session).list_by_campaign(campaign.id)
-    assert any(l.status == "sent" and l.account_id == reserve_id for l in logs)
+    assert any(log.status == "sent" and log.account_id == reserve_id for log in logs)

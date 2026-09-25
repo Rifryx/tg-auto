@@ -183,7 +183,9 @@ async def process_target(ctx: dict, campaign_id: int, target_id: int) -> int:
             plan.append((step.id, account_id, delay))
 
         # Аккаунт для резолва канала — любой primary.
-        resolver_links = [l for l in link_repo.list_by_campaign(campaign_id) if not l.is_reserve]
+        resolver_links = [
+            link for link in link_repo.list_by_campaign(campaign_id) if not link.is_reserve
+        ]
         resolver_account_id = resolver_links[0].account_id if resolver_links else None
 
     if not plan or resolver_account_id is None:

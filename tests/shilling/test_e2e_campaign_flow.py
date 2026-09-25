@@ -208,7 +208,7 @@ async def test_e2e_campaign_flow(session):
     # 10) Логи: 3 sent
     logs = ExecutionLogRepository(session).list_by_campaign(cid)
     assert len(logs) == 3
-    assert all(l.status == "sent" for l in logs)
+    assert all(log.status == "sent" for log in logs)
     assert len(client.sent) == 3
 
     # 11) Статистика
