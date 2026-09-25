@@ -9,17 +9,24 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import uuid
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
+from api.deps.queue import get_task_queue
+from core.queue import TaskQueue
+from core.queue.task_names import TaskName
 from modules.shilling.api import service
 from modules.shilling.repositories import (
     BlacklistRepository,
     CampaignAccountRepository,
     CampaignRepository,
     CampaignTargetRepository,
+    ExecutionLogRepository,
     ScenarioRepository,
     ScenarioRoleRepository,
     ScenarioStepRepository,
@@ -31,8 +38,11 @@ from modules.shilling.schemas import (
     CampaignAccountRead,
     CampaignAccountUpdate,
     CampaignCreate,
+    CampaignReadiness,
     CampaignRead,
+    CampaignStats,
     CampaignUpdate,
+    ExecutionLogRead,
     RoleCreate,
     RoleRead,
     RoleUpdate,
@@ -534,3 +544,106 @@ def remove_blacklist(
     if not BlacklistRepository(session).delete(campaign_id, entry_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "blacklist entry not found")
     session.commit()
+
+
+# --- Готовность / статистика / логи -----------------------------------------
+
+
+@router.get(
+    "/campaigns/{campaign_id}/readiness", response_model=CampaignReadiness
+)
+def get_readiness(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> CampaignReadiness:
+    try:
+        return service.compute_readiness(session, campaign_id)
+    except service.ShillingNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+
+@router.get("/campaigns/{campaign_id}/stats", response_model=CampaignStats)
+def get_stats(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> CampaignStats:
+    try:
+        return service.compute_stats(session, campaign_id)
+    except service.ShillingNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+
+@router.get("/campaigns/{campaign_id}/logs", response_model=list[ExecutionLogRead])
+def list_logs(
+    campaign_id: int,
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    session: Session = Depends(get_session),
+) -> list[ExecutionLogRead]:
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    logs = ExecutionLogRepository(session).list_by_campaign(
+        campaign_id, status=status_filter, limit=limit, offset=offset
+    )
+    return [ExecutionLogRead.model_validate(log) for log in logs]
+
+
+# --- Жизненный цикл: start / stop / dry-run ---------------------------------
+
+
+@router.post("/campaigns/{campaign_id}/start", response_model=CampaignRead)
+async def start_campaign(
+    campaign_id: int,
+    session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> CampaignRead:
+    """Валидирует готовность, переводит в running и ставит задачу оркестратора."""
+    try:
+        service.prepare_start(session, campaign_id)
+    except service.ShillingNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except service.ShillingConflict as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except service.ShillingValidation as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    session.commit()
+    # Задача публикуется ПОСЛЕ commit'а: смена статуса уже зафиксирована.
+    await task_queue.enqueue(TaskName.SHILLING_START_CAMPAIGN, campaign_id)
+    campaign = CampaignRepository(session).get(campaign_id)
+    return CampaignRead.model_validate(campaign)
+
+
+@router.post("/campaigns/{campaign_id}/stop", response_model=CampaignRead)
+def stop_campaign(
+    campaign_id: int,
+    session: Session = Depends(get_session),
+) -> CampaignRead:
+    """Переводит кампанию в paused. Задачи-в-полёте сами проверяют статус."""
+    try:
+        service.prepare_stop(session, campaign_id)
+    except service.ShillingNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    session.commit()
+    campaign = CampaignRepository(session).get(campaign_id)
+    return CampaignRead.model_validate(campaign)
+
+
+@router.post(
+    "/campaigns/{campaign_id}/dry-run", status_code=status.HTTP_202_ACCEPTED
+)
+async def dry_run_campaign(
+    campaign_id: int,
+    test_target: str = Query(..., description="@username или t.me/... тест-чата"),
+    session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> dict[str, str]:
+    """Ставит задачу сухого прогона. Результат забирается по SSE (промпт 4.5).
+
+    Возвращает job_id, по которому фронт подпишется на поток событий.
+    """
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    job_id = uuid.uuid4().hex
+    await task_queue.enqueue(
+        TaskName.SHILLING_DRY_RUN, campaign_id, test_target, job_id
+    )
+    return {"job_id": job_id}
