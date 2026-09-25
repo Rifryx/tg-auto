@@ -7,6 +7,7 @@ import { timeAgo } from "../../shared/format";
 import { shillingApi } from "./api";
 import { AccountsTab } from "./components/AccountsTab";
 import { ScenarioBuilder } from "./components/ScenarioBuilder";
+import { TargetsTab } from "./components/TargetsTab";
 import type { CampaignReadiness, CampaignStatus, ExecutionStatus } from "./types";
 
 type Tab = "overview" | "scenario" | "accounts" | "targets" | "history" | "blacklist";
@@ -134,7 +135,7 @@ export function ShillingDetailScreen() {
       {tab === "overview" && <OverviewTab campaignId={campaignId} />}
       {tab === "scenario" && <ScenarioBuilder campaignId={campaignId} />}
       {tab === "accounts" && <AccountsTab campaignId={campaignId} />}
-      {tab === "targets" && <TabPlaceholder title="Целевые каналы" prompt="7.2" />}
+      {tab === "targets" && <TargetsTab campaignId={campaignId} />}
       {tab === "history" && <TabPlaceholder title="История и статистика" prompt="7.3" />}
       {tab === "blacklist" && <TabPlaceholder title="Чёрный список" prompt="7.3" />}
 
