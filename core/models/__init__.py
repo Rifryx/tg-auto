@@ -19,10 +19,14 @@ from core.models.project import Project
 from core.models.project_channel import ProjectChannel
 from core.models.proxy import Proxy
 from core.models.shilling import (
+    ShillingBlacklist,
     ShillingCampaign,
+    ShillingCampaignAccount,
+    ShillingExecutionLog,
     ShillingScenario,
     ShillingScenarioRole,
     ShillingScenarioStep,
+    ShillingTarget,
 )
 from core.models.subscription import Subscription
 from core.models.warming_activity import WarmingActivity
@@ -50,10 +54,14 @@ __all__ = [
     "Project",
     "ProjectChannel",
     "Proxy",
+    "ShillingBlacklist",
     "ShillingCampaign",
+    "ShillingCampaignAccount",
+    "ShillingExecutionLog",
     "ShillingScenario",
     "ShillingScenarioRole",
     "ShillingScenarioStep",
+    "ShillingTarget",
     "Subscription",
     "WarmingActivity",
 ]

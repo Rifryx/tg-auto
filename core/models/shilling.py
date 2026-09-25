@@ -6,15 +6,23 @@
 """
 
 from modules.shilling.models import (
+    ShillingBlacklist,
     ShillingCampaign,
+    ShillingCampaignAccount,
+    ShillingExecutionLog,
     ShillingScenario,
     ShillingScenarioRole,
     ShillingScenarioStep,
+    ShillingTarget,
 )
 
 __all__ = [
+    "ShillingBlacklist",
     "ShillingCampaign",
+    "ShillingCampaignAccount",
+    "ShillingExecutionLog",
     "ShillingScenario",
     "ShillingScenarioRole",
     "ShillingScenarioStep",
+    "ShillingTarget",
 ]
