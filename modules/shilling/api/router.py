@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
+from api.deps.limits import enforce_limit
 from api.deps.queue import get_task_queue
 from core.queue import TaskQueue
 from core.queue.task_names import TaskName
@@ -67,6 +68,27 @@ router = APIRouter(
 )
 
 
+def _enforce_child_limit(
+    session: Session, user_id: str, feature: str, current_count: int
+) -> None:
+    """Per-parent лимит (цели/шаги) → 402 при достижении, как enforce_limit."""
+    from api.services import billing as billing_service
+
+    try:
+        billing_service.check_count_limit(session, user_id, feature, current_count)  # type: ignore[arg-type]
+    except billing_service.LimitExceededError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "reason": "limit_exceeded",
+                "feature": exc.feature,
+                "used": exc.used,
+                "limit": exc.limit,
+                "plan_id": exc.plan_id,
+            },
+        ) from exc
+
+
 # --- Кампании (CRUD) --------------------------------------------------------
 
 
@@ -90,12 +112,11 @@ def get_campaign(
     "/campaigns",
     response_model=CampaignRead,
     status_code=status.HTTP_201_CREATED,
-    # Лимит плана (shilling_campaigns_active_max) добавится в промпте 8.5;
-    # пока без enforce_limit — фичи-ключа для шиллинга ещё нет в billing.
 )
 def create_campaign(
     body: CampaignCreate,
     session: Session = Depends(get_session),
+    _limit: None = Depends(enforce_limit("shilling_campaigns_active_max")),
 ) -> CampaignRead:
     campaign = CampaignRepository(session).create(body)
     session.commit()
@@ -323,10 +344,17 @@ def create_step(
     scenario_id: int,
     body: StepCreate,
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ) -> StepRead:
     _require_scenario(session, scenario_id)
+    _enforce_child_limit(
+        session,
+        user_id,
+        "shilling_scenario_steps_max",
+        len(ScenarioStepRepository(session).list_by_scenario(scenario_id)),
+    )
     # role_id должен принадлежать этому сценарию (иначе валидация фейлится
-    # позже FK-констрейнтом с невнятной ошибкой — ловим здесь явно).
+    # позже на FK с невнятной ошибкой — ловим здесь явно).
     role = ScenarioRoleRepository(session).get(body.role_id)
     if role is None or role.scenario_id != scenario_id:
         raise HTTPException(
@@ -525,8 +553,18 @@ def add_targets(
     campaign_id: int,
     body: TargetBulkCreate,
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ) -> list[TargetRead]:
     """Bulk-добавление: нормализация + дедуп. Возвращает только созданные."""
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    # Лимит целей на кампанию: блокируем, когда уже достигнут.
+    _enforce_child_limit(
+        session,
+        user_id,
+        "shilling_targets_per_campaign_max",
+        len(CampaignTargetRepository(session).list_by_campaign(campaign_id)),
+    )
     try:
         created = service.add_targets_bulk(session, campaign_id, body.raw_inputs)
     except service.ShillingNotFound as exc:

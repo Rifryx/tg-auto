@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { EmptyState } from "../../components/EmptyState";
+import { LimitBanner } from "../../shared/LimitBanner";
 import { timeAgo } from "../../shared/format";
 import { haptic } from "../../shared/tg";
 import { shillingApi } from "./api";
@@ -60,6 +61,8 @@ export function ShillingListScreen() {
           </button>
         }
       />
+
+      <LimitBanner feature="shilling_campaigns_active_max" />
 
       <div className="mb-4 flex flex-wrap gap-2">
         {FILTERS.map(({ key, label }) => (
