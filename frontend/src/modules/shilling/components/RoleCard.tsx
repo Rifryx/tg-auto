@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { Pencil, X } from "lucide-react";
 import type { Role } from "../types";
 
 /* Палитра аватарок ролей — детерминированно по индексу/цвету роли.
@@ -41,9 +41,10 @@ export function RoleAvatar({
   );
 }
 
-/* Карточка роли: аватар + inline-редактируемые имя и характер + удаление.
-   Кликом по карточке роль выбирается активной — новые шаги диалога добавляются
-   от её лица (selected/onSelect). Клики по полям и удалению не выбирают. */
+/* Карточка роли: аватар + имя/характер + правка + удаление.
+   Клик по карточке ВЫБИРАЕТ роль активной (selected/onSelect) — новые шаги
+   диалога добавляются от её лица. Правка имени/характера — по кнопке-карандашу
+   (чтобы клик по тексту не мешал выбору роли). */
 export function RoleCard({
   role,
   index,
@@ -62,6 +63,7 @@ export function RoleCard({
   onDelete: () => void;
 }) {
   const color = roleColor(role, index);
+  const [editing, setEditing] = useState(false);
   return (
     <div
       onClick={onSelect}
@@ -69,30 +71,49 @@ export function RoleCard({
       aria-pressed={onSelect ? !!selected : undefined}
       className={[
         "card flex items-start gap-2.5 p-3 transition-all",
-        onSelect ? "cursor-pointer" : "",
+        onSelect && !editing ? "cursor-pointer" : "",
         selected ? "border-accent ring-1 ring-accent" : "",
       ].join(" ")}
     >
       <RoleAvatar name={role.name} color={color} />
-      <div className="min-w-0 flex-1" onClick={(e) => e.stopPropagation()}>
-        <InlineText
-          value={role.name}
-          onCommit={onRename}
-          className="text-[14px] font-semibold text-text-primary"
-          placeholder="Роль"
-        />
-        <InlineText
-          value={role.character ?? ""}
-          onCommit={onCharacter}
-          className="text-[12px] text-text-tertiary"
-          placeholder="Характер, стиль речи"
-        />
-      </div>
+      {editing ? (
+        <div className="min-w-0 flex-1" onClick={(e) => e.stopPropagation()}>
+          <InlineText
+            value={role.name}
+            onCommit={onRename}
+            className="text-[14px] font-semibold text-text-primary"
+            placeholder="Роль"
+          />
+          <InlineText
+            value={role.character ?? ""}
+            onCommit={onCharacter}
+            className="text-[12px] text-text-tertiary"
+            placeholder="Характер, стиль речи"
+          />
+        </div>
+      ) : (
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14px] font-semibold text-text-primary">{role.name}</p>
+          <p className={`truncate text-[12px] ${role.character ? "text-text-tertiary" : "text-text-tertiary/70"}`}>
+            {role.character || "Характер, стиль речи"}
+          </p>
+        </div>
+      )}
       {selected && (
         <span className="shrink-0 self-center rounded-pill bg-accent px-2 py-0.5 text-[10px] font-semibold text-accent-on">
           активна
         </span>
       )}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setEditing((v) => !v);
+        }}
+        aria-label={editing ? "Готово" : "Редактировать роль"}
+        className={`shrink-0 self-start ${editing ? "text-accent" : "text-text-tertiary"} active:text-text-primary`}
+      >
+        <Pencil className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+      </button>
       <button
         onClick={(e) => {
           e.stopPropagation();
