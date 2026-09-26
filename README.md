@@ -64,6 +64,18 @@ docker compose logs -f worker    # логин/прогрев/комментир�
 docker compose ps                # статусы и healthcheck
 ```
 
+## Модуль «НейроШиллинг»
+
+Координированные нативные диалоги нескольких аккаунтов в комментариях целевых
+каналов: сценарий с ролями и репликами, ротация на резерв при банах, ИИ-рерайт
+и генерация сценариев, сухой прогон с live-таймлайном. API — под префиксом
+`/modules/shilling`, воркер — задачи `shilling.*`, схема БД — `shilling`.
+
+Спецификация и план:
+[docs/neuroshilling-spec.md](docs/neuroshilling-spec.md),
+[docs/neuroshilling-ui-ux.md](docs/neuroshilling-ui-ux.md),
+[docs/neuroshilling-prompts.md](docs/neuroshilling-prompts.md).
+
 ## Тесты
 
 Тестам нужны отдельные Postgres/Redis (на портах 5433/6380):

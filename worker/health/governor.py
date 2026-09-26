@@ -22,6 +22,8 @@ _DAY = 86400
 # action_type -> кортеж окон (имя окна, лимит, TTL секунд)
 LIMITS: dict[str, tuple[tuple[str, int, int], ...]] = {
     "comment": (("hour", 20, _HOUR), ("day", 100, _DAY)),
+    # Шиллинг постит в ЧУЖИЕ чаты — держим консервативнее комментинга.
+    "shilling": (("hour", 15, _HOUR), ("day", 60, _DAY)),
     "warming": (("hour", 30, _HOUR), ("day", 200, _DAY)),
     "login": (("hour", 5, _HOUR),),
     # health.check_account: не даём заспамить одну и ту же карточку — 6/час,

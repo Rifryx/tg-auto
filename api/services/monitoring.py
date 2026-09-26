@@ -3,8 +3,8 @@
 Собирает весь дашборд минимумом запросов (агрегаты + один UNION на ленту, без
 N+1) и кэширует результат в Redis на 5 секунд по ключу пользователя.
 
-Реестра модулей ещё нет (отложен), поэтому список модулей захардкожен: пока
-единственный модуль — ``commenting``.
+Реестра модулей ещё нет (отложен), поэтому список модулей захардкожен: сейчас
+это ``commenting`` и ``shilling``.
 """
 
 from __future__ import annotations
@@ -24,6 +24,8 @@ from core.models import (
     CampaignAccount,
     CommentLog,
     HealthEvent,
+    ShillingCampaign,
+    ShillingExecutionLog,
     WarmingActivity,
 )
 
@@ -182,6 +184,31 @@ def _commenting_summary(session: Session) -> dict[str, Any]:
     }
 
 
+def _shilling_summary(session: Session) -> dict[str, Any]:
+    today_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    instances = session.execute(
+        select(func.count()).select_from(ShillingCampaign)
+    ).scalar_one()
+    active_now = session.execute(
+        select(func.count())
+        .select_from(ShillingCampaign)
+        .where(ShillingCampaign.status == "running")
+    ).scalar_one()
+    today_actions = session.execute(
+        select(func.count())
+        .select_from(ShillingExecutionLog)
+        .where(ShillingExecutionLog.created_at >= today_start)
+    ).scalar_one()
+    return {
+        "module": "shilling",
+        "instances": instances,
+        "active_now": active_now,
+        "today_actions": today_actions,
+    }
+
+
 def _recent_activity(session: Session) -> list[dict[str, Any]]:
     warming = select(
         literal("warming").label("type"),
@@ -216,7 +243,7 @@ def build_dashboard(session: Session, severity: Optional[str] = None) -> dict[st
     return {
         "alerts": _alerts(session, severity),
         "accounts_summary": _accounts_summary(session),
-        "modules_summary": [_commenting_summary(session)],
+        "modules_summary": [_commenting_summary(session), _shilling_summary(session)],
         "recent_activity": _recent_activity(session),
     }
 

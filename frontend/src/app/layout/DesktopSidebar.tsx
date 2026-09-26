@@ -5,6 +5,7 @@ import {
   Home,
   Info,
   LayoutGrid,
+  MessagesSquare,
   Moon,
   ScrollText,
   Shield,
@@ -36,6 +37,7 @@ const MAIN: Item[] = [
   { to: "/", label: "Главная", icon: Home, end: true },
   { to: "/accounts", label: "Аккаунты", icon: Users },
   { to: "/tasks", label: "Нейрокомментинг", icon: LayoutGrid, alsoActiveOn: ["/modules/commenting"] },
+  { to: "/modules/shilling", label: "НейроШиллинг", icon: MessagesSquare, alsoActiveOn: ["/modules/shilling"] },
 ];
 
 const TOOLS: Item[] = [

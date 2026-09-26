@@ -18,6 +18,10 @@ export type FeatureKey =
   | "campaigns_active_max"
   | "comments_per_day"
   | "channels_watch_max"
+  // Модуль shilling
+  | "shilling_campaigns_active_max"
+  | "shilling_targets_per_campaign_max"
+  | "shilling_scenario_steps_max"
   // Общее
   | "ai_provider_custom"
   | "priority_queue"
@@ -58,6 +62,9 @@ export const PLANS: Plan[] = [
       campaigns_active_max: 1,
       comments_per_day: 20,
       channels_watch_max: 3,
+      shilling_campaigns_active_max: 1,
+      shilling_targets_per_campaign_max: 10,
+      shilling_scenario_steps_max: 6,
       ai_provider_custom: false,
       priority_queue: false,
       audit_history_days: 3,
@@ -85,6 +92,9 @@ export const PLANS: Plan[] = [
       campaigns_active_max: UNLIMITED,
       comments_per_day: 3000,
       channels_watch_max: UNLIMITED,
+      shilling_campaigns_active_max: UNLIMITED,
+      shilling_targets_per_campaign_max: UNLIMITED,
+      shilling_scenario_steps_max: 30,
       ai_provider_custom: true,
       priority_queue: true,
       audit_history_days: 365,
