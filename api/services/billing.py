@@ -30,6 +30,7 @@ from core.models.persona import Persona
 from core.models.proxy import Proxy
 from core.repositories.subscription import SubscriptionRepository
 from modules.commenting.models.campaign import Campaign
+from modules.shilling.models import ShillingCampaign
 
 
 # ------------------------------ ошибки ---------------------------------------
@@ -98,11 +99,19 @@ def _count_active_campaigns(session: Session) -> int:
     )
 
 
+def _count_shilling_campaigns(session: Session) -> int:
+    # Одна кампания шиллинга = один слот (статуса «архив» у модели нет).
+    return int(
+        session.execute(select(func.count()).select_from(ShillingCampaign)).scalar_one()
+    )
+
+
 USAGE_COUNTERS: dict[FeatureKey, Callable[[Session], int]] = {
     "accounts_max": _count_accounts,
     "personas_max": _count_personas,
     "proxies_max": _count_proxies,
     "campaigns_active_max": _count_active_campaigns,
+    "shilling_campaigns_active_max": _count_shilling_campaigns,
 }
 
 
@@ -154,4 +163,26 @@ def check_limit(session: Session, user_id: str, feature: FeatureKey) -> None:
     if used >= limit_int:
         raise LimitExceededError(
             feature=feature, used=used, limit=limit_int, plan_id=plan_id
+        )
+
+
+def check_count_limit(
+    session: Session, user_id: str, feature: FeatureKey, current_count: int
+) -> None:
+    """Проверка per-parent лимита (цели на кампанию, шаги на сценарий).
+
+    В отличие от :func:`check_limit`, счётчик здесь не глобальный, а передаётся
+    вызывающим (у зависимости ``enforce_limit`` нет доступа к path-параметру
+    родителя). Логика та же: достигли лимита → ``LimitExceededError`` → 402.
+    """
+    if _bypass_enabled():
+        return
+    plan_id = get_user_plan(session, user_id)
+    limit_value = get_plan_limit(plan_id, feature)
+    if is_unlimited(limit_value):
+        return
+    limit_int = _to_int_limit(limit_value)
+    if current_count >= limit_int:
+        raise LimitExceededError(
+            feature=feature, used=current_count, limit=limit_int, plan_id=plan_id
         )

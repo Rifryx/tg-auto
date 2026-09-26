@@ -44,7 +44,13 @@ from modules.shilling.schemas.scenario import (
     StepType,
     StepUpdate,
 )
-from modules.shilling.schemas.stats import CampaignReadiness, CampaignStats, ReadinessCheck
+from modules.shilling.schemas.stats import (
+    CampaignReadiness,
+    CampaignStats,
+    DryRunReport,
+    DryRunStep,
+    ReadinessCheck,
+)
 
 __all__ = [
     "AttachAccountRequest",
@@ -59,6 +65,8 @@ __all__ = [
     "CampaignStats",
     "CampaignStatus",
     "CampaignUpdate",
+    "DryRunReport",
+    "DryRunStep",
     "ExecutionLogCreate",
     "ExecutionLogRead",
     "ExecutionStatus",

@@ -12,12 +12,15 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
+from api.deps.limits import enforce_limit
 from api.deps.queue import get_task_queue
+from core.billing.plans import FeatureKey
 from core.queue import TaskQueue
 from core.queue.task_names import TaskName
 from modules.shilling.api import service
@@ -50,7 +53,6 @@ from modules.shilling.schemas import (
     RoleUpdate,
     ScenarioCreate,
     ScenarioRead,
-    ScenarioUpdate,
     StepCreate,
     StepRead,
     StepReorderRequest,
@@ -64,6 +66,27 @@ router = APIRouter(
     tags=["shilling"],
     dependencies=[Depends(require_user)],
 )
+
+
+def _enforce_child_limit(
+    session: Session, user_id: str, feature: FeatureKey, current_count: int
+) -> None:
+    """Per-parent лимит (цели/шаги) → 402 при достижении, как enforce_limit."""
+    from api.services import billing as billing_service
+
+    try:
+        billing_service.check_count_limit(session, user_id, feature, current_count)
+    except billing_service.LimitExceededError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "reason": "limit_exceeded",
+                "feature": exc.feature,
+                "used": exc.used,
+                "limit": exc.limit,
+                "plan_id": exc.plan_id,
+            },
+        ) from exc
 
 
 # --- Кампании (CRUD) --------------------------------------------------------
@@ -89,12 +112,11 @@ def get_campaign(
     "/campaigns",
     response_model=CampaignRead,
     status_code=status.HTTP_201_CREATED,
-    # Лимит плана (shilling_campaigns_active_max) добавится в промпте 8.5;
-    # пока без enforce_limit — фичи-ключа для шиллинга ещё нет в billing.
 )
 def create_campaign(
     body: CampaignCreate,
     session: Session = Depends(get_session),
+    _limit: None = Depends(enforce_limit("shilling_campaigns_active_max")),
 ) -> CampaignRead:
     campaign = CampaignRepository(session).create(body)
     session.commit()
@@ -322,10 +344,17 @@ def create_step(
     scenario_id: int,
     body: StepCreate,
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ) -> StepRead:
     _require_scenario(session, scenario_id)
+    _enforce_child_limit(
+        session,
+        user_id,
+        "shilling_scenario_steps_max",
+        len(ScenarioStepRepository(session).list_by_scenario(scenario_id)),
+    )
     # role_id должен принадлежать этому сценарию (иначе валидация фейлится
-    # позже FK-констрейнтом с невнятной ошибкой — ловим здесь явно).
+    # позже на FK с невнятной ошибкой — ловим здесь явно).
     role = ScenarioRoleRepository(session).get(body.role_id)
     if role is None or role.scenario_id != scenario_id:
         raise HTTPException(
@@ -524,8 +553,18 @@ def add_targets(
     campaign_id: int,
     body: TargetBulkCreate,
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ) -> list[TargetRead]:
     """Bulk-добавление: нормализация + дедуп. Возвращает только созданные."""
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    # Лимит целей на кампанию: блокируем, когда уже достигнут.
+    _enforce_child_limit(
+        session,
+        user_id,
+        "shilling_targets_per_campaign_max",
+        len(CampaignTargetRepository(session).list_by_campaign(campaign_id)),
+    )
     try:
         created = service.add_targets_bulk(session, campaign_id, body.raw_inputs)
     except service.ShillingNotFound as exc:
@@ -704,3 +743,62 @@ async def dry_run_campaign(
         TaskName.SHILLING_DRY_RUN, campaign_id, test_target, job_id
     )
     return {"job_id": job_id}
+
+
+@router.get("/campaigns/{campaign_id}/dry-run/{job_id}/stream")
+async def dry_run_stream(
+    campaign_id: int,
+    job_id: str,
+    request: Request,
+) -> StreamingResponse:
+    """SSE-поток событий сухого прогона (start/step/done).
+
+    Подписывается на per-job Redis-канал ``shilling.dry_run.{job_id}``,
+    куда воркер публикует прогресс симуляции.
+    """
+    import asyncio
+    import json as _json
+
+    import redis.asyncio as aioredis
+
+    from core.config import get_settings
+    from modules.shilling.worker.dry_run import dry_run_channel
+
+    channel = dry_run_channel(job_id)
+    redis_client = aioredis.from_url(get_settings().redis_url)
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe(channel)
+
+    async def event_source():
+        try:
+            yield ": connected\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    message = await asyncio.wait_for(
+                        pubsub.get_message(ignore_subscribe_messages=True, timeout=15),
+                        timeout=20,
+                    )
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                if message is None:
+                    yield ": keepalive\n\n"
+                    continue
+                data = message.get("data")
+                if isinstance(data, (bytes, bytearray)):
+                    data = data.decode()
+                yield f"data: {data}\n\n"
+                # Закрываем поток после финального события.
+                try:
+                    if _json.loads(data).get("event") == "done":
+                        break
+                except (TypeError, ValueError):
+                    pass
+        finally:
+            await pubsub.unsubscribe(channel)
+            await pubsub.aclose()
+            await redis_client.aclose()
+
+    return StreamingResponse(event_source(), media_type="text/event-stream")

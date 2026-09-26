@@ -1,4 +1,4 @@
-import { Home, LayoutGrid, MoreHorizontal, Users } from "lucide-react";
+import { Home, LayoutGrid, MessagesSquare, MoreHorizontal, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { hapticSelection } from "../../shared/tg";
@@ -18,7 +18,8 @@ interface Tab {
 const TABS: Tab[] = [
   { to: "/", label: "Главная", icon: Home },
   { to: "/accounts", label: "Аккаунты", icon: Users },
-  { to: "/tasks", label: "Задачи", icon: LayoutGrid },
+  { to: "/tasks", label: "Коммент", icon: LayoutGrid },
+  { to: "/modules/shilling", label: "Шиллинг", icon: MessagesSquare },
   { to: "/more", label: "Ещё", icon: MoreHorizontal },
 ];
 
@@ -28,7 +29,7 @@ export function BottomNav() {
       className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center"
       style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
     >
-      <div className="pointer-events-auto mx-4 flex h-16 items-center gap-1 rounded-pill border border-hairline bg-surface-1 px-2">
+      <div className="pointer-events-auto mx-3 flex h-16 items-center gap-0.5 rounded-pill border border-hairline bg-surface-1 px-1.5">
         {TABS.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
@@ -37,7 +38,7 @@ export function BottomNav() {
             onClick={() => hapticSelection()}
             className={({ isActive }) =>
               [
-                "flex h-12 min-w-[64px] flex-col items-center justify-center gap-0.5 rounded-pill px-3 transition-colors",
+                "flex h-12 min-w-[56px] flex-col items-center justify-center gap-0.5 rounded-pill px-2 transition-colors",
                 isActive
                   ? "bg-accent text-accent-on"
                   : "text-text-secondary active:text-text-primary",

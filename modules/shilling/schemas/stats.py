@@ -38,3 +38,28 @@ class CampaignReadiness(BaseModel):
     scenario: ReadinessCheck
     targets: ReadinessCheck
     can_run: bool  # true, если все три ok
+
+
+# --- Сухой прогон (docs/neuroshilling-ui-ux.md § 5.6) -----------------------
+
+
+class DryRunStep(BaseModel):
+    """Один шаг симуляции для таймлайна."""
+
+    step_id: int
+    account_id: int
+    role_name: str
+    text: str
+    scheduled_at_sec: int  # смещение от старта, сек
+    risk_score: str  # low/medium/high/critical/unknown
+
+
+class DryRunReport(BaseModel):
+    job_id: str
+    ok: bool
+    reason: str | None = None  # почему прогон не удался (валидация/резолв)
+    timeline: list[DryRunStep] = []
+    total_messages: int = 0
+    total_reactions: int = 0
+    duration_sec: int = 0
+    estimated_tokens: int = 0
