@@ -14,7 +14,7 @@ import {
   SegmentedControl,
   TextInput,
 } from "../../modules/commenting/components/ui";
-import { proxiesApi } from "./api";
+import { proxiesApi, type ProxyOccupancy } from "./api";
 import { BackHeader } from "./PersonasScreen";
 import { Toast } from "./components/ui";
 
@@ -41,7 +41,7 @@ export function ProxiesScreen() {
   const [port, setPort] = useState("1080");
   const [type, setType] = useState<ProxyType>("socks5");
   const [geo, setGeo] = useState("");
-  const [toDelete, setToDelete] = useState<Proxy | null>(null);
+  const [toDelete, setToDelete] = useState<ProxyOccupancy | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   // Пул (этап 3, backlog #2): вместе с проксями получаем занятость по
