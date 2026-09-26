@@ -4,6 +4,7 @@ import {
   Ban,
   ChevronRight,
   KeyRound,
+  Megaphone,
   MessagesSquare,
   ShieldAlert,
   Timer,
@@ -80,17 +81,25 @@ export function StageCard({ status, count }: { status: AccountStatus; count: num
   );
 }
 
+/* Метаданные модулей для карточек «Обзора»: метка, иконка, ссылка на раздел. */
+const MODULE_META: Record<string, { label: string; icon: LucideIcon; to: string }> = {
+  commenting: { label: "Комментирование", icon: MessagesSquare, to: "/tasks" },
+  shilling: { label: "НейроШиллинг", icon: Megaphone, to: "/modules/shilling" },
+};
+
 /* Компактная карточка модуля. */
 export function ModuleCard({ module }: { module: ModuleSummary }) {
+  const meta = MODULE_META[module.module];
+  const Icon = meta?.icon ?? MessagesSquare;
   return (
     <Link
-      to="/tasks"
+      to={meta?.to ?? "/tasks"}
       className="card flex flex-col gap-3 p-4 active:bg-surface-2"
     >
       <div className="flex items-center gap-2">
-        <MessagesSquare className="h-5 w-5 text-text-secondary" strokeWidth={1.6} aria-hidden />
+        <Icon className="h-5 w-5 text-text-secondary" strokeWidth={1.6} aria-hidden />
         <span className="text-[15px] font-semibold text-text-primary">
-          {module.module === "commenting" ? "Комментирование" : module.module}
+          {meta?.label ?? module.module}
         </span>
       </div>
       <div className="flex gap-4">
