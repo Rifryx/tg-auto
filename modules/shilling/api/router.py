@@ -608,6 +608,21 @@ async def discover_intersection(
     """
     if CampaignRepository(session).get(campaign_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    # Пересечение — это ≥2 аккаунта. Отсекаем бессмысленный запуск сразу, чтобы
+    # UI не ждал впустую (0/1 аккаунта → мгновенный понятный отказ).
+    usable = service.count_usable_accounts(session, campaign_id)
+    if usable < 2:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Для поиска по пересечению нужно минимум 2 аккаунта в кампании "
+            f"(сейчас {usable}). Добавьте аккаунты на вкладке «Аккаунты».",
+        )
+    if usable < min_accounts:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Порог {min_accounts}, но пригодных аккаунтов всего {usable}. "
+            f"Уменьшите порог или добавьте аккаунты.",
+        )
     job_id = uuid.uuid4().hex
     await task_queue.enqueue(
         TaskName.SHILLING_DISCOVER_INTERSECTION, campaign_id, job_id, min_accounts

@@ -32,8 +32,34 @@ export function IntersectionSheet({
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const unsubRef = useRef<(() => void) | null>(null);
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => () => unsubRef.current?.(), []);
+  // Вотчдог: если от воркера нет событий дольше таймаута — не висим вечно.
+  const WATCHDOG_MS = 45_000;
+  const clearWatchdog = () => {
+    if (watchdogRef.current) {
+      clearTimeout(watchdogRef.current);
+      watchdogRef.current = null;
+    }
+  };
+  const armWatchdog = () => {
+    clearWatchdog();
+    watchdogRef.current = setTimeout(() => {
+      unsubRef.current?.();
+      setError(
+        "Поиск не отвечает. Проверьте, что запущен воркер (worker), и попробуйте снова.",
+      );
+      setPhase("done");
+    }, WATCHDOG_MS);
+  };
+
+  useEffect(
+    () => () => {
+      unsubRef.current?.();
+      clearWatchdog();
+    },
+    [],
+  );
 
   const scan = useMutation({
     mutationFn: () => shillingApi.discoverIntersection(campaignId, minAccounts),
@@ -44,8 +70,10 @@ export function IntersectionSheet({
       setTotal(0);
       setError(null);
       setPhase("running");
+      armWatchdog();
       const path = shillingApi.intersectionStreamPath(campaignId, job_id);
       unsubRef.current = subscribeStream(path, (raw) => {
+        armWatchdog(); // любое событие продлевает ожидание
         const ev = raw as Record<string, unknown>;
         if (ev.event === "start") {
           setTotal(Number(ev.accounts_total) || 0);
@@ -58,6 +86,7 @@ export function IntersectionSheet({
             prev.some((c) => c.chat_id === ch.chat_id) ? prev : [...prev, ch],
           );
         } else if (ev.event === "done") {
+          clearWatchdog();
           const list = (ev.channels as DiscoveredChannel[] | undefined) ?? [];
           setChannels(list);
           // По умолчанию отмечаем всё, что ещё не в целях.
@@ -68,7 +97,8 @@ export function IntersectionSheet({
         }
       });
     },
-    onError: () => setError("Не удалось запустить поиск"),
+    // Серверная валидация (нет/мало аккаунтов) приходит понятным сообщением.
+    onError: (err) => setError((err as Error)?.message || "Не удалось запустить поиск"),
     meta: { silent: true },
   });
 
@@ -87,6 +117,7 @@ export function IntersectionSheet({
 
   const reset = () => {
     unsubRef.current?.();
+    clearWatchdog();
     setPhase("form");
     setChannels([]);
     setSelected(new Set());
@@ -141,6 +172,7 @@ export function IntersectionSheet({
               />
               <span className="mt-1 block px-1 text-[12px] text-text-tertiary">
                 Канал попадёт в список, если на него подписаны минимум столько аккаунтов.
+                Нужно ≥2 аккаунта в кампании.
               </span>
             </label>
             {error && <p className="text-[13px] text-status-critical">{error}</p>}

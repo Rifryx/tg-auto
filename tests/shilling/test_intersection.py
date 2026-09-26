@@ -194,6 +194,56 @@ async def test_intersection_no_accounts_fails(session):
     assert pub.events and pub.events[-1][1]["event"] == "done"
 
 
+def _api(session, spy):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.deps.auth import require_user
+    from api.deps.db import get_session
+    from api.deps.queue import get_task_queue
+    from modules.shilling.api.router import router as shilling_router
+
+    app = FastAPI()
+    app.include_router(shilling_router)
+    app.dependency_overrides[get_session] = lambda: session
+    app.dependency_overrides[require_user] = lambda: "tester"
+    app.dependency_overrides[get_task_queue] = lambda: spy
+    return TestClient(app)
+
+
+class _SpyQueue:
+    def __init__(self):
+        self.enqueued = []
+
+    async def enqueue(self, name, *args, **kwargs):
+        self.enqueued.append((name, args, kwargs))
+        return "job"
+
+
+async def test_discover_endpoint_rejects_too_few_accounts(session):
+    spy = _SpyQueue()
+    api = _api(session, spy)
+    base = "/modules/shilling"
+
+    cid, ids = _campaign_with_accounts(session, 1)  # только 1 аккаунт
+    r = api.post(f"{base}/campaigns/{cid}/targets/discover-intersection?min_accounts=2")
+    assert r.status_code == 400, r.text
+    assert "минимум 2" in r.json()["detail"]
+    assert spy.enqueued == []  # задача НЕ поставлена
+
+
+async def test_discover_endpoint_accepts_two_accounts(session):
+    spy = _SpyQueue()
+    api = _api(session, spy)
+    base = "/modules/shilling"
+
+    cid, ids = _campaign_with_accounts(session, 2)
+    r = api.post(f"{base}/campaigns/{cid}/targets/discover-intersection?min_accounts=2")
+    assert r.status_code == 202, r.text
+    assert "job_id" in r.json()
+    assert len(spy.enqueued) == 1
+
+
 async def test_intersection_higher_threshold_excludes(session):
     cid, ids = _campaign_with_accounts(session, 3)
     a, b, c = ids

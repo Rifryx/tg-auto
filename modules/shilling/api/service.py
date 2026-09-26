@@ -264,6 +264,21 @@ def detach_account(session: Session, campaign_id: int, account_id: int) -> None:
         )
 
 
+def count_usable_accounts(session: Session, campaign_id: int) -> int:
+    """Сколько привязанных к кампании аккаунтов в рабочем статусе (pool/assigned).
+
+    Используется поиском целей «по пересечению»: он бессмыслен при <2 аккаунтах.
+    """
+    links = CampaignAccountRepository(session).list_by_campaign(campaign_id)
+    acc_repo = AccountRepository(session)
+    n = 0
+    for link in links:
+        acc = acc_repo.get(link.account_id)
+        if acc is not None and acc.status in _USABLE_ACCOUNT_STATUSES:
+            n += 1
+    return n
+
+
 def _validate_role_in_campaign(session: Session, campaign, role_id: int) -> None:
     """Роль должна принадлежать сценарию этой кампании (иначе 400)."""
     role = ScenarioRoleRepository(session).get(role_id)
