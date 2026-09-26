@@ -6,7 +6,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from core.models import COMMENTING_SCHEMA, Base
+from core.models import COMMENTING_SCHEMA, SHILLING_SCHEMA, Base
 
 config = context.config
 
@@ -38,7 +38,7 @@ target_metadata = Base.metadata
 
 # alembic autogenerate по умолчанию видит только схему `public`. Отдаём ему
 # явно ту схему, в которой живут таблицы модуля commenting.
-KNOWN_SCHEMAS = {COMMENTING_SCHEMA}
+KNOWN_SCHEMAS = {COMMENTING_SCHEMA, SHILLING_SCHEMA}
 
 
 def include_name(name, type_, parent_names):

@@ -58,6 +58,10 @@ const COUNT_READERS: Partial<Record<FeatureKey, CountReader>> = {
     // Считаем «занятыми» активные и на паузе — они держат слот.
     return data.filter((c) => c.status !== "archived" && c.status !== "finished").length;
   },
+  shilling_campaigns_active_max: (qc) => {
+    const data = qc.getQueryData<unknown[]>(["shilling", "campaigns"]);
+    return Array.isArray(data) ? data.length : 0;
+  },
 };
 
 const NUMERIC_KEYS: FeatureKey[] = [
@@ -67,6 +71,9 @@ const NUMERIC_KEYS: FeatureKey[] = [
   "campaigns_active_max",
   "comments_per_day",
   "channels_watch_max",
+  "shilling_campaigns_active_max",
+  "shilling_targets_per_campaign_max",
+  "shilling_scenario_steps_max",
   "audit_history_days",
 ];
 
@@ -110,4 +117,7 @@ export const LIMIT_LABEL: Partial<Record<FeatureKey, string>> = {
   campaigns_active_max: "активных кампаний",
   comments_per_day: "комментариев в сутки",
   channels_watch_max: "каналов",
+  shilling_campaigns_active_max: "кампаний шиллинга",
+  shilling_targets_per_campaign_max: "целей в кампании",
+  shilling_scenario_steps_max: "реплик в сценарии",
 };

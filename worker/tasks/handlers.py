@@ -39,6 +39,13 @@ from worker.tasks.commenting import (
     sync_campaign_channels_impl,
 )
 from worker.tasks.bulk import dispatch_impl as bulk_dispatch_impl, item_impl as bulk_item_impl
+from modules.shilling.worker.dry_run import dry_run as shilling_dry_run_impl
+from modules.shilling.worker.executor import execute_step as shilling_execute_step_impl
+from modules.shilling.worker.orchestrator import (
+    failover as shilling_failover_impl,
+    process_target as shilling_process_target_impl,
+    start_campaign as shilling_start_campaign_impl,
+)
 from worker.tasks.dispatch import task
 from worker.tasks.health import (
     check_account_impl,
@@ -161,6 +168,19 @@ login_start = task(TaskName.ACCOUNT_LOGIN_START.value)(login_start_impl)
 login_confirm = task(TaskName.ACCOUNT_LOGIN_CONFIRM.value)(login_confirm_impl)
 login_password = task(TaskName.ACCOUNT_LOGIN_PASSWORD.value)(login_password_impl)
 
+# Модуль shilling (§5): оркестратор (4.4), исполнитель шага (4.2), failover (4.3).
+shilling_start_campaign = task(TaskName.SHILLING_START_CAMPAIGN.value)(
+    shilling_start_campaign_impl
+)
+shilling_process_target = task(TaskName.SHILLING_PROCESS_TARGET.value)(
+    shilling_process_target_impl
+)
+shilling_execute_step = task(TaskName.SHILLING_EXECUTE_STEP.value)(
+    shilling_execute_step_impl
+)
+shilling_failover = task(TaskName.SHILLING_FAILOVER.value)(shilling_failover_impl)
+shilling_dry_run = task(TaskName.SHILLING_DRY_RUN.value)(shilling_dry_run_impl)
+
 TASK_FUNCTIONS = [
     func(task(name.value)(_make_stub(name.value)), name=name.value, max_tries=3)
     for name in _STUB_TASKS
@@ -208,6 +228,25 @@ TASK_FUNCTIONS = [
     func(login_start, name=TaskName.ACCOUNT_LOGIN_START.value, max_tries=3),
     func(login_confirm, name=TaskName.ACCOUNT_LOGIN_CONFIRM.value, max_tries=3),
     func(login_password, name=TaskName.ACCOUNT_LOGIN_PASSWORD.value, max_tries=3),
+    func(
+        shilling_start_campaign,
+        name=TaskName.SHILLING_START_CAMPAIGN.value,
+        max_tries=2,
+    ),
+    func(
+        shilling_process_target,
+        name=TaskName.SHILLING_PROCESS_TARGET.value,
+        max_tries=2,
+    ),
+    func(
+        shilling_execute_step,
+        name=TaskName.SHILLING_EXECUTE_STEP.value,
+        max_tries=3,
+    ),
+    # failover: 1 попытка — повторный реролл при сбое только запутает ротацию.
+    func(shilling_failover, name=TaskName.SHILLING_FAILOVER.value, max_tries=1),
+    # dry-run: 1 попытка — это симуляция для UI, ретрай бессмысленен.
+    func(shilling_dry_run, name=TaskName.SHILLING_DRY_RUN.value, max_tries=1),
     # Recovery-email flow (этап 7, backlog #1): max_tries=1 — при
     # EmailUnconfirmedError мы уже сохранили pending, повторный вызов только
     # спутает Telegram.

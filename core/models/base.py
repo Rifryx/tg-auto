@@ -12,6 +12,7 @@ NAMING_CONVENTION = {
 }
 
 COMMENTING_SCHEMA = "commenting"
+SHILLING_SCHEMA = "shilling"
 
 
 class Base(DeclarativeBase):
