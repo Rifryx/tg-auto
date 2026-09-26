@@ -80,6 +80,20 @@ def _is_ban_like(exc: Exception) -> bool:
     }
 
 
+def _is_reaction_rejected(exc: Exception) -> bool:
+    """Реакция не разрешена в этом чате (или неизвестна) — не повод для бана/ретрая.
+
+    Такой шаг помечаем ``skipped`` и идём дальше: чат просто не принимает эту
+    реакцию (отключены/ограничен набор). Распознаём по имени класса telethon.
+    """
+    return type(exc).__name__ in {
+        "ReactionInvalidError",
+        "ReactionEmptyError",
+        "ChatSendReactionsForbiddenError",
+        "ReactionsForbiddenError",
+    }
+
+
 # --- задача execute_step -----------------------------------------------------
 
 
@@ -190,6 +204,18 @@ async def execute_step(
             sent_id = posted_message_id
     except Exception as exc:
         await pool.release(account_id)
+        # Реакция не принята чатом — мягкий пропуск: не бан, не ретрай, не failover.
+        if step_type == "reaction" and _is_reaction_rejected(exc):
+            _log_result(
+                session_factory, campaign_id, target_id, account_id, role_id, step_id,
+                message_text=None, posted_message_id=None,
+                status="skipped", error=type(exc).__name__,
+            )
+            log.info(
+                "shilling.execute_step.reaction_rejected",
+                account_id=account_id, step_id=step_id, error=type(exc).__name__,
+            )
+            return None
         _log_result(
             session_factory, campaign_id, target_id, account_id, role_id, step_id,
             message_text=text if step_type == "message" else None,

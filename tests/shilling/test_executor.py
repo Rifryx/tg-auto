@@ -27,7 +27,7 @@ from modules.shilling.schemas import (
     TargetCreate,
 )
 from modules.shilling.worker import executor
-from modules.shilling.worker.executor import _is_ban_like
+from modules.shilling.worker.executor import _is_ban_like, _is_reaction_rejected
 
 pytestmark = pytest.mark.asyncio
 
@@ -91,6 +91,13 @@ class _BanClient:
     async def send_message(self, chat_id, text, reply_to=None):
         # имитируем бан-подобную ошибку по имени класса
         raise type("UserBannedInChannelError", (Exception,), {})()
+
+
+class _ReactionRejectClient:
+    """Чат не принимает реакцию: SendReactionRequest падает ReactionInvalidError."""
+
+    async def __call__(self, request):
+        raise type("ReactionInvalidError", (Exception,), {})()
 
 
 def _factory(session):
@@ -182,6 +189,13 @@ def test_is_ban_like_ignores_others():
     assert not _is_ban_like(ValueError("x"))
 
 
+def test_is_reaction_rejected_matches_known_names():
+    for name in ("ReactionInvalidError", "ChatSendReactionsForbiddenError"):
+        exc = type(name, (Exception,), {})()
+        assert _is_reaction_rejected(exc)
+    assert not _is_reaction_rejected(ValueError("x"))
+
+
 # --- интеграция (postgres) ---------------------------------------------------
 
 
@@ -211,6 +225,28 @@ async def test_execute_step_rate_limited_reschedules(session):
     )
     assert result is None
     assert spy.scheduled and spy.scheduled[0][0] == TaskName.SHILLING_EXECUTE_STEP
+
+
+async def test_execute_step_reaction_rejected_skips(session):
+    ids = make_campaign_with_step(session, phone=next(_PHONE))
+    # добавляем реакционный шаг в тот же сценарий
+    react_step = ScenarioStepRepository(session).create(
+        ids["scenario_id"],
+        StepCreate(role_id=ids["role_id"], step_type="reaction", reaction_emoji="👍"),
+    )
+    session.commit()
+    spy = _SpyTaskQueue()
+    ctx = _ctx(session, client=_ReactionRejectClient(), task_queue=spy)
+
+    result = await executor.execute_step(
+        ctx, ids["campaign_id"], ids["target_id"], react_step.id, ids["account_id"],
+        thread_msg_id=100,
+    )
+    assert result is None
+    # НЕ failover: реакция просто не принята чатом
+    assert TaskName.SHILLING_FAILOVER not in [n for n, _, _ in spy.enqueued]
+    logs = ExecutionLogRepository(session).list_by_campaign(ids["campaign_id"])
+    assert any(log.status == "skipped" and log.error == "ReactionInvalidError" for log in logs)
 
 
 async def test_execute_step_ban_triggers_failover(session):

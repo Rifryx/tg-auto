@@ -34,6 +34,33 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Тематизированный скроллбар вместо серого браузерного: тонкий, скруглённый,
+     на токенах темы (одинаково аккуратно в тёмной и светлой). */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--surface-border-strong) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--surface-border-strong);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--text-tertiary);
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
   /* Нативные стрелки у number-инпутов не тематизируются — убираем везде,
      шаг меняем своим NumberStepper (−/+). */
   input[type="number"] {
