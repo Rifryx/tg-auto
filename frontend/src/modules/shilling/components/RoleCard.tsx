@@ -41,25 +41,40 @@ export function RoleAvatar({
   );
 }
 
-/* Карточка роли: аватар + inline-редактируемые имя и характер + удаление. */
+/* Карточка роли: аватар + inline-редактируемые имя и характер + удаление.
+   Кликом по карточке роль выбирается активной — новые шаги диалога добавляются
+   от её лица (selected/onSelect). Клики по полям и удалению не выбирают. */
 export function RoleCard({
   role,
   index,
+  selected,
+  onSelect,
   onRename,
   onCharacter,
   onDelete,
 }: {
   role: Role;
   index: number;
+  selected?: boolean;
+  onSelect?: () => void;
   onRename: (name: string) => void;
   onCharacter: (character: string) => void;
   onDelete: () => void;
 }) {
   const color = roleColor(role, index);
   return (
-    <div className="card flex items-start gap-2.5 p-3">
+    <div
+      onClick={onSelect}
+      role={onSelect ? "button" : undefined}
+      aria-pressed={onSelect ? !!selected : undefined}
+      className={[
+        "card flex items-start gap-2.5 p-3 transition-all",
+        onSelect ? "cursor-pointer" : "",
+        selected ? "border-accent ring-1 ring-accent" : "",
+      ].join(" ")}
+    >
       <RoleAvatar name={role.name} color={color} />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1" onClick={(e) => e.stopPropagation()}>
         <InlineText
           value={role.name}
           onCommit={onRename}
@@ -73,10 +88,18 @@ export function RoleCard({
           placeholder="Характер, стиль речи"
         />
       </div>
+      {selected && (
+        <span className="shrink-0 self-center rounded-pill bg-accent px-2 py-0.5 text-[10px] font-semibold text-accent-on">
+          активна
+        </span>
+      )}
       <button
-        onClick={onDelete}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete();
+        }}
         aria-label="Удалить роль"
-        className="shrink-0 text-text-tertiary active:text-status-critical"
+        className="shrink-0 self-start text-text-tertiary active:text-status-critical"
       >
         <X className="h-4 w-4" strokeWidth={1.8} aria-hidden />
       </button>

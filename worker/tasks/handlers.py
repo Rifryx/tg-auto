@@ -41,6 +41,9 @@ from worker.tasks.commenting import (
 from worker.tasks.bulk import dispatch_impl as bulk_dispatch_impl, item_impl as bulk_item_impl
 from modules.shilling.worker.dry_run import dry_run as shilling_dry_run_impl
 from modules.shilling.worker.executor import execute_step as shilling_execute_step_impl
+from modules.shilling.worker.intersection import (
+    discover_intersection as shilling_discover_intersection_impl,
+)
 from modules.shilling.worker.orchestrator import (
     failover as shilling_failover_impl,
     process_target as shilling_process_target_impl,
@@ -180,6 +183,9 @@ shilling_execute_step = task(TaskName.SHILLING_EXECUTE_STEP.value)(
 )
 shilling_failover = task(TaskName.SHILLING_FAILOVER.value)(shilling_failover_impl)
 shilling_dry_run = task(TaskName.SHILLING_DRY_RUN.value)(shilling_dry_run_impl)
+shilling_discover_intersection = task(
+    TaskName.SHILLING_DISCOVER_INTERSECTION.value
+)(shilling_discover_intersection_impl)
 
 TASK_FUNCTIONS = [
     func(task(name.value)(_make_stub(name.value)), name=name.value, max_tries=3)
@@ -247,6 +253,13 @@ TASK_FUNCTIONS = [
     func(shilling_failover, name=TaskName.SHILLING_FAILOVER.value, max_tries=1),
     # dry-run: 1 попытка — это симуляция для UI, ретрай бессмысленен.
     func(shilling_dry_run, name=TaskName.SHILLING_DRY_RUN.value, max_tries=1),
+    # Поиск пересечений ходит в Telegram (get_dialogs по многим аккаунтам) —
+    # без агрессивных ретраев, результат забирается по SSE.
+    func(
+        shilling_discover_intersection,
+        name=TaskName.SHILLING_DISCOVER_INTERSECTION.value,
+        max_tries=1,
+    ),
     # Recovery-email flow (этап 7, backlog #1): max_tries=1 — при
     # EmailUnconfirmedError мы уже сохранили pending, повторный вызов только
     # спутает Telegram.

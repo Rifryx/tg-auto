@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageSquarePlus, Plus, Smile } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { shillingApi } from "../api";
-import type { Role, Step } from "../types";
+import type { Role, Step, StepUpdateBody } from "../types";
 import { GenerateScenarioSheet } from "./GenerateScenarioSheet";
 import { RoleCard } from "./RoleCard";
 import { ScenarioPreview } from "./ScenarioPreview";
@@ -153,8 +153,8 @@ function ScenarioEditor({
     onSuccess: invalidateSteps,
   });
   const editStep = useMutation({
-    mutationFn: (p: { id: number; text: string }) =>
-      shillingApi.updateStep(scenarioId, p.id, { text: p.text }),
+    mutationFn: (p: { id: number; body: StepUpdateBody }) =>
+      shillingApi.updateStep(scenarioId, p.id, p.body),
     onSuccess: invalidateSteps,
   });
   const deleteStep = useMutation({
@@ -165,6 +165,19 @@ function ScenarioEditor({
   const roleList: Role[] = roles.data ?? [];
   const stepList: Step[] = steps.data ?? [];
   const firstRoleId = roleList[0]?.id;
+
+  // Активная роль: от её лица добавляются новые шаги. По умолчанию — первая;
+  // если выбранная роль удалена, откатываемся на первую.
+  const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null);
+  useEffect(() => {
+    if (roleList.length === 0) {
+      if (selectedRoleId !== null) setSelectedRoleId(null);
+    } else if (selectedRoleId == null || !roleList.some((r) => r.id === selectedRoleId)) {
+      setSelectedRoleId(roleList[0].id);
+    }
+  }, [roleList, selectedRoleId]);
+  const activeRoleId = selectedRoleId ?? firstRoleId;
+  const activeRole = roleList.find((r) => r.id === activeRoleId);
 
   // Порядковый номер шага по id — для чипа «ответ на #N».
   const orderById = new Map(stepList.map((s, i) => [s.id, i + 1]));
@@ -197,6 +210,8 @@ function ScenarioEditor({
                 key={role.id}
                 role={role}
                 index={i}
+                selected={role.id === activeRoleId}
+                onSelect={() => setSelectedRoleId(role.id)}
                 onRename={(name) => renameRole.mutate({ id: role.id, name })}
                 onCharacter={(character) => characterRole.mutate({ id: role.id, character })}
                 onDelete={() => deleteRole.mutate(role.id)}
@@ -241,30 +256,39 @@ function ScenarioEditor({
                   active={activeStepId === step.id}
                   onHoverStart={() => onHover(step.id)}
                   onHoverEnd={() => onHover(null)}
-                  onEditText={(text) => editStep.mutate({ id: step.id, text })}
+                  onEditText={(text) => editStep.mutate({ id: step.id, body: { text } })}
+                  onChangeRole={(roleId) => editStep.mutate({ id: step.id, body: { role_id: roleId } })}
+                  onChangeReaction={(emoji) =>
+                    editStep.mutate({ id: step.id, body: { reaction_emoji: emoji } })
+                  }
                   onDelete={() => deleteStep.mutate(step.id)}
                 />
               );
             })}
           </div>
         )}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={() => firstRoleId && addStep.mutate({ roleId: firstRoleId, type: "message" })}
-            disabled={!firstRoleId || addStep.isPending}
+            onClick={() => activeRoleId && addStep.mutate({ roleId: activeRoleId, type: "message" })}
+            disabled={!activeRoleId || addStep.isPending}
             className="inline-flex items-center gap-1.5 rounded-pill bg-surface-2 px-3.5 py-2 text-[13px] text-text-secondary active:text-text-primary disabled:opacity-40"
           >
             <MessageSquarePlus className="h-4 w-4" strokeWidth={2} aria-hidden />
             Реплика
           </button>
           <button
-            onClick={() => firstRoleId && addStep.mutate({ roleId: firstRoleId, type: "reaction" })}
-            disabled={!firstRoleId || addStep.isPending}
+            onClick={() => activeRoleId && addStep.mutate({ roleId: activeRoleId, type: "reaction" })}
+            disabled={!activeRoleId || addStep.isPending}
             className="inline-flex items-center gap-1.5 rounded-pill bg-surface-2 px-3.5 py-2 text-[13px] text-text-secondary active:text-text-primary disabled:opacity-40"
           >
             <Smile className="h-4 w-4" strokeWidth={2} aria-hidden />
             Реакция
           </button>
+          {activeRole && (
+            <span className="text-[12px] text-text-tertiary">
+              от лица: <span className="font-medium text-text-secondary">{activeRole.name}</span>
+            </span>
+          )}
         </div>
         {!firstRoleId && (
           <p className="mt-1 text-[12px] text-text-tertiary">

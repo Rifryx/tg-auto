@@ -262,3 +262,12 @@ export interface DryRunReport {
   duration_sec: number;
   estimated_tokens: number;
 }
+
+export interface DiscoveredChannel {
+  chat_id: number;
+  username: string | null;
+  title: string | null;
+  raw_input: string;
+  subscriber_count: number;
+  already_target: boolean;
+}

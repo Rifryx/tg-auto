@@ -588,6 +588,89 @@ def delete_target(
     session.commit()
 
 
+@router.post(
+    "/campaigns/{campaign_id}/targets/discover-intersection",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def discover_intersection(
+    campaign_id: int,
+    min_accounts: int = Query(
+        2, ge=1, description="Минимум аккаунтов, у которых канал общий"
+    ),
+    session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> dict[str, str]:
+    """Ищет цели по пересечению подписок аккаунтов кампании.
+
+    Возвращает job_id; прогресс и найденные каналы фронт забирает по SSE.
+    Сами каналы НЕ добавляются автоматически — пользователь выбирает нужные
+    и шлёт их в обычный POST .../targets.
+    """
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    job_id = uuid.uuid4().hex
+    await task_queue.enqueue(
+        TaskName.SHILLING_DISCOVER_INTERSECTION, campaign_id, job_id, min_accounts
+    )
+    return {"job_id": job_id}
+
+
+@router.get(
+    "/campaigns/{campaign_id}/targets/discover-intersection/{job_id}/stream"
+)
+async def discover_intersection_stream(
+    campaign_id: int,
+    job_id: str,
+    request: Request,
+) -> StreamingResponse:
+    """SSE-поток поиска пересечений (start/account_done/channel/done)."""
+    import asyncio
+    import json as _json
+
+    import redis.asyncio as aioredis
+
+    from core.config import get_settings
+    from modules.shilling.worker.intersection import intersection_channel
+
+    channel = intersection_channel(job_id)
+    redis_client = aioredis.from_url(get_settings().redis_url)
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe(channel)
+
+    async def event_source():
+        try:
+            yield ": connected\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    message = await asyncio.wait_for(
+                        pubsub.get_message(ignore_subscribe_messages=True, timeout=15),
+                        timeout=20,
+                    )
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                if message is None:
+                    yield ": keepalive\n\n"
+                    continue
+                data = message.get("data")
+                if isinstance(data, (bytes, bytearray)):
+                    data = data.decode()
+                yield f"data: {data}\n\n"
+                try:
+                    if _json.loads(data).get("event") == "done":
+                        break
+                except (TypeError, ValueError):
+                    pass
+        finally:
+            await pubsub.unsubscribe(channel)
+            await pubsub.aclose()
+            await redis_client.aclose()
+
+    return StreamingResponse(event_source(), media_type="text/event-stream")
+
+
 # --- Чёрный список -----------------------------------------------------------
 
 
