@@ -37,7 +37,7 @@ export function BillingScreen() {
         включая новые модули по мере их выпуска.
       </p>
 
-      <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {PLANS.map((plan) =>
           plan.id === "pro" ? (
             <ProCard

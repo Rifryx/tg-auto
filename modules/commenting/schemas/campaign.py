@@ -95,6 +95,7 @@ class CampaignUpdate(BaseModel):
 
 class CampaignRead(ORMModel):
     id: int
+    owner_user_id: Optional[str]
     name: str
     target_channel: Optional[str]
     discussion_group_id: Optional[int]

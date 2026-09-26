@@ -58,9 +58,17 @@ backend'а. Каждый пункт — самодостаточное ТЗ: ч�
 
 ## [E2.1] Backfill существующих постов (`post_scope='existing' | 'mixed'`)
 
-**Статус:** поле `campaigns.post_scope` есть в схеме и API (миграция 0028),
-но воркер обрабатывает только новые посты (listener). Значения `existing`
-и `mixed` пока эквивалентны `new`.
+**Статус: ✅ СДЕЛАНО (2026-09-24).** `modules/commenting/worker/backfill.py`:
+задача `commenting.backfill_channel` идёт по истории канала через
+Telethon `iter_messages`, батчами 100, паузы 60–120с, hard cap 200 постов.
+Триггеры: успешный `resolve_channel` для «кампанийного» канала (E3.2),
+`sync_account_subscriptions` при `by_account_subscriptions`, PATCH
+`post_scope` через API. Дедуп по `CommentLog(account_id, post_channel_msg_id)`
+через новый индекс (миграция 0033). Фильтр keywords/probability тот же,
+что у listener'а. Тесты: `tests/test_commenting_backfill.py` (10). Ниже — исходное ТЗ.
+
+~~поле `campaigns.post_scope` есть в схеме и API, но воркер обрабатывает
+только новые посты. Значения `existing` и `mixed` пока эквивалентны `new`.~~
 
 **Что должно делать:**
 - Одноразовый (или разовый на кампанию/канал) проход по истории привязанных
@@ -96,9 +104,15 @@ backend'а. Каждый пункт — самодостаточное ТЗ: ч�
 
 ## [E2.2] Лимиты работы: `max_comments`, `min_words`, окно и пауза
 
-**Статус:** поля `work_mode / max_comments / min_words /
-window_after_post_sec / pause_between_sec` есть в модели и API, но
-runner их пока не читает — лимиты не применяются.
+**Статус: ✅ СДЕЛАНО (2026-09-24).** `modules/commenting/worker/limits.py`,
+подключено в обе ветки раннера (on_new_post/post_comment и
+on_channel_post/post_channel_comment), миграция 0031
+(`campaign_accounts.last_posted_at`), тесты `tests/test_commenting_limits.py`.
+Известное ограничение: `max_comments` может быть превышен на число
+одновременно отправляющих задач воркера (без резервирования слотов).
+Ниже — исходное ТЗ, для истории.
+
+~~поля есть в модели и API, но runner их пока не читает.~~
 
 **Что должно делать:**
 - `work_mode='by_count'`: перед постингом каждого коммента считать
@@ -136,7 +150,13 @@ runner их пока не читает — лимиты не применяют�
 
 ## [E3.1] Folder-links (`t.me/addlist/...`, `t.me/list/...`)
 
-**Статус:** классификатор `classify_channel_input` относит такие ссылки
+**Статус: ✅ СДЕЛАНО вместе с E3.2 (2026-09-24).** Ссылки кампании (в т.ч.
+папки) синхронизируются в `MonitoredChannel` аккаунтов, а папки раскрывает
+готовый резолвер (`worker/telegram_folders.join_folder`). Ограничение: папка
+раскрывается только при политике «Подписаться + уведомить» — при «Только
+уведомить» создаётся алерт `not_subscribed`. Ниже — исходное ТЗ.
+
+Было: классификатор `classify_channel_input` относит такие ссылки
 к `kind='folder'` и БД хранит их, но резолвер (папка → набор чатов)
 не реализован. В UI показываем «распознан пак-каналов, но пока не
 поддерживается».
@@ -148,9 +168,15 @@ runner их пока не читает — лимиты не применяют�
   создавать по одному `CampaignChannel` с `kind='username'` и уже
   резолвленным `resolved_chat_id`.
 
+**Уже есть в проекте:** разворачивание папок реализовано для массового
+действия «вступить в каналы» — `worker/telegram_folders` (используется в
+`modules/bulk/actions/join_channels.py`, флаг `expand_folders`). Резолвер
+кампании должен переиспользовать его, а не писать заново.
+
 **Что писать:**
 1. Модуль `modules/commenting/worker/channel_resolver.py`:
-   - `resolve_folder(client, slug: str) -> list[ResolvedChat]`,
+   - `resolve_folder(client, slug: str) -> list[ResolvedChat]` — обёртка
+     над `worker/telegram_folders`,
    - `resolve_username(client, ref: str) -> ResolvedChat | None`,
    - `resolve_invite(client, hash_: str) -> ResolvedChat | None`.
 2. Таск `commenting.resolve_campaign_channel` (per raw_input), enqueue
@@ -170,8 +196,17 @@ runner их пока не читает — лимиты не применяют�
 
 ## [E3.2] Runtime целевых каналов: резолвер + not-subscribed handler + auto-blacklist
 
-**Статус:** схема (Campaign.channel_source_mode / on_not_subscribed_action)
-и CRUD целевых каналов/ЧС есть. Воркер их пока не читает.
+**Статус: ✅ СДЕЛАНО (2026-09-24).** Миграция 0032
+(`monitored_channels.source_campaign_id`, таблица `commenting.channel_alerts`);
+`worker/channels.py`: `sync_campaign_channels`, `sync_account_subscriptions`,
+политика notify/join в `resolve_channel`; `worker/alerts.py`; раннер разбирает
+ошибки доступа (ЧС / переподписка / «нет доступа»); алерты — в бот
+(`commenting.alerts`), на дашборд и в детали кампании. Тесты:
+`tests/test_commenting_channel_sync.py`.
+Известное: in-app лента уведомлений отдельно не сделана — используются
+карточки алертов дашборда. Ниже — исходное ТЗ.
+
+~~схема есть, воркер их пока не читает.~~
 
 **Что должно делать:**
 1. **Резолвер** для `explicit_links`: при attach аккаунта или создании
@@ -218,8 +253,20 @@ runner их пока не читает — лимиты не применяют�
 
 ## [E4.1] Стиль коммента: emojis / stickers / attach_image / write_as_channel
 
-**Статус:** флаги `use_emojis / use_stickers / attach_image /
-write_as_channel` есть в модели и API. Runtime их пока не читает.
+**Статус: ✅ СДЕЛАНО (2026-09-24).** `modules/commenting/worker/delivery.py`:
+* `use_emojis`: инструкция в system prompt + strip эмодзи safety-net'ом;
+* `use_stickers`: первый стикер-пак аккаунта (кеш per-account на задачу),
+  ~25% комментов уходит стикером; без пака — тексом молча;
+* `attach_image`: картинки владельца привязываются к кампании через
+  `commenting.campaign_media_assets` (миграция 0034), ~40% комментов
+  уходит с картинкой; без привязанных — текстом;
+* `write_as_channel`: `channels.getSendAs` (кеш на группу), если аккаунт
+  может писать от канала — send_as=channel; иначе от аккаунта.
+Также добавлен `campaigns.owner_user_id` (проставляется при create),
+эндпоинты `GET/PUT /campaigns/{id}/media` для привязки картинок владельца.
+Тесты: `tests/test_commenting_delivery.py` (18). Ниже — исходное ТЗ.
+
+~~флаги есть в модели и API. Runtime их пока не читает.~~
 
 **Что должно делать:**
 - `use_emojis` (default TRUE): если FALSE — при генерации LLM просить
@@ -263,8 +310,19 @@ write_as_channel` есть в модели и API. Runtime их пока не ч
 
 ## [E4.2] Verify-after-post seam (live-verification gate)
 
-**Статус:** поля `verify_after_post`, `verify_delay_sec` (default 300)
-есть в модели/API. Задача-«верификатор» не запланирована.
+**Статус: ✅ СДЕЛАНО (2026-09-24).** `modules/commenting/worker/verify.py`:
+задача `commenting.verify_comment(comment_log_id)` — тем же аккаунтом,
+что постил, читает `posted_message_id` в discussion-группе. Если None →
+`status=flagged`, `error=removed_by_moderator`, `removed_at=now`, алерт
+`commenting.alerts` (kind=`comment_removed`). Если ok → `verified_at=now`.
+Аккаунт не в pool/assigned → скипаем (не «удалено»). Ошибка сети/доступа
+тоже скипается, а не помечает как удалённый. Планирование — после
+успешной вставки CommentLog в обеих ветках раннера. Миграция 0035:
+`comment_logs.verified_at`, `comment_logs.removed_at`. Бот-нотифаер
+поддерживает kind `comment_removed`. Тесты
+`tests/test_commenting_verify.py` (10). Ниже — исходное ТЗ.
+
+~~поля есть в модели/API. Задача-верификатор не запланирована.~~
 
 **Что должно делать:**
 - Если `verify_after_post=TRUE`: после успешного `post_comment`
@@ -301,3 +359,66 @@ write_as_channel` есть в модели и API. Runtime их пока не ч
 (точка планирования), `modules/commenting/models/comment_log.py`
 (куда добавлять `verified_at`), MEMORY `monitoring-architecture.md`
 (канон правила).
+
+---
+
+## [UI.1] Десктоп-раскладка остальных экранов
+
+**Статус: ✅ СДЕЛАНО (2026-09-25).** Двух-колонная раскладка (`lg:grid`)
+на: Dashboard (алерты во всю ширину сеткой, стадии сеткой без скролла,
+модули+активность рядом), CampaignDetailScreen (настройки+стиль+аккаунты
+слева, каналы+статистика+лог справа), AccountDetailScreen (профиль+
+персона+2FA слева, прокси+фингерпринт+кампания+прогрев+активность справа).
+`ProxiesScreen`/`PersonasScreen` — 2–3 колонки списка на lg/xl.
+`BillingScreen` — 2 колонки планов на lg. `AccountPickerSheet`/`PaymentSheet`
+как окно по центру на ПК пока не сделаны — оставим на потом, они
+редко открываются и снизу тоже работают.
+
+---
+
+## [UI.2] «Добавить группу» в уже созданной кампании
+
+**Статус: ✅ СДЕЛАНО (2026-09-25).** `AddGroupBar` вынесен в
+`modules/commenting/components/AddGroupBar.tsx` и подключён в
+`CampaignDetailScreen` — добавляет только свободные аккаунты группы
+(уже привязанные пропускает), с индикатором «Добавляем…».
+
+---
+
+## [UI.3] Пресеты аккаунтов vs группы аккаунтов — решить судьбу
+
+**Статус: ✅ ЧАСТИЧНО (2026-09-25).** `AccountPresetBar` убран из
+`NewCampaignScreen` — теперь набор аккаунтов задаётся только через
+группы (`AddGroupBar`). Пресеты задержек не тронуты. Эндпоинты
+`/presets/accounts`, модель/репо/миграция таблицы `account_presets`
+пока оставлены для совместимости — фронт их не вызывает; удалять
+таблицу отдельным этапом, когда будет уверенность, что никто не
+использует.
+
+---
+
+## [UI.4] Убрать служебные отсылки из текстов интерфейса
+
+**Статус:** в подсказках «Новой кампании» и деталей кампании видны
+ссылки вида «DEFERRED-FEATURES [E2.1]», «runtime — E4.1» — это жаргон
+для разработчика, пользователю непонятно.
+
+**Что сделать:** заменить на человеческие формулировки («скоро»,
+«начнёт работать в следующем обновлении») или скрыть такие тумблеры до
+реализации runtime.
+
+---
+
+## [DEV.1] Мелкий техдолг, замеченный по ходу
+
+* ✅ ~~`ProxiesScreen.tsx:109` — ошибка TypeScript~~ **fixed (2026-09-25):**
+  `toDelete` и `PROXY_DOT/PROXY_LABEL` теперь типизированы через
+  `ProxyOccupancy` (это то, что реально приходит из `pool()`).
+* ✅ ~~Локальный `.venv`: SQLAlchemy 2.0.34/Alembic 1.13.2 ниже минимумов~~
+  **fixed (2026-09-25):** обновлено до 2.1.0 / 1.20.0 (как в CI); все 522
+  теста проходят.
+* ✅ ~~Двойной API на порту 8000~~ **fixed (2026-09-25):** сервис `api`
+  в `docker-compose.yml` вынесен в профиль `prod` — `docker compose up`
+  без `--profile prod` его не поднимает и не мешает локальному uvicorn.
+  Плюс `docker update --restart=no neuro_api` — старый контейнер сам
+  не воскреснет.

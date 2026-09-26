@@ -31,6 +31,18 @@ from modules.commenting.repositories import (
 from modules.commenting.schemas import CommentLogCreate
 import structlog
 
+from telethon.errors import (
+    ChannelInvalidError,
+    ChannelPrivateError,
+    ChatAdminRequiredError,
+    ChatGuestSendForbiddenError,
+    ChatWriteForbiddenError,
+    UserBannedInChannelError,
+    UserNotParticipantError,
+)
+
+from modules.commenting.worker import delivery, limits
+from modules.commenting.worker.alerts import auto_blacklist, raise_alert
 from worker.client_pool import ClientPool
 from worker.health import Governor, around_telethon_call
 from worker.llm import Message, StyleRandomizer, get_provider
@@ -114,6 +126,9 @@ def _build_system_prompt(session, campaign, account) -> str:
         if persona is not None:
             tags = ", ".join(persona.personality_tags or [])
             prompt = f"{prompt}\n\nТы — {persona.name}. Черты: {tags}."
+    # use_emojis=False: явно просим LLM не использовать эмодзи; ниже в
+    # _generate ещё раз почистим safety net'ом (E4.1).
+    prompt += delivery.emoji_prompt_suffix(campaign)
     return prompt
 
 
@@ -135,6 +150,172 @@ def _persona_for(session, account):
     return PersonaRepository(session).get(account.persona_id)
 
 
+def _blacklisted(session, campaign_id: int, *, chat_id: Optional[int], ref: Optional[str]) -> bool:
+    """Канал в чёрном списке кампании (по id канала или username без «@»)."""
+    from modules.commenting.repositories import ChannelBlacklistRepository
+
+    username = (ref or "").lstrip("@") or None
+    return (
+        ChannelBlacklistRepository(session).find(campaign_id, chat_id=chat_id, username=username)
+        is not None
+    )
+
+
+# Ошибки доступа при отправке (E3.2). Не роняем задачу (иначе воркер
+# повторит отправку впустую), а разбираем: лог + алерт + действие.
+_NO_ACCESS = (ChannelPrivateError, ChannelInvalidError)
+_NOT_MEMBER = (UserNotParticipantError, ChatGuestSendForbiddenError)
+_NO_RIGHTS = (ChatWriteForbiddenError, UserBannedInChannelError, ChatAdminRequiredError)
+ACCESS_ERRORS = _NO_ACCESS + _NOT_MEMBER + _NO_RIGHTS
+
+
+async def _schedule_verify(ctx: dict, campaign_id: int, comment_log_id: Optional[int], posted_message_id: Optional[int], now: datetime) -> None:
+    if comment_log_id is None or posted_message_id is None:
+        return
+    with ctx["session_factory"]() as session:
+        campaign = CampaignRepository(session).get(campaign_id)
+    if campaign is None or not campaign.verify_after_post:
+        return
+    run_at = now + timedelta(seconds=campaign.verify_delay_sec)
+    await _task_queue(ctx).schedule(
+        TaskName.COMMENTING_VERIFY_COMMENT, run_at, comment_log_id
+    )
+
+
+async def _handle_access_error(
+    ctx: dict,
+    exc: Exception,
+    *,
+    campaign_id: int,
+    account_id: int,
+    channel_msg_id: int,
+    text: str,
+    reply_to: int,
+    channel_ref: Optional[str],
+    channel_tg_id: Optional[int],
+    monitored_channel_id: Optional[int],
+    blacklist_username: Optional[str] = None,
+) -> None:
+    """channel_ref — ключ алертов (исходная ссылка, как у резолвера, чтобы он
+    сам закрыл алерт после переподписки); blacklist_username — username канала
+    для ЧС."""
+    from modules.commenting.worker.channels import ACTION_DETACH, publish_channel_lifecycle
+
+    publisher = ctx.get("publisher")
+    err = type(exc).__name__
+    ref = channel_ref or (f"tg:{channel_tg_id}" if channel_tg_id else "?")
+    rejoin = False
+    detach = False
+
+    with ctx["session_factory"]() as session:
+        CommentLogRepository(session).create(
+            CommentLogCreate(
+                campaign_id=campaign_id, account_id=account_id,
+                post_channel_msg_id=channel_msg_id, comment_text=text,
+                status=CommentStatus.FAILED, in_reply_to_message_id=reply_to,
+                error=f"access:{err}",
+            )
+        )
+        session.commit()
+        mon_repo = MonitoredChannelRepository(session)
+
+        if isinstance(exc, _NO_ACCESS):
+            # Канал закрыт/недоступен — в ЧС кампании, чтобы не пытаться снова.
+            username = (blacklist_username or channel_ref or "").lstrip("@") or None
+            if username and username.startswith("tg:"):
+                username = None
+            added = (channel_tg_id is not None or username is not None) and auto_blacklist(
+                session, campaign_id=campaign_id, chat_id=channel_tg_id,
+                username=username, reason=err,
+            )
+            if added:
+                raise_alert(
+                    session, publisher, campaign_id=campaign_id, account_id=account_id,
+                    channel_ref=ref, kind="blacklisted",
+                    detail=f"Канал недоступен ({err}) — добавлен в чёрный список кампании.",
+                )
+            detach = True
+        elif isinstance(exc, _NOT_MEMBER):
+            campaign = CampaignRepository(session).get(campaign_id)
+            subscribe = campaign is not None and campaign.on_not_subscribed_action == "subscribe_and_notify"
+            raise_alert(
+                session, publisher, campaign_id=campaign_id, account_id=account_id,
+                channel_ref=ref, kind="not_subscribed",
+                detail=(
+                    "Аккаунт не состоит в канале/обсуждении — подписываем заново."
+                    if subscribe and monitored_channel_id
+                    else "Аккаунт не состоит в канале/обсуждении — коммент не отправлен."
+                ),
+            )
+            rejoin = bool(subscribe and monitored_channel_id)
+            detach = not rejoin
+        else:
+            raise_alert(
+                session, publisher, campaign_id=campaign_id, account_id=account_id,
+                channel_ref=ref, kind="access_lost",
+                detail=f"Нет прав писать в обсуждение ({err}).",
+            )
+            detach = True
+
+        if monitored_channel_id is not None:
+            if rejoin:
+                row = mon_repo.get(monitored_channel_id)
+                if row is not None:
+                    row.status = "pending"
+                    row.error = None
+            else:
+                mon_repo.mark_failed(monitored_channel_id, f"access:{err}")
+            session.commit()
+
+    if monitored_channel_id is not None:
+        if rejoin:
+            await _task_queue(ctx).enqueue(TaskName.COMMENTING_RESOLVE_CHANNEL, monitored_channel_id)
+        if detach or rejoin:
+            publish_channel_lifecycle(publisher, account_id, monitored_channel_id, ACTION_DETACH)
+    get_logger().warning(
+        "commenting.post.access_error", account_id=account_id, campaign_id=campaign_id,
+        error=err, rejoin=rejoin,
+    )
+
+
+def _limit_skip_reason(session, campaign, post_date_ts: Optional[float], now: datetime) -> Optional[str]:
+    """Причина не комментировать по лимитам кампании (E2.2) или None."""
+    if limits.max_comments_reached(session, campaign):
+        return "max_comments_reached"
+    if limits.window_closed(campaign, limits.post_date_from_ts(post_date_ts), now):
+        return "window_closed"
+    return None
+
+
+async def _generate(ctx, session, campaign, account, provider, context) -> tuple[str, bool]:
+    """Текст коммента с учётом min_words (до 3 попыток) и стиля (E4.1)."""
+    system = _build_system_prompt(session, campaign, account)
+    persona = _persona_for(session, account)
+    style = _style(ctx)
+
+    async def once() -> str:
+        raw = await provider.generate(system, context)
+        return delivery.apply_style(raw, campaign, persona, style)
+
+    return await limits.generate_with_min_words(once, campaign.min_words or 0)
+
+
+def _log_below_min_words(session, campaign, account_id, channel_msg_id, text, reply_to) -> None:
+    """Не набрали min_words — коммент не шлём, но фиксируем в логе/статистике."""
+    CommentLogRepository(session).create(
+        CommentLogCreate(
+            campaign_id=campaign.id,
+            account_id=account_id,
+            post_channel_msg_id=channel_msg_id,
+            comment_text=text,
+            status=CommentStatus.FAILED,
+            in_reply_to_message_id=reply_to,
+            error=f"below_min_words:{campaign.min_words}",
+        )
+    )
+    session.commit()
+
+
 # --- задача on_new_post ------------------------------------------------------
 
 
@@ -144,6 +325,7 @@ async def on_new_post(
     channel_msg_id: int,
     in_reply_to: Optional[int] = None,
     thread_depth: int = 0,
+    post_date_ts: Optional[float] = None,
 ) -> int:
     now = _now(ctx)
     rng = _rng(ctx)
@@ -159,6 +341,13 @@ async def on_new_post(
         if not is_within_active_hours(now, campaign):
             log.info("commenting.on_new_post.skip", campaign_id=campaign_id, reason="inactive_hours")
             return 0
+        reason = _limit_skip_reason(session, campaign, post_date_ts, now)
+        if reason:
+            log.info("commenting.on_new_post.skip", campaign_id=campaign_id, reason=reason)
+            return 0
+        if _blacklisted(session, campaign_id, chat_id=None, ref=campaign.target_channel):
+            log.info("commenting.on_new_post.skip", campaign_id=campaign_id, reason="blacklisted")
+            return 0
 
         accounts = _assigned_accounts(session, campaign_id)
         if not accounts:
@@ -171,16 +360,17 @@ async def on_new_post(
 
         reply_target = in_reply_to if in_reply_to is not None else channel_msg_id
         provider = ctx.get("llm_provider") or get_provider(campaign.llm_provider)
-        style = _style(ctx)
         delay_lo = campaign.posting_delay_min_sec
         delay_hi = campaign.posting_delay_max_sec
 
         plans = []
         for account in chosen:
-            system = _build_system_prompt(session, campaign, account)
             context = _thread_context(session, campaign_id, channel_msg_id)
-            raw = await provider.generate(system, context)
-            text = style.randomize(raw, _persona_for(session, account))
+            text, ok = await _generate(ctx, session, campaign, account, provider, context)
+            if not ok:
+                _log_below_min_words(session, campaign, account.id, channel_msg_id, text, reply_target)
+                log.info("commenting.on_new_post.skip_account", account_id=account.id, reason="below_min_words")
+                continue
             delay = rng.uniform(delay_lo, delay_hi)
             plans.append((account.id, text, delay))
 
@@ -195,6 +385,7 @@ async def on_new_post(
             channel_msg_id,
             reply_target,
             thread_depth=thread_depth,
+            post_date_ts=post_date_ts,
         )
     log.info(
         "commenting.on_new_post.scheduled",
@@ -217,6 +408,7 @@ async def post_comment(
     channel_msg_id: int,
     in_reply_to_message_id: int,
     thread_depth: int = 0,
+    post_date_ts: Optional[float] = None,
 ) -> Optional[int]:
     now = _now(ctx)
     session_factory = ctx["session_factory"]
@@ -224,19 +416,7 @@ async def post_comment(
     task_queue = _task_queue(ctx)
     log = get_logger()
 
-    with session_factory() as session:
-        campaign = CampaignRepository(session).get(campaign_id)
-        if campaign is None:
-            log.info("commenting.post_comment.skip", account_id=account_id, reason="no_campaign")
-            return None
-        if not is_within_active_hours(now, campaign):
-            log.info("commenting.post_comment.skip", account_id=account_id, reason="inactive_hours")
-            return None
-        discussion_group_id = campaign.discussion_group_id
-
-    # rate-limit governor
-    if not await _governor(ctx).check_and_reserve(account_id, "comment"):
-        run_at = now + timedelta(minutes=GOVERNOR_RETRY_MINUTES)
+    async def reschedule(run_at: datetime) -> None:
         await task_queue.schedule(
             TaskName.COMMENTING_POST_COMMENT,
             run_at,
@@ -246,28 +426,82 @@ async def post_comment(
             channel_msg_id,
             in_reply_to_message_id,
             thread_depth=thread_depth,
+            post_date_ts=post_date_ts,
         )
+
+    with session_factory() as session:
+        campaign = CampaignRepository(session).get(campaign_id)
+        if campaign is None:
+            log.info("commenting.post_comment.skip", account_id=account_id, reason="no_campaign")
+            return None
+        if not is_within_active_hours(now, campaign):
+            log.info("commenting.post_comment.skip", account_id=account_id, reason="inactive_hours")
+            return None
+        # Лимиты перепроверяем при отправке: между планированием и отправкой
+        # мог набраться max_comments или закрыться окно.
+        reason = _limit_skip_reason(session, campaign, post_date_ts, now)
+        if reason:
+            log.info("commenting.post_comment.skip", account_id=account_id, reason=reason)
+            return None
+        wait = limits.pause_wait_until(
+            CampaignAccountRepository(session).get(campaign_id, account_id), campaign, now
+        )
+        discussion_group_id = campaign.discussion_group_id
+        target_channel = campaign.target_channel
+
+    if wait is not None:
+        await reschedule(wait)
+        log.info("commenting.post_comment.paused", account_id=account_id, until=wait.isoformat())
+        return None
+
+    # rate-limit governor
+    if not await _governor(ctx).check_and_reserve(account_id, "comment"):
+        await reschedule(now + timedelta(minutes=GOVERNOR_RETRY_MINUTES))
         log.info("commenting.post_comment.rate_limited", account_id=account_id)
         return None
+
+    # Занимаем слот паузы атомарно (FOR UPDATE): гонка двух задач аккаунта.
+    with session_factory() as session:
+        campaign = CampaignRepository(session).get(campaign_id)
+        wait = limits.claim_post_slot(session, campaign, account_id, now)
+    if wait is not None:
+        await reschedule(wait)
+        log.info("commenting.post_comment.paused", account_id=account_id, until=wait.isoformat())
+        return None
+
+    # Кампания нужна для delivery.deliver_comment: use_stickers / attach_image /
+    # write_as_channel читаются оттуда. Берём свежую (могли поменять флаги за
+    # время между планированием и отправкой).
+    with session_factory() as session:
+        campaign_row = CampaignRepository(session).get(campaign_id)
 
     pool = _pool(ctx)
     client = await pool.get(account_id)
     try:
-        sent = await around_telethon_call(
-            lambda: client.send_message(
-                discussion_group_id, text, reply_to=in_reply_to_message_id
-            ),
+        sent, delivery_mode = await delivery.deliver_comment(
+            ctx, client, campaign_row,
             account_id=account_id,
-            session_factory=session_factory,
-            publisher=publisher,
+            discussion_group_id=discussion_group_id,
+            text=text,
+            reply_to=in_reply_to_message_id,
             now=now,
+            publisher=publisher,
+            rng=_rng(ctx),
         )
+    except ACCESS_ERRORS as exc:
+        await _handle_access_error(
+            ctx, exc, campaign_id=campaign_id, account_id=account_id,
+            channel_msg_id=channel_msg_id, text=text, reply_to=in_reply_to_message_id,
+            channel_ref=target_channel, channel_tg_id=None, monitored_channel_id=None,
+        )
+        return None
     finally:
         await pool.release(account_id)
 
     posted_message_id = getattr(sent, "id", None)
+    comment_log_id = None
     with session_factory() as session:
-        CommentLogRepository(session).create(
+        row = CommentLogRepository(session).create(
             CommentLogCreate(
                 campaign_id=campaign_id,
                 account_id=account_id,
@@ -279,6 +513,11 @@ async def post_comment(
             )
         )
         session.commit()
+        comment_log_id = row.id
+    # Verify-after-post (E4.2): расписываем задачу тем же аккаунтом на now +
+    # verify_delay_sec. Кампанию берём свежую — verify_after_post могли
+    # включить/выключить между планированием и отправкой коммента.
+    await _schedule_verify(ctx, campaign_id, comment_log_id, posted_message_id, now)
 
     log.info(
         "commenting.post_comment.posted",
@@ -286,7 +525,9 @@ async def post_comment(
         posted_message_id=posted_message_id,
         thread_depth=thread_depth,
     )
-    await maybe_continue_thread(ctx, campaign_id, channel_msg_id, posted_message_id, thread_depth)
+    await maybe_continue_thread(
+        ctx, campaign_id, channel_msg_id, posted_message_id, thread_depth, post_date_ts
+    )
     return posted_message_id
 
 
@@ -296,6 +537,7 @@ async def maybe_continue_thread(
     channel_msg_id: int,
     comment_msg_id: Optional[int],
     thread_depth: int,
+    post_date_ts: Optional[float] = None,
 ) -> bool:
     """Тред-симуляция: с шансом CONTINUE запускает ответ на свой коммент (≤ глубины)."""
     if comment_msg_id is None or thread_depth >= MAX_THREAD_DEPTH:
@@ -308,6 +550,7 @@ async def maybe_continue_thread(
         channel_msg_id,
         in_reply_to=comment_msg_id,
         thread_depth=thread_depth + 1,
+        post_date_ts=post_date_ts,
     )
     get_logger().info(
         "commenting.thread.continue",
@@ -347,6 +590,7 @@ async def on_channel_post(
     channel_msg_id: int,
     in_reply_to: Optional[int] = None,
     thread_depth: int = 0,
+    post_date_ts: Optional[float] = None,
 ) -> int:
     """Пост в канале аккаунта → запланировать ОДИН коммент этим аккаунтом."""
     now = _now(ctx)
@@ -367,20 +611,28 @@ async def on_channel_post(
         if not is_within_active_hours(now, campaign):
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="inactive_hours")
             return 0
+        reason = _limit_skip_reason(session, campaign, post_date_ts, now)
+        if reason:
+            log.info("commenting.on_channel_post.skip", account_id=account_id, reason=reason)
+            return 0
 
         ch = MonitoredChannelRepository(session).get(monitored_channel_id)
         if ch is None or ch.status != "working" or ch.discussion_group_id is None:
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="channel_not_working")
             return 0
         discussion_group_id = ch.discussion_group_id
+        if _blacklisted(session, campaign_id, chat_id=ch.channel_tg_id, ref=ch.channel_ref):
+            log.info("commenting.on_channel_post.skip", account_id=account_id, reason="blacklisted")
+            return 0
 
         reply_target = in_reply_to if in_reply_to is not None else channel_msg_id
         provider = ctx.get("llm_provider") or get_provider(campaign.llm_provider)
-        style = _style(ctx)
-        system = _build_system_prompt(session, campaign, account)
         context = _thread_context(session, campaign_id, channel_msg_id)
-        raw = await provider.generate(system, context)
-        text = style.randomize(raw, _persona_for(session, account))
+        text, ok = await _generate(ctx, session, campaign, account, provider, context)
+        if not ok:
+            _log_below_min_words(session, campaign, account_id, channel_msg_id, text, reply_target)
+            log.info("commenting.on_channel_post.skip", account_id=account_id, reason="below_min_words")
+            return 0
         delay = rng.uniform(campaign.posting_delay_min_sec, campaign.posting_delay_max_sec)
 
     run_at = now + timedelta(seconds=delay)
@@ -394,6 +646,7 @@ async def on_channel_post(
         channel_msg_id,
         reply_target,
         thread_depth=thread_depth,
+        post_date_ts=post_date_ts,
     )
     log.info(
         "commenting.on_channel_post.scheduled",
@@ -411,6 +664,7 @@ async def post_channel_comment(
     channel_msg_id: int,
     in_reply_to_message_id: int,
     thread_depth: int = 0,
+    post_date_ts: Optional[float] = None,
 ) -> Optional[int]:
     """Постит коммент аккаунта в discussion-группу его канала (+ governor)."""
     now = _now(ctx)
@@ -419,8 +673,7 @@ async def post_channel_comment(
     task_queue = _task_queue(ctx)
     log = get_logger()
 
-    if not await _governor(ctx).check_and_reserve(account_id, "comment"):
-        run_at = now + timedelta(minutes=GOVERNOR_RETRY_MINUTES)
+    async def reschedule(run_at: datetime) -> None:
         await task_queue.schedule(
             TaskName.COMMENTING_POST_CHANNEL_COMMENT,
             run_at,
@@ -431,28 +684,85 @@ async def post_channel_comment(
             channel_msg_id,
             in_reply_to_message_id,
             thread_depth=thread_depth,
+            post_date_ts=post_date_ts,
         )
+
+    with session_factory() as session:
+        campaign = CampaignRepository(session).get(campaign_id)
+        if campaign is not None:
+            reason = _limit_skip_reason(session, campaign, post_date_ts, now)
+            if reason:
+                log.info("commenting.post_channel_comment.skip", account_id=account_id, reason=reason)
+                return None
+            wait = limits.pause_wait_until(
+                CampaignAccountRepository(session).get(campaign_id, account_id), campaign, now
+            )
+            if wait is not None:
+                await reschedule(wait)
+                log.info("commenting.post_channel_comment.paused", account_id=account_id, until=wait.isoformat())
+                return None
+
+    if not await _governor(ctx).check_and_reserve(account_id, "comment"):
+        await reschedule(now + timedelta(minutes=GOVERNOR_RETRY_MINUTES))
         log.info("commenting.post_channel_comment.rate_limited", account_id=account_id)
         return None
+
+    with session_factory() as session:
+        campaign = CampaignRepository(session).get(campaign_id)
+        wait = limits.claim_post_slot(session, campaign, account_id, now) if campaign else None
+    if wait is not None:
+        await reschedule(wait)
+        log.info("commenting.post_channel_comment.paused", account_id=account_id, until=wait.isoformat())
+        return None
+
+    with session_factory() as session:
+        mon = next(
+            (
+                r
+                for r in MonitoredChannelRepository(session).list_by_discussion_group(discussion_group_id)
+                if r.account_id == account_id
+            ),
+            None,
+        )
+        mon_id = mon.id if mon else None
+        mon_ref = mon.input_ref if mon else None
+        mon_username = mon.channel_ref if mon else None
+        mon_tg_id = mon.channel_tg_id if mon else None
+
+    # Кампания нужна для delivery.deliver_comment: use_stickers / attach_image /
+    # write_as_channel читаются оттуда. Берём свежую (могли поменять флаги за
+    # время между планированием и отправкой).
+    with session_factory() as session:
+        campaign_row = CampaignRepository(session).get(campaign_id)
 
     pool = _pool(ctx)
     client = await pool.get(account_id)
     try:
-        sent = await around_telethon_call(
-            lambda: client.send_message(
-                discussion_group_id, text, reply_to=in_reply_to_message_id
-            ),
+        sent, delivery_mode = await delivery.deliver_comment(
+            ctx, client, campaign_row,
             account_id=account_id,
-            session_factory=session_factory,
-            publisher=publisher,
+            discussion_group_id=discussion_group_id,
+            text=text,
+            reply_to=in_reply_to_message_id,
             now=now,
+            publisher=publisher,
+            rng=_rng(ctx),
         )
+    except ACCESS_ERRORS as exc:
+        await _handle_access_error(
+            ctx, exc, campaign_id=campaign_id, account_id=account_id,
+            channel_msg_id=channel_msg_id, text=text, reply_to=in_reply_to_message_id,
+            channel_ref=mon_ref, channel_tg_id=mon_tg_id, monitored_channel_id=mon_id,
+            blacklist_username=mon_username,
+        )
+        return None
     finally:
         await pool.release(account_id)
 
     posted_message_id = getattr(sent, "id", None)
+    comment_log_id = None
     with session_factory() as session:
-        CommentLogRepository(session).create(
+        row = CommentLogRepository(session).create(
             CommentLogCreate(
                 campaign_id=campaign_id,
                 account_id=account_id,
@@ -464,13 +774,18 @@ async def post_channel_comment(
             )
         )
         session.commit()
+        comment_log_id = row.id
+    # Verify-after-post (E4.2): расписываем задачу тем же аккаунтом на now +
+    # verify_delay_sec. Кампанию берём свежую — verify_after_post могли
+    # включить/выключить между планированием и отправкой коммента.
+    await _schedule_verify(ctx, campaign_id, comment_log_id, posted_message_id, now)
 
     log.info(
         "commenting.post_channel_comment.posted",
         account_id=account_id, posted_message_id=posted_message_id, thread_depth=thread_depth,
     )
     await maybe_continue_channel_thread(
-        ctx, account_id, channel_msg_id, posted_message_id, thread_depth
+        ctx, account_id, channel_msg_id, posted_message_id, thread_depth, post_date_ts
     )
     return posted_message_id
 
@@ -481,6 +796,7 @@ async def maybe_continue_channel_thread(
     channel_msg_id: int,
     comment_msg_id: Optional[int],
     thread_depth: int,
+    post_date_ts: Optional[float] = None,
 ) -> bool:
     """Тред-симуляция для аккаунт-центричной ветки (ответ на свой же коммент)."""
     if comment_msg_id is None or thread_depth >= MAX_THREAD_DEPTH:
@@ -501,6 +817,7 @@ async def maybe_continue_channel_thread(
         channel_msg_id,
         in_reply_to=comment_msg_id,
         thread_depth=thread_depth + 1,
+        post_date_ts=post_date_ts,
     )
     get_logger().info(
         "commenting.channel_thread.continue",

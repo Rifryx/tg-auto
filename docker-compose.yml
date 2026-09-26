@@ -44,6 +44,10 @@ services:
       context: .
       dockerfile: Dockerfile.api
     container_name: neuro_api
+    # Профиль prod: `docker compose up` (без флага) НЕ поднимает api,
+    # чтобы контейнер не воевал за порт 8000 с локальным uvicorn.
+    # Запуск в проде: `docker compose --profile prod up -d`.
+    profiles: ["prod"]
     env_file: .env
     environment:
       # Внутри compose-сети сервисы адресуются по имени.

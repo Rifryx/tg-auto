@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
-from api.deps.queue import get_publisher
+from api.deps.queue import get_publisher, get_task_queue
 from core.models import Account
 from core.repositories.account import AccountRepository
 from core.repositories.account_status_history import AccountStatusHistoryRepository
@@ -91,6 +91,9 @@ def client(session):
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_publisher] = lambda: None
     app.dependency_overrides[require_user] = lambda: "tester"
+    # Роуты ставят синхронизацию каналов в очередь; настоящий TaskQueue создал
+    # бы глобальный пул Redis в event loop TestClient'а и сломал бы соседние тесты.
+    app.dependency_overrides[get_task_queue] = lambda: _NullQueue()
     return TestClient(app)
 
 
@@ -210,6 +213,11 @@ def test_attach_from_banned_conflict(session, client):
 # --- Публикация campaign_lifecycle (аудит #4/#12) ----------------------------
 
 
+class _NullQueue:
+    async def enqueue(self, *args, **kwargs):
+        return "job"
+
+
 class _SpyPublisher:
     """Ловит публикации; опционально проверяет инвариант в момент publish."""
 
@@ -232,6 +240,9 @@ def _client_with_publisher(session, publisher) -> TestClient:
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_publisher] = lambda: publisher
     app.dependency_overrides[require_user] = lambda: "tester"
+    # Роуты ставят синхронизацию каналов в очередь; настоящий TaskQueue создал
+    # бы глобальный пул Redis в event loop TestClient'а и сломал бы соседние тесты.
+    app.dependency_overrides[get_task_queue] = lambda: _NullQueue()
     return TestClient(app)
 
 

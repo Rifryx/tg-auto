@@ -56,11 +56,11 @@ export function AccountPickerSheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col justify-end bg-[color-mix(in_srgb,var(--bg-base)_72%,transparent)]"
+      className="fixed inset-0 z-50 flex flex-col justify-end bg-[color-mix(in_srgb,var(--bg-base)_72%,transparent)] lg:items-center lg:justify-center lg:p-8"
       onClick={onClose}
     >
       <div
-        className="mx-auto flex max-h-[80vh] w-full max-w-[440px] flex-col rounded-t-card border-t border-strong bg-bg-elevated"
+        className="mx-auto flex max-h-[80vh] w-full max-w-[440px] flex-col rounded-t-card border-t border-strong bg-bg-elevated lg:max-w-[560px] lg:rounded-card lg:border"
         style={{ transform: `translateY(${dragY}px)` }}
         onClick={(e) => e.stopPropagation()}
         onTouchStart={onTouchStart}

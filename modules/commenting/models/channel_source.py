@@ -15,15 +15,18 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     String,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -99,4 +102,43 @@ class ChannelBlacklist(Base, TimestampMixin):
     # True = добавлен автоматически воркером; False = пользователем вручную.
     auto: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
+    )
+
+
+ALERT_KINDS = ("not_subscribed", "auto_subscribed", "access_lost", "blacklisted")
+
+
+class ChannelAlert(Base):
+    """Событие по каналу для уведомлений (E3.2): дашборд, бот, детали кампании.
+
+    Отдельно от health_events: те кормят предиктор риска бана, а «аккаунт не
+    подписан на канал» — не сигнал бана.
+    """
+
+    __tablename__ = "channel_alerts"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('not_subscribed', 'auto_subscribed', 'access_lost', 'blacklisted')",
+            name="channel_alert_kind_allowed",
+        ),
+        {"schema": COMMENTING_SCHEMA},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    campaign_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey(f"{COMMENTING_SCHEMA}.campaigns.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    account_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    channel_ref: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    detail: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    resolved: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )

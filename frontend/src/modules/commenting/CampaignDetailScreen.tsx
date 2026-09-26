@@ -3,6 +3,7 @@ import { ArrowLeft, Check, Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { accountsApi, catalogApi } from "../../shared/accounts";
+import { projectsApi } from "../../shared/projects";
 import { Select } from "../../shared/Select";
 import { maskPhone } from "../../shared/format";
 import { statusDotClass } from "../../shared/status";
@@ -10,7 +11,9 @@ import { haptic } from "../../shared/tg";
 import type { Account } from "../../shared/types";
 import { commentingApi } from "./api";
 import { AccountPickerSheet } from "./components/AccountPickerSheet";
+import { AddGroupBar } from "./components/AddGroupBar";
 import { AiProtectionCard } from "./components/AiProtectionCard";
+import { CampaignMediaSection } from "./components/CampaignMediaSection";
 import { CommentLogList } from "./components/CommentLogList";
 import { LaunchAndStats } from "./components/LaunchAndStats";
 import {
@@ -24,7 +27,7 @@ import {
   TextInput,
   Toggle,
 } from "./components/ui";
-import type { CampaignUpdateBody, LLMProvider } from "./types";
+import type { CampaignUpdateBody, ChannelAlert, LLMProvider } from "./types";
 
 const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
   { value: "deepseek", label: "DeepSeek" },
@@ -50,6 +53,8 @@ export function CampaignDetailScreen() {
     queryFn: () => commentingApi.accounts(campaignId),
   });
   const allAccounts = useQuery({ queryKey: ["accounts", "all"], queryFn: () => accountsApi.list() });
+  const pool = useQuery({ queryKey: ["accounts", "pool"], queryFn: () => accountsApi.list("pool") });
+  const groups = useQuery({ queryKey: ["projects"], queryFn: projectsApi.list });
   const personas = useQuery({ queryKey: ["personas"], queryFn: catalogApi.personas });
   const logs = useQuery({
     queryKey: ["campaign", campaignId, "logs"],
@@ -121,6 +126,8 @@ export function CampaignDetailScreen() {
         />
       </div>
 
+      <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-8">
+      <div className="min-w-0">
       {/* Настройки — автосохранение onBlur */}
       <Section title="Настройки">
         <div className="card p-4">
@@ -191,6 +198,13 @@ export function CampaignDetailScreen() {
           </button>
         }
       >
+        <AddGroupBar
+          groups={groups.data ?? []}
+          pool={pool.data ?? []}
+          all={allAccounts.data ?? []}
+          onAdd={(ids) => attach.mutate(ids.filter((id) => !attachedIds.includes(id)))}
+          actionLabelPending={attach.isPending ? "Добавляем…" : undefined}
+        />
         {attachedIds.length === 0 ? (
           <p className="px-1 text-[13px] text-text-tertiary">Аккаунты не привязаны.</p>
         ) : (
@@ -231,13 +245,13 @@ export function CampaignDetailScreen() {
           />
           <StyleToggle
             label="Комментировать стикерами"
-            hint="Runtime — DEFERRED [E4.1]."
+            hint="~25% комментариев уйдут стикером из пака аккаунта."
             checked={c.use_stickers}
             onChange={(v) => save.mutate({ use_stickers: v })}
           />
           <StyleToggle
             label="Картинка к комментарию"
-            hint="Runtime — DEFERRED [E4.1]."
+            hint="Приложится случайная картинка (~40%) из добавленных к кампании."
             checked={c.attach_image}
             onChange={(v) => save.mutate({ attach_image: v })}
           />
@@ -249,23 +263,30 @@ export function CampaignDetailScreen() {
           />
           <StyleToggle
             label="Контроль удаления комментариев"
-            hint={`Через ${c.verify_delay_sec}с — тот же аккаунт (DEFERRED [E4.2]).`}
+            hint={`Через ${c.verify_delay_sec}с тот же аккаунт перечитывает свой коммент; если модератор снял — пометим и уведомим.`}
             checked={c.verify_after_post}
             onChange={(v) => save.mutate({ verify_after_post: v })}
           />
         </div>
       </Section>
 
+      {c.attach_image && <CampaignMediaSection campaignId={campaignId} />}
+      </div>
+
+      <div className="min-w-0">
       <CampaignChannelsSection campaignId={campaignId} />
       <CampaignBlacklistSection campaignId={campaignId} />
 
       <LaunchAndStats campaignId={campaignId} />
+      <ChannelAlertsSection campaignId={campaignId} />
 
       {/* Лог этой кампании — изолирован по campaign_id, не пересекается
          с логами других модулей (§ Этап 6). */}
       <Section title="Лог комментариев">
         {logs.data ? <CommentLogList logs={logs.data} /> : <p className="text-[13px] text-text-tertiary">Загрузка…</p>}
       </Section>
+      </div>
+      </div>
 
       <CapsuleButton variant="danger" onClick={() => setConfirmDelete(true)}>
         Удалить кампанию
@@ -515,6 +536,66 @@ function CampaignBlacklistSection({ campaignId }: { campaignId: number }) {
             Пусто. Каналы с ошибками доступа попадают сюда автоматически.
           </p>
         )}
+      </div>
+    </Section>
+  );
+}
+
+/* ── Проблемы с целевыми каналами (E3.2) ─────────────────────────────
+   Открытые алерты кампании: не подписан / нет доступа / ушёл в ЧС /
+   подписан автоматически. Закрываются сами, когда канал снова заработал,
+   или вручную «Скрыть». Пустой список — блок не показываем. */
+const ALERT_TEXT: Record<ChannelAlert["kind"], { label: string; tone: string }> = {
+  not_subscribed: { label: "Не подписан на канал", tone: "text-status-warning" },
+  access_lost: { label: "Нет доступа к обсуждению", tone: "text-status-critical" },
+  blacklisted: { label: "Канал в чёрном списке", tone: "text-status-critical" },
+  auto_subscribed: { label: "Подписан автоматически", tone: "text-status-active" },
+};
+
+function ChannelAlertsSection({ campaignId }: { campaignId: number }) {
+  const qc = useQueryClient();
+  const list = useQuery({
+    queryKey: ["campaign", campaignId, "alerts"],
+    queryFn: () => commentingApi.alerts(campaignId),
+    refetchInterval: 30_000,
+  });
+  const resolve = useMutation({
+    mutationFn: (alertId: number) => commentingApi.resolveAlert(alertId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campaign", campaignId, "alerts"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+
+  if (!list.data || list.data.length === 0) return null;
+
+  return (
+    <Section title={`Проблемы с каналами (${list.data.length})`}>
+      <div className="card flex flex-col gap-1.5 p-3">
+        {list.data.map((a) => {
+          const meta = ALERT_TEXT[a.kind];
+          return (
+            <div
+              key={a.id}
+              className="flex items-start justify-between gap-3 rounded-chip border border-hairline bg-surface-1 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <p className={`text-[14px] font-medium ${meta.tone}`}>{meta.label}</p>
+                <p className="truncate text-[12px] text-text-secondary">
+                  Аккаунт #{a.account_id} · {a.channel_ref}
+                </p>
+                {a.detail && <p className="text-[12px] text-text-tertiary">{a.detail}</p>}
+              </div>
+              <button
+                onClick={() => resolve.mutate(a.id)}
+                disabled={resolve.isPending}
+                className="shrink-0 rounded-pill border border-hairline px-2.5 py-1 text-[12px] text-text-secondary hover:text-text-primary disabled:opacity-50"
+              >
+                Скрыть
+              </button>
+            </div>
+          );
+        })}
       </div>
     </Section>
   );

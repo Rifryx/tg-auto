@@ -8,10 +8,10 @@
   ``shilling.scenarios.campaign_id`` разрывается через ``use_alter=True``:
   FK со стороны campaigns навешивается ``ALTER TABLE`` уже после создания
   обеих таблиц, чтобы create-order не зависел от порядка.
-* Все таблицы в схеме ``shilling`` (создана миграцией 0031).
+* Все таблицы в схеме ``shilling`` (создана миграцией 0036).
 
-Revision ID: 0032
-Revises: 0031
+Revision ID: 0037
+Revises: 0036
 Create Date: 2026-09-25
 """
 from __future__ import annotations
@@ -21,8 +21,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0032"
-down_revision: Union[str, None] = "0031"
+revision: str = "0037"
+down_revision: Union[str, None] = "0036"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

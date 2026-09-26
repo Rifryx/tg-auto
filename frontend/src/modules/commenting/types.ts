@@ -220,3 +220,18 @@ export interface DelayPresetCreateBody {
   floodwait_quarantine_max: number;
 }
 export type DelayPresetUpdateBody = Partial<DelayPresetCreateBody>;
+
+/* ── Алерты целевых каналов (E3.2) ──────────────────────────────────── */
+
+export type ChannelAlertKind = "not_subscribed" | "auto_subscribed" | "access_lost" | "blacklisted";
+
+export interface ChannelAlert {
+  id: number;
+  campaign_id: number | null;
+  account_id: number;
+  channel_ref: string;
+  kind: ChannelAlertKind;
+  detail: string | null;
+  resolved: boolean;
+  created_at: string;
+}

@@ -18,6 +18,7 @@ from modules.commenting.schemas.channel_source import (
     CampaignChannelBulkCreate,
     CampaignChannelCreate,
     CampaignChannelRead,
+    ChannelAlertRead,
     ChannelBlacklistCreate,
     ChannelBlacklistRead,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "CampaignChannelBulkCreate",
     "CampaignChannelCreate",
     "CampaignChannelRead",
+    "ChannelAlertRead",
     "ChannelBlacklistCreate",
     "ChannelBlacklistRead",
     "CampaignAccountCreate",

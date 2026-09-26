@@ -13,15 +13,20 @@ from __future__ import annotations
 
 from typing import Optional
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
 from api.deps.limits import enforce_limit
-from api.deps.queue import get_publisher
+from api.deps.queue import get_publisher, get_task_queue
 from core.enums import CommentStatus
+from core.queue import TaskQueue
 from core.queue.publisher import Publisher
+from core.queue.task_names import TaskName
 from modules.commenting.api import service
 from modules.commenting.repositories import (
     AccountPresetRepository,
@@ -60,6 +65,7 @@ from modules.commenting.schemas import (
     CampaignRead,
     CampaignUpdate,
     ChannelBlacklistCreate,
+    ChannelAlertRead,
     ChannelBlacklistRead,
     CommentLogRead,
     DelayPresetCreate,
@@ -67,11 +73,71 @@ from modules.commenting.schemas import (
     DelayPresetUpdate,
 )
 
+get_logger = structlog.get_logger
+
 router = APIRouter(
     prefix="/modules/commenting",
     tags=["commenting"],
     dependencies=[Depends(require_user)],
 )
+
+
+# Поля кампании, после смены которых нужно пересобрать мониторинг каналов.
+_CHANNEL_SYNC_FIELDS = {"enabled", "channel_source_mode", "on_not_subscribed_action"}
+
+
+async def _request_backfill_existing(task_queue: TaskQueue, session: Session, campaign_id: int) -> None:
+    """Прогуляться по истории каждого рабочего канала кампании (E2.1)."""
+    from modules.commenting.models import MonitoredChannel
+
+    rows = (
+        session.query(MonitoredChannel.account_id, MonitoredChannel.id)
+        .filter(
+            MonitoredChannel.source_campaign_id == campaign_id,
+            MonitoredChannel.status == "working",
+        )
+        .all()
+    )
+    for account_id, channel_id in rows:
+        try:
+            await task_queue.enqueue(
+                TaskName.COMMENTING_BACKFILL_CHANNEL, account_id, channel_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            get_logger().warning(
+                "commenting.backfill.enqueue_failed",
+                campaign_id=campaign_id, channel_id=channel_id, error=repr(exc),
+            )
+
+
+async def _request_sync(task_queue: TaskQueue, campaign_id: int) -> None:
+    """Поставить синхронизацию целевых каналов (E3.2). Мягко: синхронизация
+    идемпотентна и перезапускается при следующей правке, поэтому недоступный
+    Redis не должен ломать сам запрос пользователя."""
+    try:
+        await task_queue.enqueue(TaskName.COMMENTING_SYNC_CAMPAIGN_CHANNELS, campaign_id)
+    except Exception as exc:  # noqa: BLE001
+        get_logger().warning("commenting.sync.enqueue_failed", campaign_id=campaign_id, error=repr(exc))
+
+
+def _drop_campaign_monitoring(session, publisher, campaign_id: int, account_id: Optional[int] = None,
+                              input_ref: Optional[str] = None) -> None:
+    from modules.commenting.models import MonitoredChannel
+    from modules.commenting.worker.channels import ACTION_DETACH as CH_DETACH
+    from modules.commenting.worker.channels import publish_channel_lifecycle
+
+    q = session.query(MonitoredChannel).filter(MonitoredChannel.source_campaign_id == campaign_id)
+    if account_id is not None:
+        q = q.filter(MonitoredChannel.account_id == account_id)
+    if input_ref is not None:
+        q = q.filter(MonitoredChannel.input_ref == input_ref)
+    rows = q.all()
+    detach = [(r.account_id, r.id) for r in rows if r.status == "working"]
+    for r in rows:
+        session.delete(r)
+    session.flush()
+    for acc_id, ch_id in detach:
+        publish_channel_lifecycle(publisher, acc_id, ch_id, CH_DETACH)
 
 
 # --- Кампании (CRUD) ---------------------------------------------------------
@@ -95,18 +161,21 @@ def create_campaign(
     body: CampaignCreate,
     session: Session = Depends(get_session),
     _limit: None = Depends(enforce_limit("campaigns_active_max")),
+    user_id: str = Depends(require_user),
 ) -> CampaignRead:
     campaign = CampaignRepository(session).create(body)
+    campaign.owner_user_id = user_id
     session.commit()
     return CampaignRead.model_validate(campaign)
 
 
 @router.patch("/campaigns/{campaign_id}", response_model=CampaignRead)
-def patch_campaign(
+async def patch_campaign(
     campaign_id: int,
     body: CampaignUpdate,
     session: Session = Depends(get_session),
     publisher: Optional[Publisher] = Depends(get_publisher),
+    task_queue: TaskQueue = Depends(get_task_queue),
 ) -> CampaignRead:
     campaign = CampaignRepository(session).update(campaign_id, body)
     if campaign is None:
@@ -120,6 +189,13 @@ def patch_campaign(
             campaign_id,
             ACTION_ATTACH if campaign.enabled else ACTION_DETACH,
         )
+    if body.model_fields_set & _CHANNEL_SYNC_FIELDS:
+        await _request_sync(task_queue, campaign_id)
+    # Смена post_scope на existing/mixed: прогуляться по уже работающим
+    # каналам кампании (E2.1). Первичное «existing» после создания кампании
+    # цепляется сам через resolve_channel — здесь важен как раз PATCH.
+    if "post_scope" in body.model_fields_set and body.post_scope in ("existing", "mixed"):
+        await _request_backfill_existing(task_queue, session, campaign_id)
     return CampaignRead.model_validate(campaign)
 
 
@@ -139,6 +215,9 @@ def delete_campaign(
     # исчезнет кампания, иначе handler может сработать по уже удалённой кампании
     # (порядок, не гонка — acceptance #3).
     publish_campaign_lifecycle(publisher, campaign_id, ACTION_DETACH)
+    # «Кампанийные» строки мониторинга удаляем явно: FK у них SET NULL, иначе
+    # они стали бы ручными каналами аккаунтов и продолжили бы работать.
+    _drop_campaign_monitoring(session, publisher, campaign_id)
     CampaignRepository(session).delete(campaign_id)
     session.commit()
 
@@ -161,11 +240,12 @@ def list_accounts(
     response_model=CampaignAccountRead,
     status_code=status.HTTP_201_CREATED,
 )
-def attach_account(
+async def attach_account(
     campaign_id: int,
     body: AttachAccountRequest,
     session: Session = Depends(get_session),
     publisher: Optional[Publisher] = Depends(get_publisher),
+    task_queue: TaskQueue = Depends(get_task_queue),
 ) -> CampaignAccountRead:
     try:
         link = service.attach_account(
@@ -187,6 +267,7 @@ def attach_account(
     campaign = CampaignRepository(session).get(campaign_id)
     if len(links) == 1 and campaign is not None and campaign.enabled:
         publish_campaign_lifecycle(publisher, campaign_id, ACTION_ATTACH)
+    await _request_sync(task_queue, campaign_id)
     return CampaignAccountRead.model_validate(link)
 
 
@@ -220,11 +301,12 @@ def patch_campaign_account(
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
 )
-def detach_account(
+async def detach_account(
     campaign_id: int,
     account_id: int,
     session: Session = Depends(get_session),
     publisher: Optional[Publisher] = Depends(get_publisher),
+    task_queue: TaskQueue = Depends(get_task_queue),
 ) -> None:
     try:
         service.detach_account(session, publisher, campaign_id, account_id)
@@ -232,9 +314,7 @@ def detach_account(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except service.CommentingConflict as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-
-
-# --- Логи комментариев -------------------------------------------------------
+    await _request_sync(task_queue, campaign_id)
 
 
 # --- Пресеты аккаунтов ------------------------------------------------------
@@ -375,10 +455,11 @@ def list_campaign_channels(
     response_model=list[CampaignChannelRead],
     status_code=status.HTTP_201_CREATED,
 )
-def add_campaign_channels(
+async def add_campaign_channels(
     campaign_id: int,
     body: CampaignChannelBulkCreate,
     session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
 ) -> list[CampaignChannelRead]:
     """Bulk-добавление: одна ссылка на строку, дубли пропускаются молча."""
     if CampaignRepository(session).get(campaign_id) is None:
@@ -394,6 +475,8 @@ def add_campaign_channels(
         existing.add(cleaned)
         created.append(CampaignChannelRead.model_validate(item))
     session.commit()
+    if created:
+        await _request_sync(task_queue, campaign_id)
     return created
 
 
@@ -402,11 +485,20 @@ def add_campaign_channels(
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
 )
-def delete_campaign_channel(
-    campaign_id: int, channel_id: int, session: Session = Depends(get_session)
+async def delete_campaign_channel(
+    campaign_id: int,
+    channel_id: int,
+    session: Session = Depends(get_session),
+    publisher: Optional[Publisher] = Depends(get_publisher),
 ) -> None:
-    if not CampaignChannelRepository(session).delete(campaign_id, channel_id):
+    from modules.commenting.models import CampaignChannel
+
+    link = session.get(CampaignChannel, channel_id)
+    if link is None or link.campaign_id != campaign_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "channel not found")
+    # Сразу снимаем мониторинг этой ссылки у аккаунтов кампании.
+    _drop_campaign_monitoring(session, publisher, campaign_id, input_ref=link.raw_input)
+    CampaignChannelRepository(session).delete(campaign_id, channel_id)
     session.commit()
 
 
@@ -442,6 +534,11 @@ def add_blacklist(
     from sqlalchemy.exc import IntegrityError
 
     try:
+        # «-1001234567890» из клиентов Telegram → id канала как у Telethon.
+        if body.chat_id is not None and str(body.chat_id).startswith("-100"):
+            body = body.model_copy(update={"chat_id": int(str(body.chat_id)[4:])})
+        if body.username:
+            body = body.model_copy(update={"username": body.username.strip().lstrip("@")})
         entry = ChannelBlacklistRepository(session).create(campaign_id, body, auto=False)
         session.commit()
     except IntegrityError:
@@ -539,7 +636,103 @@ def get_ai_protection_status(
     )
 
 
-# --- Логи комментариев -------------------------------------------------------
+# --- Картинки кампании (E4.1) ------------------------------------------------
+
+
+class MediaLinkBody(BaseModel):
+    media_asset_ids: list[int] = Field(default_factory=list, max_length=200)
+
+
+class MediaLinkRead(BaseModel):
+    campaign_id: int
+    media_asset_ids: list[int]
+
+
+@router.get("/campaigns/{campaign_id}/media", response_model=MediaLinkRead)
+def list_campaign_media(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> MediaLinkRead:
+    from modules.commenting.models import CampaignMediaAsset
+
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    ids = list(
+        session.query(CampaignMediaAsset.media_asset_id)
+        .filter(CampaignMediaAsset.campaign_id == campaign_id)
+        .order_by(CampaignMediaAsset.created_at.asc())
+    )
+    return MediaLinkRead(campaign_id=campaign_id, media_asset_ids=[i for (i,) in ids])
+
+
+@router.put("/campaigns/{campaign_id}/media", response_model=MediaLinkRead)
+def set_campaign_media(
+    campaign_id: int,
+    body: MediaLinkBody,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> MediaLinkRead:
+    """Приложить к кампании выбранные картинки владельца одной транзакцией."""
+    from core.models.media_asset import MediaAsset
+    from modules.commenting.models import CampaignMediaAsset
+
+    campaign = CampaignRepository(session).get(campaign_id)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    ids = set(body.media_asset_ids)
+    if ids:
+        owned = set(
+            session.execute(
+                select(MediaAsset.id).where(
+                    MediaAsset.id.in_(ids), MediaAsset.user_id == user_id
+                )
+            ).scalars()
+        )
+        missing = ids - owned
+        if missing:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"Не найдено или не принадлежит вам: {sorted(missing)}",
+            )
+    session.query(CampaignMediaAsset).filter(
+        CampaignMediaAsset.campaign_id == campaign_id
+    ).delete()
+    for aid in ids:
+        session.add(CampaignMediaAsset(campaign_id=campaign_id, media_asset_id=aid))
+    session.commit()
+    return MediaLinkRead(campaign_id=campaign_id, media_asset_ids=sorted(ids))
+
+
+# --- Алерты целевых каналов (E3.2) ------------------------------------------
+
+
+@router.get("/campaigns/{campaign_id}/alerts", response_model=list[ChannelAlertRead])
+def list_campaign_alerts(
+    campaign_id: int,
+    include_resolved: bool = False,
+    session: Session = Depends(get_session),
+) -> list[ChannelAlertRead]:
+    from modules.commenting.models import ChannelAlert
+
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    q = session.query(ChannelAlert).filter(ChannelAlert.campaign_id == campaign_id)
+    if not include_resolved:
+        q = q.filter(ChannelAlert.resolved.is_(False))
+    rows = q.order_by(ChannelAlert.created_at.desc()).limit(200).all()
+    return [ChannelAlertRead.model_validate(r) for r in rows]
+
+
+@router.post("/alerts/{alert_id}/resolve", response_model=ChannelAlertRead)
+def resolve_alert(alert_id: int, session: Session = Depends(get_session)) -> ChannelAlertRead:
+    """«Скрыть» алерт (пользователь разобрался сам)."""
+    from modules.commenting.models import ChannelAlert
+
+    alert = session.get(ChannelAlert, alert_id)
+    if alert is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "alert not found")
+    alert.resolved = True
+    session.commit()
+    return ChannelAlertRead.model_validate(alert)
 
 
 # --- Статистика + Runtime-сводка (§ Этап 6) ---------------------------------

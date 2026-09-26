@@ -11,6 +11,7 @@ import hashlib
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -79,6 +80,27 @@ async def upload_media(
     )
     session.commit()
     return _serialize(obj)
+
+
+@router.get("/{asset_id}/blob")
+def get_media_blob(
+    asset_id: int,
+    user_id: str = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> Response:
+    """Отдаёт байты картинки её владельцу — для превью в UI (E4.1).
+
+    Через `<img src>` пробросить наш `X-Telegram-Init-Data` заголовок нельзя,
+    поэтому фронтенд делает `fetch → blob → ObjectURL` и подставляет URL.
+    Кэш можно держать долго: ассет неизменен по id (иначе был бы другой id).
+    """
+    obj = MediaAssetRepository(session).get(asset_id)
+    if obj is None or obj.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "media asset not found")
+    headers = {"Cache-Control": "public, max-age=86400, immutable"}
+    if obj.filename:
+        headers["Content-Disposition"] = f'inline; filename="{obj.filename}"'
+    return Response(content=obj.bytes, media_type=obj.mime, headers=headers)
 
 
 @router.delete("/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)

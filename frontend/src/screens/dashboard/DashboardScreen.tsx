@@ -56,7 +56,7 @@ export function DashboardScreen() {
       )}
 
       {data && (
-        <>
+        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start lg:gap-8">
           {(() => {
             // Схлопываем повторы: один алерт на пару (аккаунт, тип), самый свежий,
             // со счётчиком — иначе один мёртвый прокси заваливает весь экран.
@@ -72,9 +72,9 @@ export function DashboardScreen() {
             }
             const grouped = [...byKey.values()];
             return grouped.length > 0 ? (
-              <section className="mb-8">
+              <section className="mb-8 lg:col-span-2">
                 <SectionTitle>Алерты</SectionTitle>
-                <div className="flex flex-col gap-2">
+                <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
                   {grouped.map(({ alert, count }) => (
                     <AlertCard key={`${alert.account_id}:${alert.event_type}`} alert={alert} count={count} />
                   ))}
@@ -83,10 +83,10 @@ export function DashboardScreen() {
             ) : null;
           })()}
 
-          <section className="mb-8">
+          <section className="mb-8 lg:col-span-2">
             <SectionTitle>Аккаунты по стадиям</SectionTitle>
-            {/* overflow-hint: последняя карточка подглядывает справа за счёт скролла */}
-            <div className="-mx-5 flex gap-3 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {/* Телефон: скролл. Десктоп: сетка без переполнения. */}
+            <div className="-mx-5 flex gap-3 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:mx-0 lg:grid lg:grid-cols-7 lg:overflow-visible lg:px-0">
               {STAGES.map((s) => (
                 <StageCard key={s} status={s} count={data.accounts_summary[s]} />
               ))}
@@ -94,7 +94,7 @@ export function DashboardScreen() {
           </section>
 
           {data.modules_summary.length > 0 && (
-            <section className="mb-8">
+            <section className="mb-8 lg:mb-0">
               <SectionTitle>Модули</SectionTitle>
               <div className="flex flex-col gap-3">
                 {data.modules_summary.map((m) => (
@@ -104,7 +104,7 @@ export function DashboardScreen() {
             </section>
           )}
 
-          <section className="mb-4">
+          <section className="mb-4 lg:mb-0">
             <SectionTitle>Активность</SectionTitle>
             {data.recent_activity.length > 0 ? (
               <div className="card px-4 py-1">
@@ -118,7 +118,7 @@ export function DashboardScreen() {
               <p className="px-1 text-[13px] text-text-tertiary">Пока тихо.</p>
             )}
           </section>
-        </>
+        </div>
       )}
     </div>
   );

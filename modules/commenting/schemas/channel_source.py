@@ -77,3 +77,14 @@ class ChannelBlacklistRead(ORMModel):
     auto: bool
     created_at: datetime
     updated_at: datetime
+
+
+class ChannelAlertRead(ORMModel):
+    id: int
+    campaign_id: Optional[int]
+    account_id: int
+    channel_ref: str
+    kind: Literal["not_subscribed", "auto_subscribed", "access_lost", "blacklisted"]
+    detail: Optional[str]
+    resolved: bool
+    created_at: datetime
