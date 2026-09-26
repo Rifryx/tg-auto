@@ -54,6 +54,7 @@ class TaskName(str, Enum):
     SHILLING_EXECUTE_STEP = "shilling.execute_step"
     SHILLING_FAILOVER = "shilling.failover"
     SHILLING_DRY_RUN = "shilling.dry_run"
+    SHILLING_DISCOVER_INTERSECTION = "shilling.discover_intersection"
 
 
 class QueueName(str, Enum):

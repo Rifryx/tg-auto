@@ -7,18 +7,21 @@ import {
   FileUp,
   List,
   Plus,
+  Radar,
   X,
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { showToast } from "../../../shared/toast";
 import { shillingApi } from "../api";
 import type { Target, TargetStatus } from "../types";
+import { IntersectionSheet } from "./IntersectionSheet";
 
 export function TargetsTab({ campaignId }: { campaignId: number }) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
+  const [intersectOpen, setIntersectOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const targets = useQuery({
@@ -124,6 +127,7 @@ export function TargetsTab({ campaignId }: { campaignId: number }) {
 
       {/* Действия */}
       <div className="flex flex-wrap gap-2">
+        <ActionButton icon={Radar} label="По пересечению каналов" onClick={() => setIntersectOpen(true)} />
         <ActionButton icon={List} label="Вставить списком" onClick={() => setBulkOpen((v) => !v)} />
         <ActionButton icon={FileUp} label="Импорт из файла" onClick={() => fileRef.current?.click()} />
         <ActionButton icon={Database} label="Из базы" disabled soon />
@@ -165,6 +169,13 @@ export function TargetsTab({ campaignId }: { campaignId: number }) {
           </div>
         </div>
       )}
+
+      <IntersectionSheet
+        open={intersectOpen}
+        campaignId={campaignId}
+        onClose={() => setIntersectOpen(false)}
+        onAdded={invalidate}
+      />
     </div>
   );
 }

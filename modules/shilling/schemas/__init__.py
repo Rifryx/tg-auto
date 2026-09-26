@@ -21,6 +21,10 @@ from modules.shilling.schemas.campaign_target import (
     TargetRead,
     TargetStatus,
 )
+from modules.shilling.schemas.discovery import (
+    DiscoveredChannel,
+    IntersectionReport,
+)
 from modules.shilling.schemas.execution_log import (
     ExecutionLogCreate,
     ExecutionLogRead,
@@ -65,8 +69,10 @@ __all__ = [
     "CampaignStats",
     "CampaignStatus",
     "CampaignUpdate",
+    "DiscoveredChannel",
     "DryRunReport",
     "DryRunStep",
+    "IntersectionReport",
     "ExecutionLogCreate",
     "ExecutionLogRead",
     "ExecutionStatus",

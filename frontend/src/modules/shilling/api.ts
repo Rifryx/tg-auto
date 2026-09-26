@@ -80,6 +80,14 @@ export const shillingApi = {
   removeTarget: (id: number, targetId: number) =>
     api.del<void>(`${BASE}/${id}/targets/${targetId}`),
 
+  // Поиск целей по пересечению каналов (подписки аккаунтов кампании)
+  discoverIntersection: (id: number, minAccounts: number) =>
+    api.post<{ job_id: string }>(
+      `${BASE}/${id}/targets/discover-intersection?min_accounts=${minAccounts}`,
+    ),
+  intersectionStreamPath: (id: number, jobId: string) =>
+    `${BASE}/${id}/targets/discover-intersection/${jobId}/stream`,
+
   // Чёрный список
   blacklist: (id: number) => api.get<BlacklistEntry[]>(`${BASE}/${id}/blacklist`),
   addBlacklist: (id: number, body: BlacklistCreateBody) =>
