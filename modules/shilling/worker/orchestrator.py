@@ -103,8 +103,12 @@ async def start_campaign(ctx: dict, campaign_id: int) -> int:
     return len(target_ids)
 
 
-def _validate_ready(session, campaign) -> tuple[bool, str]:
-    """Минимальная проверка готовности (аналог API readiness, но без схем)."""
+def _validate_ready(session, campaign, *, require_targets: bool = True) -> tuple[bool, str]:
+    """Минимальная проверка готовности (аналог API readiness, но без схем).
+
+    ``require_targets=False`` для сухого прогона: он идёт по переданному
+    тестовому чату, а не по целям кампании.
+    """
     scenario = ScenarioRepository(session).get_by_campaign(campaign.id)
     if scenario is None:
         return False, "no_scenario"
@@ -115,7 +119,7 @@ def _validate_ready(session, campaign) -> tuple[bool, str]:
     primary = [link for link in links if not link.is_reserve]
     if len(primary) < scenario.persons_count:
         return False, "not_enough_accounts"
-    if not CampaignTargetRepository(session).list_by_campaign(campaign.id):
+    if require_targets and not CampaignTargetRepository(session).list_by_campaign(campaign.id):
         return False, "no_targets"
     return True, ""
 

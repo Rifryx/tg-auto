@@ -84,7 +84,7 @@ async def dry_run(
         campaign = CampaignRepository(session).get(campaign_id)
         if campaign is None:
             return _fail("campaign not found")
-        ok, reason = _validate_ready(session, campaign)
+        ok, reason = _validate_ready(session, campaign, require_targets=False)
         if not ok:
             return _fail(f"not ready: {reason}")
 
