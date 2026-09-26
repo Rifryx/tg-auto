@@ -127,7 +127,8 @@ def test_dashboard_empty_db(session):
         "banned": 0,
     }
     assert body["modules_summary"] == [
-        {"module": "commenting", "instances": 0, "active_now": 0, "today_actions": 0}
+        {"module": "commenting", "instances": 0, "active_now": 0, "today_actions": 0},
+        {"module": "shilling", "instances": 0, "active_now": 0, "today_actions": 0},
     ]
     assert body["recent_activity"] == []
 
