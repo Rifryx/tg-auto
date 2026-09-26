@@ -85,8 +85,9 @@ export function DashboardScreen() {
 
           <section className="mb-8 lg:col-span-2">
             <SectionTitle>Аккаунты по стадиям</SectionTitle>
-            {/* Телефон: скролл. Десктоп: сетка без переполнения. */}
-            <div className="-mx-5 flex gap-3 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:mx-0 lg:grid lg:grid-cols-7 lg:overflow-visible lg:px-0">
+            {/* Телефон: сетка 3-в-ряд (видны все стадии без скрытого скролла).
+                Десктоп: один ряд из 7. */}
+            <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-7 lg:gap-3">
               {STAGES.map((s) => (
                 <StageCard key={s} status={s} count={data.accounts_summary[s]} />
               ))}
