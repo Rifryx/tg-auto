@@ -74,7 +74,7 @@ export function ShillingDetailScreen() {
   const isRunning = c.status === "running";
 
   return (
-    <div className="pb-28 pt-1">
+    <div className="pb-44 pt-1 lg:pb-28">
       <button
         onClick={() => navigate("/modules/shilling")}
         className="mb-3 inline-flex items-center gap-1 text-[14px] text-text-secondary active:text-text-primary"
@@ -262,7 +262,7 @@ function StickyLaunchPanel({
     ? [readiness.accounts, readiness.scenario, readiness.targets]
     : [];
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-hairline bg-bg-elevated px-4 pb-safe-b pt-3">
+    <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)_+_84px)] z-30 border-t border-hairline bg-bg-elevated px-4 pb-3 pt-3 lg:bottom-0 lg:pb-safe-b">
       <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
         <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1">
           {checks.map((chk, i) => (
