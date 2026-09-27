@@ -30,6 +30,7 @@ def engine():
         conn.execute(text('DROP SCHEMA IF EXISTS "commenting" CASCADE'))
         conn.execute(text('DROP SCHEMA IF EXISTS "shilling" CASCADE'))
         conn.execute(text('DROP SCHEMA IF EXISTS "priming" CASCADE'))
+        conn.execute(text('DROP SCHEMA IF EXISTS "parsing" CASCADE'))
         conn.execute(text("DROP SCHEMA public CASCADE"))
         conn.execute(text("CREATE SCHEMA public"))
         conn.commit()

@@ -314,6 +314,30 @@ async def import_targets(
     return result.to_dict()
 
 
+@router.post("/campaigns/{campaign_id}/targets/import-list")
+def import_from_list(
+    campaign_id: int,
+    body: dict = Body(...),
+    session: Session = Depends(get_session),
+):
+    parsed_list_id = body.get("parsed_list_id")
+    if not isinstance(parsed_list_id, int):
+        raise HTTPException(status_code=422, detail={
+            "error": "validation_error",
+            "message": "parsed_list_id must be int",
+        })
+    try:
+        campaign = service.get_campaign(session, campaign_id)
+        result = service.import_from_parsed_list(
+            session, campaign_id, parsed_list_id,
+            owner_user_id=campaign.created_by,
+        )
+    except service.ServiceError as exc:
+        _raise(exc)
+    session.commit()
+    return result.to_dict()
+
+
 @router.post("/campaigns/{campaign_id}/targets/blacklist")
 def blacklist_targets(
     campaign_id: int,

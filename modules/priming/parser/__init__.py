@@ -1,9 +1,11 @@
-"""Парсер аудитории для прайминга.
+"""Парсер вынесен в отдельный модуль-сервис ``modules.parsing``.
 
-- ``chat_messages.py`` — сбор активных пользователей чата за N дней (3.1).
-- ``chat_members.py``  — по спискам участников (промпт 3.2).
-- ``filters.py``       — reusable-фильтры username/premium/bots/... (3.2).
+Импортируйте оттуда:
+    from modules.parsing.parser.chat_messages import parse_chat_messages
+    from modules.parsing.parser.chat_members import parse_chat_members
+    from modules.parsing.parser.filters import FilterOptions, apply_filters
 
-Модули НЕ реэкспортируются на уровне пакета — telethon-зависимости
-подгружаются точечными импортами (по образцу ``modules.priming.worker``).
+Прайминг больше не хранит парсер-результаты в своей схеме; он
+импортирует готовые списки через
+``POST /modules/priming/campaigns/{id}/targets/import-list``.
 """

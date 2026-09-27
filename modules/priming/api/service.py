@@ -20,6 +20,10 @@ from sqlalchemy.orm import Session
 
 from core.queue import TaskQueue
 from core.queue.task_names import TaskName
+from modules.parsing.repositories import (
+    ParsedListRepository,
+    ParsedListTargetRepository,
+)
 from modules.priming.models import PrimingCampaignAccount, PrimingCampaignTarget
 from modules.priming.repositories import (
     BlacklistRepository,
@@ -423,6 +427,42 @@ def _normalize_phone(v):
         return None
     s = str(v).strip().replace(" ", "").replace("-", "")
     return s or None
+
+
+def import_from_parsed_list(
+    session: Session,
+    campaign_id: int,
+    parsed_list_id: int,
+    *,
+    owner_user_id: int | None = None,
+) -> TargetImportResult:
+    """Импорт целей из готового списка модуля parsing (промпт 3.2b).
+
+    Дедуп идёт через ``CampaignTargetRepository.bulk_create``
+    (ON CONFLICT DO NOTHING по (campaign_id, tg_user_id)). Blacklist
+    проверяется owner + global.
+    """
+    get_campaign(session, campaign_id)
+    parsed_list = ParsedListRepository(session).get_by_id(parsed_list_id)
+    if parsed_list is None:
+        raise NotFoundError(f"parsed list {parsed_list_id} not found")
+
+    parsed_targets = ParsedListTargetRepository(session).list_by_list(
+        parsed_list_id
+    )
+    rows = [
+        {
+            "tg_user_id": t.tg_user_id,
+            "username": t.username,
+            "phone": t.phone,
+            "has_premium": t.has_premium,
+            "last_seen_bucket": t.last_seen_bucket,
+        }
+        for t in parsed_targets
+    ]
+    return import_targets(
+        session, campaign_id, rows, owner_user_id=owner_user_id,
+    )
 
 
 def bulk_blacklist_targets(

@@ -5,6 +5,7 @@ from core.models.autopilot import AutopilotAction, AutopilotGoal
 from core.models.ban_risk import BanRiskSnapshot
 from core.models.base import (
     COMMENTING_SCHEMA,
+    PARSING_SCHEMA,
     PRIMING_SCHEMA,
     SHILLING_SCHEMA,
     Base,
@@ -22,6 +23,10 @@ from core.models.persona import Persona
 from core.models.profile_asset import ProfileAsset
 from core.models.project import Project
 from core.models.project_channel import ProjectChannel
+from core.models.parsing import (
+    ParsedList,
+    ParsedListTarget,
+)
 from core.models.priming import (
     PrimingAnchorChannel,
     PrimingBlacklist,
@@ -58,6 +63,7 @@ __all__ = [
     "BulkJob",
     "BulkJobItem",
     "COMMENTING_SCHEMA",
+    "PARSING_SCHEMA",
     "PRIMING_SCHEMA",
     "SHILLING_SCHEMA",
     "Campaign",
@@ -65,6 +71,8 @@ __all__ = [
     "CommentLog",
     "MonitoredChannel",
     "HealthEvent",
+    "ParsedList",
+    "ParsedListTarget",
     "MediaAsset",
     "Persona",
     "ProfileAsset",
