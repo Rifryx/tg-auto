@@ -71,18 +71,18 @@ def _governor(ctx: dict):
 
 def _trigger_runner_factory(
     ctx: dict,
-) -> Callable[[Any, Any, int], TriggerRunner]:
-    """Возвращает фабрику ``(client, governor, account_id) -> TriggerRunner``.
-
-    По умолчанию — стандартный конструктор; тесты могут подменить, чтобы
-    захватить вызовы без реального Telethon-клиента.
+) -> Callable[..., TriggerRunner]:
+    """Возвращает фабрику ``(client, governor, account_id, *, dry_run)
+    -> TriggerRunner``. Тесты могут подменить.
     """
     factory = ctx.get("trigger_runner_factory")
     if factory is not None:
         return factory
 
-    def _default(client, governor, account_id):
-        return TriggerRunner(client, governor, account_id=account_id)
+    def _default(client, governor, account_id, *, dry_run: bool = False):
+        return TriggerRunner(
+            client, governor, account_id=account_id, dry_run=dry_run,
+        )
 
     return _default
 
@@ -161,6 +161,7 @@ async def execute_prime(
         trigger_action = TriggerAction(campaign.trigger_action)
         flood_wait_pause_sec = campaign.flood_wait_pause_sec
         max_flood_waits = campaign.max_flood_waits_per_account
+        dry_run = bool(campaign.dry_run)
         account_id = campaign_account.account_id
         target_ref = TargetRef(
             tg_user_id=target.tg_user_id,
@@ -168,17 +169,20 @@ async def execute_prime(
             phone=target.phone,
         )
 
-    # 2. Открываем клиента через ClientPool.
+    # 2. Открываем клиента через ClientPool (в dry-run — не открываем;
+    # runner не будет к нему обращаться, но пропускать шаг чище через
+    # пустышку, чтобы не расходовать pool-квоту).
     pool = _pool(ctx)
     started_at = _now(ctx)
-    client = await pool.get(account_id)
+    client = None if dry_run else await pool.get(account_id)
     try:
         runner = _trigger_runner_factory(ctx)(
-            client, _governor(ctx), account_id
+            client, _governor(ctx), account_id, dry_run=dry_run,
         )
         result: TriggerResult = await runner.run(trigger_action, target_ref)
     finally:
-        await pool.release(account_id)
+        if not dry_run:
+            await pool.release(account_id)
     finished_at = _now(ctx)
 
     outcome = result.outcome
@@ -196,6 +200,7 @@ async def execute_prime(
             latency_ms=result.latency_ms,
             error_code=result.error_code,
             flood_wait_sec=result.flood_wait_sec,
+            dry_run=dry_run,
         )
 
         quarantined = False

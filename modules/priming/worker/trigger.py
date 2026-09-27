@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import os
+import random
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
@@ -44,6 +45,27 @@ from modules.priming.schemas.enums import ExecutionOutcome, TriggerAction
 
 
 GOVERNOR_ACTION_TYPE = "priming"
+
+# Распределение outcome'ов для dry-run режима (docs/priming-triggers.md).
+# Порядок важен для детерминированного розыгрыша по кумулятивной сумме.
+DRY_RUN_DISTRIBUTION: tuple[tuple[ExecutionOutcome, float], ...] = (
+    (ExecutionOutcome.PRIMED, 0.78),
+    (ExecutionOutcome.PRIVACY_RESTRICTED, 0.12),
+    (ExecutionOutcome.FLOOD_WAIT, 0.08),
+    (ExecutionOutcome.DELETED, 0.02),
+)
+
+
+def _draw_dry_run_outcome(rng: random.Random) -> ExecutionOutcome:
+    """Розыгрыш outcome'а по распределению DRY_RUN_DISTRIBUTION."""
+    dice = rng.random()
+    cum = 0.0
+    for outcome, weight in DRY_RUN_DISTRIBUTION:
+        cum += weight
+        if dice < cum:
+            return outcome
+    # Численный «хвост» — падает на последний, PRIMED-подобный.
+    return DRY_RUN_DISTRIBUTION[0][0]
 
 
 @dataclass
@@ -112,17 +134,38 @@ class TriggerRunner:
         account_id: int,
         clock: Callable[[], float] = time.monotonic,
         random_bytes: Callable[[int], bytes] = os.urandom,
+        dry_run: bool = False,
+        rng: Optional[random.Random] = None,
     ) -> None:
         self._client = client
         self._governor = governor
         self._account_id = account_id
         self._clock = clock
         self._random_bytes = random_bytes
+        self._dry_run = dry_run
+        self._rng = rng or random.Random()
+
+    @property
+    def dry_run(self) -> bool:
+        return self._dry_run
 
     async def run(
         self, action: TriggerAction, target: TargetRef
     ) -> TriggerResult:
         started = self._clock()
+
+        # 0. dry-run: разыгрываем outcome по распределению без Telethon-
+        # вызовов, без governor'а и без резолва peer'а. Пометку
+        # ``dry_run=True`` кладём в meta — executor использует её для
+        # флага в execution_log.
+        if self._dry_run:
+            outcome = _draw_dry_run_outcome(self._rng)
+            return _finalize(started, self._clock, TriggerResult(
+                outcome=outcome,
+                # FLOOD_WAIT в симуляции — синтетическая пауза 60 сек.
+                flood_wait_sec=60 if outcome is ExecutionOutcome.FLOOD_WAIT else None,
+                meta={"dry_run": True},
+            ))
 
         # 1. Rate-limit governor.
         try:

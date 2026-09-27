@@ -51,6 +51,7 @@ class ExecutionLogRepository(BaseRepository[PrimingExecutionLog]):
         latency_ms: int,
         error_code: Optional[str] = None,
         flood_wait_sec: Optional[int] = None,
+        dry_run: bool = False,
     ) -> PrimingExecutionLog:
         """Append-only вставка одной записи о попытке прайминга."""
         obj = PrimingExecutionLog(
@@ -64,6 +65,7 @@ class ExecutionLogRepository(BaseRepository[PrimingExecutionLog]):
             latency_ms=latency_ms,
             error_code=error_code,
             flood_wait_sec=flood_wait_sec,
+            dry_run=dry_run,
         )
         return self._add(obj)
 

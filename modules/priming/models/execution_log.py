@@ -12,6 +12,7 @@ from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -85,3 +86,9 @@ class PrimingExecutionLog(Base):
     flood_wait_sec: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     trigger_action: Mapped[str] = mapped_column(String, nullable=False)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Пометка «симуляция» — не реальный прайм. Живёт в БД, чтобы UI мог
+    # спрятать dry-run записи из основной статистики.
+    dry_run: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false",
+    )

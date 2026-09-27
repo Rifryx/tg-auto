@@ -152,6 +152,13 @@ class PrimingCampaign(Base, TimestampMixin):
         String, nullable=False, default=PrimingCampaignStatus.DRAFT.value,
         server_default=PrimingCampaignStatus.DRAFT.value,
     )
+    # dry_run — «безопасный прогон» без Telethon-вызовов; результаты
+    # симулируются из распределения по docs/priming-triggers.md
+    # (см. modules/priming/worker/trigger.py). Флаг живёт на кампании
+    # и берётся executor'ом в момент запуска.
+    dry_run: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false",
+    )
     started_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

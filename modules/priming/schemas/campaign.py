@@ -45,6 +45,8 @@ class PrimingCampaignCreate(PrimingBaseModel):
 
     stop_on_privacy_rate: float = Field(default=0.3, ge=0.0, le=1.0)
 
+    dry_run: bool = False
+
     created_by: Optional[int] = None
 
     @model_validator(mode="after")
@@ -80,6 +82,8 @@ class PrimingCampaignUpdate(PrimingBaseModel):
     exclude_admins: Optional[bool] = None
 
     stop_on_privacy_rate: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+    dry_run: Optional[bool] = None
 
     @model_validator(mode="after")
     def _delay_range_ordered(self) -> "PrimingCampaignUpdate":
@@ -128,6 +132,8 @@ class PrimingCampaignRead(PrimingBaseModel):
     exclude_admins: bool
 
     stop_on_privacy_rate: float
+
+    dry_run: bool = False
 
     status: PrimingCampaignStatus
     started_at: Optional[datetime] = None
