@@ -22,11 +22,14 @@ from core.queue import TaskQueue
 from core.queue.task_names import TaskName
 from modules.priming.models import PrimingCampaignAccount, PrimingCampaignTarget
 from modules.priming.repositories import (
+    BlacklistRepository,
     CampaignRepository,
     CampaignAccountRepository,
     CampaignTargetRepository,
 )
 from modules.priming.schemas.enums import (
+    BlacklistReason,
+    PrimingAccountState,
     PrimingCampaignStatus,
     TargetStatus,
     TriggerAction,
@@ -202,6 +205,305 @@ def stop_campaign(session: Session, campaign_id: int):
 # ---------------------------------------------------------------------------
 # Валидация startable
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Аккаунты кампании
+# ---------------------------------------------------------------------------
+
+# Статусы кампаний, в которых аккаунт считается «занятым» для эксклюзивности:
+# аккаунт может быть в разных draft-кампаниях, но одновременно активно
+# работать может только в одной. Правило удобно для UX — пользователь заводит
+# черновики параллельно.
+_ACCOUNT_BUSY_STATUSES = {
+    PrimingCampaignStatus.QUEUED.value,
+    PrimingCampaignStatus.RUNNING.value,
+    PrimingCampaignStatus.PAUSED.value,
+}
+
+
+class AccountAttachResult:
+    """Отчёт по bulk-прикреплению аккаунтов."""
+
+    def __init__(self) -> None:
+        self.attached: list[int] = []  # campaign_account.id
+        self.skipped_busy: list[int] = []  # account_id уже в активной кампании
+        self.skipped_duplicate: list[int] = []  # уже прикреплён к этой кампании
+
+    def to_dict(self) -> dict[str, list[int]]:
+        return {
+            "attached": self.attached,
+            "skipped_busy": self.skipped_busy,
+            "skipped_duplicate": self.skipped_duplicate,
+        }
+
+
+def attach_accounts(
+    session: Session,
+    campaign_id: int,
+    account_ids: list[int],
+) -> AccountAttachResult:
+    """Прикрепить пул аккаунтов к кампании.
+
+    Правило эксклюзивности: аккаунт не может участвовать в другой кампании
+    прайминга со статусом queued/running/paused. Проверка — на сервисе
+    (per prompt 2.5). Уже прикреплённые к этой же кампании пропускаются
+    без ошибки.
+    """
+    if not account_ids:
+        raise ValidationError("account_ids must not be empty")
+
+    get_campaign(session, campaign_id)  # 404 если нет
+    result = AccountAttachResult()
+    repo = CampaignAccountRepository(session)
+
+    # Существующие связки этой кампании — быстрый lookup.
+    existing = {ca.account_id for ca in repo.list_by_campaign(campaign_id)}
+
+    # Аккаунты уже занятые другими активными кампаниями.
+    busy = _accounts_busy_elsewhere(session, campaign_id, account_ids)
+
+    for account_id in account_ids:
+        if account_id in existing:
+            result.skipped_duplicate.append(account_id)
+            continue
+        if account_id in busy:
+            result.skipped_busy.append(account_id)
+            continue
+        created = repo.create({
+            "campaign_id": campaign_id,
+            "account_id": account_id,
+        })
+        result.attached.append(created.id)
+        existing.add(account_id)
+
+    return result
+
+
+def _accounts_busy_elsewhere(
+    session: Session, campaign_id: int, account_ids: list[int]
+) -> set[int]:
+    from sqlalchemy import select
+
+    from modules.priming.models import PrimingCampaign
+
+    if not account_ids:
+        return set()
+    stmt = (
+        select(PrimingCampaignAccount.account_id)
+        .join(PrimingCampaign, PrimingCampaign.id == PrimingCampaignAccount.campaign_id)
+        .where(
+            PrimingCampaignAccount.account_id.in_(account_ids),
+            PrimingCampaignAccount.campaign_id != campaign_id,
+            PrimingCampaign.status.in_(_ACCOUNT_BUSY_STATUSES),
+        )
+    )
+    return set(session.execute(stmt).scalars())
+
+
+def detach_account(session: Session, campaign_id: int, account_id: int) -> None:
+    """Убирает связку campaign↔account."""
+    get_campaign(session, campaign_id)
+    ca = _find_link(session, campaign_id, account_id)
+    if ca is None:
+        raise NotFoundError(
+            f"account {account_id} is not attached to campaign {campaign_id}"
+        )
+    CampaignAccountRepository(session).delete_hard(ca.id)
+
+
+def _find_link(session: Session, campaign_id: int, account_id: int):
+    from sqlalchemy import select
+
+    stmt = select(PrimingCampaignAccount).where(
+        PrimingCampaignAccount.campaign_id == campaign_id,
+        PrimingCampaignAccount.account_id == account_id,
+    )
+    return session.execute(stmt).scalars().first()
+
+
+# ---------------------------------------------------------------------------
+# Targets: import / blacklist
+# ---------------------------------------------------------------------------
+
+
+class TargetImportResult:
+    def __init__(self) -> None:
+        self.inserted: int = 0
+        self.skipped_duplicate: int = 0
+        self.skipped_blacklisted: int = 0
+        self.skipped_invalid: int = 0
+
+    def to_dict(self) -> dict[str, int]:
+        return {
+            "inserted": self.inserted,
+            "skipped_duplicate": self.skipped_duplicate,
+            "skipped_blacklisted": self.skipped_blacklisted,
+            "skipped_invalid": self.skipped_invalid,
+        }
+
+
+def import_targets(
+    session: Session,
+    campaign_id: int,
+    rows: list[Mapping[str, Any]],
+    *,
+    owner_user_id: int | None = None,
+) -> TargetImportResult:
+    """Массовый импорт целей.
+
+    Дедуп:
+    * внутри батча — по first-non-null из ``(tg_user_id, username, phone)``;
+    * между батчем и БД — на уровне UNIQUE(campaign_id, tg_user_id)
+      через bulk_create с ON CONFLICT DO NOTHING;
+    * blacklist-match — предварительная фильтрация.
+    """
+    get_campaign(session, campaign_id)
+    result = TargetImportResult()
+
+    if not rows:
+        return result
+
+    blacklist = BlacklistRepository(session)
+    seen: set[tuple] = set()
+    filtered: list[dict[str, Any]] = []
+
+    for row in rows:
+        tg_user_id = row.get("tg_user_id")
+        username = _normalize_username(row.get("username"))
+        phone = _normalize_phone(row.get("phone"))
+
+        if tg_user_id is None and not username and not phone:
+            result.skipped_invalid += 1
+            continue
+
+        key = (tg_user_id, username, phone)
+        if key in seen:
+            result.skipped_duplicate += 1
+            continue
+        seen.add(key)
+
+        if blacklist.match(
+            owner_user_id=owner_user_id,
+            tg_user_id=tg_user_id,
+            username=username,
+            phone=phone,
+        ) is not None:
+            result.skipped_blacklisted += 1
+            continue
+
+        filtered.append({
+            "tg_user_id": tg_user_id,
+            "username": username,
+            "phone": phone,
+            "has_premium": row.get("has_premium"),
+            "source_id": row.get("source_id"),
+        })
+
+    if filtered:
+        inserted = CampaignTargetRepository(session).bulk_create(
+            campaign_id, filtered
+        )
+        result.inserted = inserted
+        # Разница между filtered и inserted — дубли по (campaign_id, tg_user_id)
+        # с уже существующими в БД.
+        result.skipped_duplicate += len(filtered) - inserted
+
+    return result
+
+
+def _normalize_username(v):
+    if v is None:
+        return None
+    s = str(v).strip().lstrip("@")
+    return s or None
+
+
+def _normalize_phone(v):
+    if v is None:
+        return None
+    s = str(v).strip().replace(" ", "").replace("-", "")
+    return s or None
+
+
+def bulk_blacklist_targets(
+    session: Session,
+    campaign_id: int,
+    target_ids: list[int],
+) -> int:
+    """Массово помечает цели ``blacklisted`` и добавляет в кампанийный
+    blacklist (с причиной ``manual``). Возвращает число затронутых целей.
+    """
+    if not target_ids:
+        raise ValidationError("target_ids must not be empty")
+
+    from sqlalchemy import select
+
+    campaign = get_campaign(session, campaign_id)
+    stmt = select(PrimingCampaignTarget).where(
+        PrimingCampaignTarget.campaign_id == campaign_id,
+        PrimingCampaignTarget.id.in_(target_ids),
+    )
+    targets = list(session.execute(stmt).scalars())
+
+    blacklist = BlacklistRepository(session)
+    t_repo = CampaignTargetRepository(session)
+
+    updated = 0
+    for target in targets:
+        # Пишем в blacklist только уникальные идентификаторы.
+        blacklist.create({
+            "owner_user_id": campaign.created_by,
+            "tg_user_id": target.tg_user_id,
+            "username": target.username,
+            "phone": target.phone,
+            "reason": BlacklistReason.MANUAL.value,
+        })
+        # Прямая установка статуса (минуем правила переходов — оператор
+        # вручную блэклистит, состояние не важно).
+        target.status = TargetStatus.BLACKLISTED.value
+        updated += 1
+    session.flush()
+    return updated
+
+
+# ---------------------------------------------------------------------------
+# CSV parser
+# ---------------------------------------------------------------------------
+
+
+def parse_csv_targets(content: bytes) -> list[dict[str, Any]]:
+    """Разбирает CSV (UTF-8) с колонками ``tg_user_id / username / phone``
+    (любые из них могут быть пустыми).
+
+    Возвращает список dict'ов; служебных валидаций тут нет — их делает
+    :func:`import_targets`.
+    """
+    import csv
+    import io
+
+    text = content.decode("utf-8", errors="replace")
+    reader = csv.DictReader(io.StringIO(text))
+    rows: list[dict[str, Any]] = []
+    for record in reader:
+        rows.append({
+            "tg_user_id": _maybe_int(record.get("tg_user_id")),
+            "username": (record.get("username") or None),
+            "phone": (record.get("phone") or None),
+        })
+    return rows
+
+
+def _maybe_int(v):
+    if v is None:
+        return None
+    s = str(v).strip()
+    if not s:
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        return None
+
 
 def _validate_startable(session: Session, campaign_id: int) -> None:
     accounts = session.execute(
