@@ -47,6 +47,9 @@ from modules.shilling.worker.orchestrator import (
     start_campaign as shilling_start_campaign_impl,
 )
 from modules.priming.worker.executor import execute_prime as priming_execute_prime_impl
+from modules.priming.worker.orchestrator import (
+    orchestrator_tick as priming_orchestrator_tick_impl,
+)
 from worker.tasks.dispatch import task
 from worker.tasks.health import (
     check_account_impl,
@@ -74,10 +77,9 @@ from worker.tasks.warming import (
 _STUB_TASKS = [
     TaskName.ACCOUNT_RETIRE,
     TaskName.ACCOUNT_ACKNOWLEDGE_BAN,
-    # priming: реальная регистрация только у execute_prime (промпт 2.2);
-    # остальные задачи — заглушки, тела приезжают на своих промптах
-    # (2.3 orchestrator, 3.x parser, 4.x profile_apply, 5.1 humanizer).
-    TaskName.PRIMING_ORCHESTRATOR_TICK,
+    # priming: реальная регистрация у execute_prime (2.2) и
+    # orchestrator_tick (2.3); остальные задачи — заглушки, тела приезжают
+    # на своих промптах (3.x parser, 4.x profile_apply, 5.1 humanizer).
     TaskName.PRIMING_HUMANIZER_BEAT,
     TaskName.PRIMING_PARSER_RUN,
     TaskName.PRIMING_PROFILE_APPLY,
@@ -189,9 +191,12 @@ shilling_execute_step = task(TaskName.SHILLING_EXECUTE_STEP.value)(
 shilling_failover = task(TaskName.SHILLING_FAILOVER.value)(shilling_failover_impl)
 shilling_dry_run = task(TaskName.SHILLING_DRY_RUN.value)(shilling_dry_run_impl)
 
-# Модуль priming (промпт 2.2): исполнитель одной попытки прайминга.
+# Модуль priming: исполнитель одной попытки (2.2) и tick-раскладчик (2.3).
 priming_execute_prime = task(TaskName.PRIMING_EXECUTE_PRIME.value)(
     priming_execute_prime_impl
+)
+priming_orchestrator_tick = task(TaskName.PRIMING_ORCHESTRATOR_TICK.value)(
+    priming_orchestrator_tick_impl
 )
 
 TASK_FUNCTIONS = [
@@ -265,6 +270,13 @@ TASK_FUNCTIONS = [
     func(
         priming_execute_prime,
         name=TaskName.PRIMING_EXECUTE_PRIME.value,
+        max_tries=1,
+    ),
+    # priming.orchestrator_tick: 1 попытка. Следующий tick планируется
+    # изнутри задачи, повтор из-за сбоя может задублировать job'ы.
+    func(
+        priming_orchestrator_tick,
+        name=TaskName.PRIMING_ORCHESTRATOR_TICK.value,
         max_tries=1,
     ),
     # Recovery-email flow (этап 7, backlog #1): max_tries=1 — при
