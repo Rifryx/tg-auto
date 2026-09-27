@@ -86,12 +86,15 @@ class CampaignTargetRepository(BaseRepository[PrimingCampaignTarget]):
         stmt = pg_insert(PrimingCampaignTarget).values(payload)
         # ON CONFLICT привязываем к уникальному индексу
         # (campaign_id, tg_user_id); строки без tg_user_id всё равно вставятся.
+        # RETURNING id обязателен: без него psycopg возвращает rowcount=-1
+        # для INSERT ... ON CONFLICT DO NOTHING (не может отличить
+        # реально вставленные строки от пропущенных).
         stmt = stmt.on_conflict_do_nothing(
             index_elements=["campaign_id", "tg_user_id"],
-        )
-        result = self.session.execute(stmt)
+        ).returning(PrimingCampaignTarget.id)
+        inserted_ids = list(self.session.execute(stmt).scalars())
         self.session.flush()
-        return result.rowcount
+        return len(inserted_ids)
 
     def update(
         self, id_: int, data: Mapping[str, Any]
