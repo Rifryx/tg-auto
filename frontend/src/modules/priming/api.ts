@@ -42,4 +42,8 @@ export const primingApi = {
     }),
   importTargets: (id: number, targets: TargetItem[]) =>
     api.post<TargetImportResult>(`${BASE}/${id}/targets/import`, { targets }),
+  importFromList: (id: number, parsedListId: number) =>
+    api.post<TargetImportResult>(`${BASE}/${id}/targets/import-list`, {
+      parsed_list_id: parsedListId,
+    }),
 };

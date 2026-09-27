@@ -10,4 +10,12 @@ export const parsingApi = {
   remove: (id: number) => api.del<void>(`${BASE}/${id}`),
   runChatMessages: (body: RunChatMessagesBody) =>
     api.post<{ job_id: string }>(`${BASE}/run/chat-messages`, body),
+  runChatMembers: (body: {
+    name: string;
+    collector_account_id: number;
+    chat_ref: string;
+    only_recently_seen?: boolean;
+    require_username?: boolean;
+    premium_only?: boolean;
+  }) => api.post<{ job_id: string }>(`${BASE}/run/chat-members`, body),
 };

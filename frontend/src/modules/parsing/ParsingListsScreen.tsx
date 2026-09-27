@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { Filter } from "lucide-react";
+import { Filter, Plus } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { EmptyState } from "../../components/EmptyState";
 import { timeAgo } from "../../shared/format";
@@ -18,6 +19,7 @@ const SOURCE_LABEL: Record<ParsedList["source_kind"], string> = {
 };
 
 export function ParsingListsScreen() {
+  const navigate = useNavigate();
   const { data, isLoading, isError } = useQuery({
     queryKey: ["parsing", "lists"],
     queryFn: parsingApi.list,
@@ -26,7 +28,19 @@ export function ParsingListsScreen() {
 
   return (
     <div className="min-h-full pb-24">
-      <ScreenHeader title="Парсинг" />
+      <ScreenHeader
+        title="Парсинг"
+        action={
+          <button
+            type="button"
+            onClick={() => navigate("/modules/parsing/run")}
+            className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-accent px-4 text-[14px] font-medium text-accent-on active:opacity-80"
+          >
+            <Plus className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+            Новый прогон
+          </button>
+        }
+      />
       <p className="mb-4 text-[13px] text-text-secondary">
         Собранные списки аудитории. Прайминг и другие модули берут отсюда,
         а не парсят повторно.

@@ -50,6 +50,7 @@ from modules.priming.worker.executor import execute_prime as priming_execute_pri
 from modules.priming.worker.orchestrator import (
     orchestrator_tick as priming_orchestrator_tick_impl,
 )
+from modules.parsing.worker.dispatch import parser_run as parsing_parser_run_impl
 from worker.tasks.dispatch import task
 from worker.tasks.health import (
     check_account_impl,
@@ -77,11 +78,10 @@ from worker.tasks.warming import (
 _STUB_TASKS = [
     TaskName.ACCOUNT_RETIRE,
     TaskName.ACCOUNT_ACKNOWLEDGE_BAN,
-    # priming: реальная регистрация у execute_prime (2.2) и
-    # orchestrator_tick (2.3); остальные задачи — заглушки, тела приезжают
-    # на своих промптах (3.x parser, 4.x profile_apply, 5.1 humanizer).
+    # priming: execute_prime (2.2), orchestrator_tick (2.3),
+    # parser_run (3.3 через modules/parsing). Заглушки — humanizer_beat
+    # (5.1) и profile_apply (4.x).
     TaskName.PRIMING_HUMANIZER_BEAT,
-    TaskName.PRIMING_PARSER_RUN,
     TaskName.PRIMING_PROFILE_APPLY,
 ]
 
@@ -198,6 +198,10 @@ priming_execute_prime = task(TaskName.PRIMING_EXECUTE_PRIME.value)(
 priming_orchestrator_tick = task(TaskName.PRIMING_ORCHESTRATOR_TICK.value)(
     priming_orchestrator_tick_impl
 )
+# parsing service (промпт 3.3): dispatch по kind внутри самого хендлера.
+parsing_parser_run = task(TaskName.PRIMING_PARSER_RUN.value)(
+    parsing_parser_run_impl
+)
 
 TASK_FUNCTIONS = [
     func(task(name.value)(_make_stub(name.value)), name=name.value, max_tries=3)
@@ -277,6 +281,13 @@ TASK_FUNCTIONS = [
     func(
         priming_orchestrator_tick,
         name=TaskName.PRIMING_ORCHESTRATOR_TICK.value,
+        max_tries=1,
+    ),
+    # parser_run: 1 попытка — парсер идемпотентен per-run (создаёт новую
+    # ParsedList), повтор породил бы дубль-lists.
+    func(
+        parsing_parser_run,
+        name=TaskName.PRIMING_PARSER_RUN.value,
         max_tries=1,
     ),
     # Recovery-email flow (этап 7, backlog #1): max_tries=1 — при

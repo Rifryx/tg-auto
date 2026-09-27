@@ -3,6 +3,8 @@ import { AlertCircle, ArrowLeft, Check, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
+import { parsingApi } from "../parsing/api";
+import type { ParsedList } from "../parsing/types";
 import { accountsApi } from "../../shared/accounts";
 import type { Account } from "../../shared/types";
 import { primingApi } from "./api";
@@ -80,7 +82,8 @@ export function NewPrimingScreen() {
   const [csvRows, setCsvRows] = useState<
     { tg_user_id?: number; username?: string; phone?: string }[]
   >([]);
-  const [audienceTab, setAudienceTab] = useState<"manual" | "csv">("manual");
+  const [audienceTab, setAudienceTab] = useState<"parsing" | "manual" | "csv">("parsing");
+  const [pickedListId, setPickedListId] = useState<number | null>(null);
 
   // Меняем warmup — подставляем дефолты, если пользователь не правил.
   function applyWarmup(p: WarmupProfile) {
@@ -105,11 +108,28 @@ export function NewPrimingScreen() {
   const manualTargets = useMemo(() => parseManualList(manualList), [manualList]);
   const targets = audienceTab === "csv" ? csvRows : manualTargets;
 
+  // Готовые списки из parsing
+  const parsedListsQuery = useQuery({
+    queryKey: ["parsing", "lists"],
+    queryFn: parsingApi.list,
+    enabled: audienceTab === "parsing",
+  });
+  const pickedList = useMemo(
+    () => (parsedListsQuery.data ?? []).find((l) => l.id === pickedListId) ?? null,
+    [parsedListsQuery.data, pickedListId],
+  );
+
   // Валидация
   const problems: string[] = [];
   if (!name.trim()) problems.push("Укажите имя кампании");
   if (pickedAccounts.size === 0) problems.push("Выберите хотя бы один аккаунт");
-  if (targets.length === 0) problems.push("Добавьте хотя бы одну цель");
+  if (audienceTab === "parsing") {
+    if (!pickedList) problems.push("Выберите готовый список из парсинга");
+    else if (pickedList.after_filters_count === 0)
+      problems.push("Выбранный список пуст — запустите парсер заново");
+  } else if (targets.length === 0) {
+    problems.push("Добавьте хотя бы одну цель");
+  }
   if (delayMin > delayMax) problems.push("Минимальная задержка больше максимальной");
 
   // Запуск
@@ -126,7 +146,11 @@ export function NewPrimingScreen() {
         dry_run: dryRun,
       });
       await primingApi.attachAccounts(created.id, Array.from(pickedAccounts));
-      await primingApi.importTargets(created.id, targets);
+      if (audienceTab === "parsing" && pickedList) {
+        await primingApi.importFromList(created.id, pickedList.id);
+      } else {
+        await primingApi.importTargets(created.id, targets);
+      }
       const started = await primingApi.start(created.id);
       return started.id;
     },
@@ -243,22 +267,41 @@ export function NewPrimingScreen() {
           </div>
         </Section>
 
-        {/* §5.3 Аудитория (без drawer-парсера — 3.3) */}
+        {/* §5.3 Аудитория */}
         <Section
           title="Аудитория"
-          description="Кого праймить. Парсер чата приезжает следующим промптом."
+          description="Кого праймить. Готовые списки берутся из отдельного сервиса «Парсинг»."
+          action={
+            <button
+              type="button"
+              onClick={() => navigate("/modules/parsing/run")}
+              className="inline-flex h-8 items-center gap-1 rounded-pill bg-surface-2 px-3 text-[12px] text-text-secondary active:text-text-primary"
+            >
+              Запустить парсинг →
+            </button>
+          }
         >
           <div className="mb-3">
             <PillGroup
               value={audienceTab}
               options={[
-                { key: "manual", label: "Ручной список" },
-                { key: "csv", label: "Импорт CSV" },
+                { key: "parsing", label: "Из парсинга" },
+                { key: "manual", label: "Ручной" },
+                { key: "csv", label: "CSV" },
               ]}
               onChange={(v) => setAudienceTab(v)}
               fullWidth
             />
           </div>
+
+          {audienceTab === "parsing" && (
+            <ParsingListPicker
+              lists={parsedListsQuery.data ?? []}
+              isLoading={parsedListsQuery.isLoading}
+              pickedId={pickedListId}
+              onPick={setPickedListId}
+            />
+          )}
 
           {audienceTab === "manual" && (
             <>
@@ -494,6 +537,66 @@ function AccountRow({
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+
+function ParsingListPicker({
+  lists,
+  isLoading,
+  pickedId,
+  onPick,
+}: {
+  lists: ParsedList[];
+  isLoading: boolean;
+  pickedId: number | null;
+  onPick: (id: number) => void;
+}) {
+  if (isLoading) {
+    return <div className="h-16 animate-pulse rounded-2xl bg-surface-2" />;
+  }
+  if (lists.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-strong bg-surface-1 p-4 text-[13px] text-text-secondary">
+        Пока нет собранных списков. Нажмите «Запустить парсинг» справа.
+      </div>
+    );
+  }
+  return (
+    <div className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
+      {lists.map((l) => {
+        const active = l.id === pickedId;
+        return (
+          <button
+            type="button"
+            key={l.id}
+            onClick={() => onPick(l.id)}
+            className={[
+              "flex items-center justify-between rounded-xl border p-3 text-left transition-colors",
+              active
+                ? "border-strong bg-surface-2"
+                : "border-hairline bg-surface-1 active:bg-surface-2",
+            ].join(" ")}
+          >
+            <div className="min-w-0">
+              <div className="truncate text-[14px] font-medium text-text-primary">
+                {l.name}
+              </div>
+              <div className="mt-0.5 truncate text-[12px] text-text-tertiary">
+                {l.source_kind} · {l.chat_ref || "—"}
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <div className="text-[16px] font-bold tabular-nums text-text-primary">
+                {l.after_filters_count}
+              </div>
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary">
+                целей
+              </div>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function parseManualList(text: string): {
   tg_user_id?: number;
