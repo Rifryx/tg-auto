@@ -28,6 +28,10 @@ LIMITS: dict[str, tuple[tuple[str, int, int], ...]] = {
     # держим верхнюю границу на случай runaway-оркестратора; per-account
     # daily_limit из кампании (spec §4.1) действует поверх.
     "priming": (("hour", 15, _HOUR), ("day", 60, _DAY)),
+    # Парсинг аудитории — read-only (iter_messages / GetParticipants).
+    # Держим свободнее, чем прайминг: чтение не пишет в чат, но с одного
+    # аккаунта долго не читаем.
+    "priming_parser": (("hour", 10, _HOUR), ("day", 40, _DAY)),
     "warming": (("hour", 30, _HOUR), ("day", 200, _DAY)),
     "login": (("hour", 5, _HOUR),),
     # health.check_account: не даём заспамить одну и ту же карточку — 6/час,
