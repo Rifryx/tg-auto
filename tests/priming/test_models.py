@@ -102,11 +102,12 @@ def test_campaign_account_unique_pair() -> None:
     assert "uq_campaign_accounts_campaign_id_account_id" in named
 
 
-def test_campaign_account_profile_preset_column_has_no_fk_yet() -> None:
-    """FK на priming.profile_presets появится в миграции 0041 (промпт 1.4)."""
-    col = PrimingCampaignAccount.__table__.c.profile_preset_id
-    assert col.nullable is True
-    assert list(col.foreign_keys) == []
+def test_campaign_account_profile_preset_fk() -> None:
+    """FK на priming.profile_presets добавлен миграцией 0041 (промпт 1.4)."""
+    fks = _fk_map(PrimingCampaignAccount.__table__)
+    assert fks["profile_preset_id"] == (
+        f"{PRIMING_SCHEMA}.profile_presets", "SET NULL",
+    )
 
 
 def test_campaign_account_state_default() -> None:
@@ -125,11 +126,10 @@ def test_campaign_target_has_correct_fks() -> None:
     assert fks["assigned_account_id"] == ("accounts", "SET NULL")
 
 
-def test_campaign_target_source_column_has_no_fk_yet() -> None:
-    """FK на priming.target_sources появится в миграции 0041 (промпт 1.4)."""
-    col = PrimingCampaignTarget.__table__.c.source_id
-    assert col.nullable is True
-    assert list(col.foreign_keys) == []
+def test_campaign_target_source_fk() -> None:
+    """FK на priming.target_sources добавлен миграцией 0041 (промпт 1.4)."""
+    fks = _fk_map(PrimingCampaignTarget.__table__)
+    assert fks["source_id"] == (f"{PRIMING_SCHEMA}.target_sources", "SET NULL")
 
 
 def test_campaign_target_identity_required_check() -> None:

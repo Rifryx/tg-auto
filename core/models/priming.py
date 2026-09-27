@@ -6,13 +6,25 @@
 """
 
 from modules.priming.models import (
+    PrimingAnchorChannel,
+    PrimingBlacklist,
     PrimingCampaign,
     PrimingCampaignAccount,
     PrimingCampaignTarget,
+    PrimingExecutionLog,
+    PrimingFloodIncident,
+    PrimingProfilePreset,
+    PrimingTargetSource,
 )
 
 __all__ = [
+    "PrimingAnchorChannel",
+    "PrimingBlacklist",
     "PrimingCampaign",
     "PrimingCampaignAccount",
     "PrimingCampaignTarget",
+    "PrimingExecutionLog",
+    "PrimingFloodIncident",
+    "PrimingProfilePreset",
+    "PrimingTargetSource",
 ]

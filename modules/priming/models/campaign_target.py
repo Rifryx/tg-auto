@@ -71,11 +71,14 @@ class PrimingCampaignTarget(Base, CreatedAtMixin):
         nullable=False,
     )
 
-    # FK на priming.target_sources появится в миграции 0041 (промпт 1.4);
-    # здесь колонка без FK-констрейнта, чтобы не ссылаться на ещё
-    # несуществующую таблицу.
+    # Источник этой цели (парсер/CSV/ручной ввод — spec §4.4).
+    # SET NULL: если источник почистили, цель остаётся в кампании.
     source_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger, nullable=True
+        BigInteger,
+        ForeignKey(
+            f"{PRIMING_SCHEMA}.target_sources.id", ondelete="SET NULL"
+        ),
+        nullable=True,
     )
 
     # ── Идентификация цели ─────────────────────────────────────────────

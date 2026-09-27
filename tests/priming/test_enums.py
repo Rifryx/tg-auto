@@ -104,6 +104,8 @@ def test_all_enums_registry_matches_module_symbols() -> None:
         "ParserSourceKind",
         "BlacklistReason",
         "AnchorChannelState",
+        "UsernameGenerator",
+        "AvatarSource",
     }
 
 

@@ -189,6 +189,21 @@ class AnchorChannelState(StrEnum):
     RESET_REQUIRED = "reset_required"
 
 
+class UsernameGenerator(StrEnum):
+    """Способ генерации @username при применении профиль-пресета (spec §4.5)."""
+
+    LLM = "llm"
+    DICT = "dict"
+    TEMPLATE = "template"
+
+
+class AvatarSource(StrEnum):
+    """Источник аватара для профиль-пресета (spec §4.5)."""
+
+    UPLOAD = "upload"
+    SERVICE_GALLERY = "service_gallery"
+
+
 def all_enums() -> Iterable[type[StrEnum]]:
     """Реестр enum'ов модуля — для миграций/интроспекции."""
     return (
@@ -204,6 +219,8 @@ def all_enums() -> Iterable[type[StrEnum]]:
         ParserSourceKind,
         BlacklistReason,
         AnchorChannelState,
+        UsernameGenerator,
+        AvatarSource,
     )
 
 
@@ -220,6 +237,8 @@ __all__ = [
     "ParserSourceKind",
     "BlacklistReason",
     "AnchorChannelState",
+    "UsernameGenerator",
+    "AvatarSource",
     "target_status_allowed_transitions",
     "can_target_status_transition",
     "all_enums",

@@ -16,6 +16,7 @@ from modules.priming.schemas.common import (
 )
 from modules.priming.schemas.enums import (
     AnchorChannelState,
+    AvatarSource,
     BlacklistReason,
     ExecutionOutcome,
     HumanizerMode,
@@ -26,6 +27,7 @@ from modules.priming.schemas.enums import (
     TargetLastSeen,
     TargetStatus,
     TriggerAction,
+    UsernameGenerator,
     WarmupProfile,
     all_enums,
     can_target_status_transition,
@@ -39,6 +41,7 @@ __all__ = [
     "PrimingBaseModel",
     "TimeRange",
     "AnchorChannelState",
+    "AvatarSource",
     "BlacklistReason",
     "ExecutionOutcome",
     "HumanizerMode",
@@ -49,6 +52,7 @@ __all__ = [
     "TargetLastSeen",
     "TargetStatus",
     "TriggerAction",
+    "UsernameGenerator",
     "WarmupProfile",
     "all_enums",
     "can_target_status_transition",

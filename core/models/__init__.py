@@ -23,9 +23,15 @@ from core.models.profile_asset import ProfileAsset
 from core.models.project import Project
 from core.models.project_channel import ProjectChannel
 from core.models.priming import (
+    PrimingAnchorChannel,
+    PrimingBlacklist,
     PrimingCampaign,
     PrimingCampaignAccount,
     PrimingCampaignTarget,
+    PrimingExecutionLog,
+    PrimingFloodIncident,
+    PrimingProfilePreset,
+    PrimingTargetSource,
 )
 from core.models.proxy import Proxy
 from core.models.shilling import (
@@ -64,9 +70,15 @@ __all__ = [
     "ProfileAsset",
     "Project",
     "ProjectChannel",
+    "PrimingAnchorChannel",
+    "PrimingBlacklist",
     "PrimingCampaign",
     "PrimingCampaignAccount",
     "PrimingCampaignTarget",
+    "PrimingExecutionLog",
+    "PrimingFloodIncident",
+    "PrimingProfilePreset",
+    "PrimingTargetSource",
     "Proxy",
     "ShillingBlacklist",
     "ShillingCampaign",

@@ -92,11 +92,12 @@ class PrimingCampaignAccount(Base, CreatedAtMixin):
         DateTime(timezone=True), nullable=True
     )
 
-    # FK на priming.profile_presets появится в миграции 0041 (промпт 1.4),
-    # когда таблица пресетов будет заведена. Здесь колонка объявлена
-    # без FK-констрейнта, чтобы миграция 1.3 не ссылалась на ещё
-    # несуществующую таблицу; ORM-констрейнт будет добавлен вместе с
-    # таблицей.
+    # Пресет оформления профиля (spec §4.5). SET NULL: удалённый пресет не
+    # должен ронять историю кампании.
     profile_preset_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger, nullable=True
+        BigInteger,
+        ForeignKey(
+            f"{PRIMING_SCHEMA}.profile_presets.id", ondelete="SET NULL"
+        ),
+        nullable=True,
     )
