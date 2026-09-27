@@ -3,6 +3,25 @@ import type { PrimingCampaign, PrimingCampaignCreateBody } from "./types";
 
 const BASE = "/modules/priming/campaigns";
 
+export interface AttachAccountsResult {
+  attached: number[];
+  skipped_busy: number[];
+  skipped_duplicate: number[];
+}
+
+export interface TargetImportResult {
+  inserted: number;
+  skipped_duplicate: number;
+  skipped_blacklisted: number;
+  skipped_invalid: number;
+}
+
+export interface TargetItem {
+  tg_user_id?: number | null;
+  username?: string | null;
+  phone?: string | null;
+}
+
 /* Типизированные вызовы priming-эндпоинтов
    (см. modules/priming/api/router.py). */
 export const primingApi = {
@@ -16,4 +35,11 @@ export const primingApi = {
   pause: (id: number) => api.post<PrimingCampaign>(`${BASE}/${id}/pause`, {}),
   resume: (id: number) => api.post<PrimingCampaign>(`${BASE}/${id}/resume`, {}),
   stop: (id: number) => api.post<PrimingCampaign>(`${BASE}/${id}/stop`, {}),
+
+  attachAccounts: (id: number, accountIds: number[]) =>
+    api.post<AttachAccountsResult>(`${BASE}/${id}/accounts`, {
+      account_ids: accountIds,
+    }),
+  importTargets: (id: number, targets: TargetItem[]) =>
+    api.post<TargetImportResult>(`${BASE}/${id}/targets/import`, { targets }),
 };
