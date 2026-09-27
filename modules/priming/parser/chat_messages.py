@@ -23,11 +23,13 @@ from typing import Any, Optional
 
 import structlog
 
+from modules.priming.parser.filters import FilterOptions, apply_filters
 from modules.priming.repositories import (
+    BlacklistRepository,
     CampaignTargetRepository,
     TargetSourceRepository,
 )
-from modules.priming.schemas.enums import ParserSourceKind
+from modules.priming.schemas.enums import ParserSourceKind, TargetLastSeen
 
 get_logger = structlog.get_logger
 
@@ -41,6 +43,7 @@ class ParseResult:
     source_id: int
     raw_count: int
     inserted: int
+    filters_breakdown: dict[str, int]
 
 
 async def parse_chat_messages(
@@ -51,6 +54,7 @@ async def parse_chat_messages(
     chat_ref: str,
     days_window: int,
     min_messages: int = 1,
+    filter_options: Optional[FilterOptions] = None,
 ) -> Optional[ParseResult]:
     """Один прогон парсера. Пишет источник и вставляет цели.
 
@@ -109,10 +113,12 @@ async def parse_chat_messages(
     finally:
         await pool.release(collector_account_id)
 
-    # 3. Отбираем по min_messages и сохраняем цели.
-    picked_rows = []
+    # 3. Отбираем по min_messages, прогоняем через фильтры, сохраняем.
+    picked_rows: list[dict[str, Any]] = []
+    breakdown_by_min: int = 0
     for sender_id, info in raw_senders.items():
         if info["count"] < min_messages:
+            breakdown_by_min += 1
             continue
         snap = info.get("sender") or {}
         picked_rows.append({
@@ -120,20 +126,53 @@ async def parse_chat_messages(
             "username": snap.get("username"),
             "phone": snap.get("phone"),
             "has_premium": snap.get("premium"),
+            "is_bot": bool(snap.get("bot", False)),
+            "is_deleted": bool(snap.get("deleted", False)),
+            "is_admin": False,
+            "last_seen_bucket": TargetLastSeen.UNKNOWN.value,
         })
 
+    options = filter_options or FilterOptions()
+
     with session_factory() as session:
+        blacklist_repo = (
+            BlacklistRepository(session) if options.check_blacklist else None
+        )
+        outcome = apply_filters(
+            picked_rows,
+            options=options,
+            blacklist_repo=blacklist_repo,
+        )
+
         inserted = 0
-        if picked_rows:
+        if outcome.kept:
             inserted = CampaignTargetRepository(session).bulk_create(
-                campaign_id, picked_rows,
+                campaign_id,
+                [
+                    {
+                        "tg_user_id": r.get("tg_user_id"),
+                        "username": r.get("username"),
+                        "phone": r.get("phone"),
+                        "has_premium": r.get("has_premium"),
+                        "last_seen_bucket": r.get("last_seen_bucket")
+                        or TargetLastSeen.UNKNOWN.value,
+                        "source_id": source_id,
+                    }
+                    for r in outcome.kept
+                ],
             )
-        # after_filters_count == inserted; фильтры (username/premium/bots)
-        # добавятся на промпте 3.2 — сейчас пропускаем всё, что прошло
-        # min_messages.
+
+        breakdown = dict(outcome.breakdown)
+        if breakdown_by_min:
+            breakdown["below_min_messages"] = breakdown_by_min
+        already_in_campaign = len(outcome.kept) - inserted
+        if already_in_campaign > 0:
+            breakdown["already_in_campaign"] = already_in_campaign
+
         TargetSourceRepository(session).update(source_id, {
             "raw_count": len(raw_senders),
             "after_filters_count": inserted,
+            "filters_breakdown": breakdown,
             "parsed_at": datetime.now(timezone.utc),
         })
         session.commit()
@@ -144,11 +183,13 @@ async def parse_chat_messages(
         source_id=source_id,
         raw=len(raw_senders),
         inserted=inserted,
+        breakdown=breakdown,
     )
     return ParseResult(
         source_id=source_id,
         raw_count=len(raw_senders),
         inserted=inserted,
+        filters_breakdown=breakdown,
     )
 
 

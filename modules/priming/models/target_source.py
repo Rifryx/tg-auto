@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     String,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.models.base import PRIMING_SCHEMA, Base, CreatedAtMixin
@@ -66,4 +67,10 @@ class PrimingTargetSource(Base, CreatedAtMixin):
     )
     parsed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    # Разбивка «сколько отброшено какой причиной»: словарь reason→count
+    # ({no_username: 12, bot: 3, blacklisted: 5, ...}). Заполняется парсером
+    # (промпт 3.2) и читается UI-отчётом.
+    filters_breakdown: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
     )
