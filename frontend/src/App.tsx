@@ -19,6 +19,9 @@ import { NewCampaignScreen } from "./modules/commenting/NewCampaignScreen";
 import { ShillingListScreen } from "./modules/shilling/ShillingListScreen";
 import { NewShillingWizard } from "./modules/shilling/NewShillingWizard";
 import { ShillingDetailScreen } from "./modules/shilling/ShillingDetailScreen";
+import { PrimingListScreen } from "./modules/priming/PrimingListScreen";
+import { NewPrimingScreen } from "./modules/priming/NewPrimingScreen";
+import { PrimingDetailScreen } from "./modules/priming/PrimingDetailScreen";
 import { AdminScreen } from "./screens/admin/AdminScreen";
 import { BillingScreen } from "./screens/billing/BillingScreen";
 
@@ -39,6 +42,9 @@ export function App() {
         <Route path="/modules/shilling" element={<ShillingListScreen />} />
         <Route path="/modules/shilling/campaigns/new" element={<NewShillingWizard />} />
         <Route path="/modules/shilling/campaigns/:id" element={<ShillingDetailScreen />} />
+        <Route path="/modules/priming" element={<PrimingListScreen />} />
+        <Route path="/modules/priming/campaigns/new" element={<NewPrimingScreen />} />
+        <Route path="/modules/priming/campaigns/:id" element={<PrimingDetailScreen />} />
         <Route path="/more" element={<MoreScreen />} />
         <Route path="/more/personas" element={<PersonasScreen />} />
         <Route path="/more/projects" element={<ProjectsScreen />} />

@@ -1,4 +1,5 @@
 import {
+  BellRing,
   Bot,
   CreditCard,
   FolderKanban,
@@ -38,6 +39,7 @@ const MAIN: Item[] = [
   { to: "/accounts", label: "Аккаунты", icon: Users },
   { to: "/tasks", label: "Нейрокомментинг", icon: LayoutGrid, alsoActiveOn: ["/modules/commenting"] },
   { to: "/modules/shilling", label: "НейроШиллинг", icon: MessagesSquare, alsoActiveOn: ["/modules/shilling"] },
+  { to: "/modules/priming", label: "Прайминг", icon: BellRing, alsoActiveOn: ["/modules/priming"] },
 ];
 
 const TOOLS: Item[] = [
