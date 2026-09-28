@@ -132,9 +132,13 @@ async def test_tick_schedules_execute_prime_per_pair(session) -> None:
         assert name is TaskName.PRIMING_EXECUTE_PRIME
         assert args[0] == campaign.id  # campaign_id первым
 
-    # Следующий tick запланирован в пределах [60, 90] сек.
-    assert len(tq.scheduled) == 1
-    _, run_at, args, _ = tq.scheduled[0]
+    # Следующий tick запланирован в пределах [60, 90] сек — плюс между
+    # праймами оркестратор ставит humanizer_beat'ы (по одному на аккаунт).
+    tick_scheduled = [
+        s for s in tq.scheduled if s[0] is TaskName.PRIMING_ORCHESTRATOR_TICK
+    ]
+    assert len(tick_scheduled) == 1
+    _, run_at, args, _ = tick_scheduled[0]
     assert args == (campaign.id,)
     delta = (run_at - ctx["now"]).total_seconds()
     assert 60 <= delta <= 90

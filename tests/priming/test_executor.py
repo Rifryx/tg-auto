@@ -88,8 +88,9 @@ def _ctx(session_factory, *, trigger_result: TriggerResult):
     governor = SimpleNamespace(check_and_reserve=AsyncMock(return_value=True))
 
     class _StubRunner:
-        def __init__(self, client, gov, account_id):
+        def __init__(self, client, gov, account_id, *, dry_run: bool = False):
             self._account_id = account_id
+            self._dry_run = dry_run
         async def run(self, action, target):
             return trigger_result
 

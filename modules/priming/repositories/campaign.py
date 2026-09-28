@@ -18,7 +18,9 @@ class CampaignRepository(BaseRepository[PrimingCampaign]):
         return self.get(id_)
 
     def list_all(self) -> list[PrimingCampaign]:  # override — сортировка
-        stmt = select(PrimingCampaign).order_by(PrimingCampaign.created_at.desc())
+        stmt = select(PrimingCampaign).order_by(
+            PrimingCampaign.created_at.desc(), PrimingCampaign.id.desc(),
+        )
         return list(self.session.execute(stmt).scalars())
 
     def list_by_status(self, status: str) -> list[PrimingCampaign]:
