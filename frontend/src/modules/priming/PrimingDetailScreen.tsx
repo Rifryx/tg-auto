@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertOctagon, ArrowLeft, Play } from "lucide-react";
+import { Activity, AlertOctagon, ArrowLeft, Play } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { primingApi } from "./api";
@@ -102,12 +102,27 @@ export function PrimingDetailScreen() {
               Дневной лимит · <span className="tabular-nums text-text-primary">{data.daily_limit_per_account}</span>
             </p>
           </div>
-          <div className="card p-4">
-            <p className="text-[14px] text-text-secondary">
-              Полные табы «Настройка / Ход / Логи» приезжают на промптах 6.3–6.4
-              (см. docs/priming-ui.md §6–§7).
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={() =>
+              navigate(`/modules/priming/campaigns/${numericId}/run`)
+            }
+            className="card flex items-center justify-between p-4 text-left active:bg-surface-2"
+          >
+            <div className="flex items-center gap-2">
+              <Activity
+                className="h-4 w-4 text-text-secondary"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <span className="text-[14px] font-medium text-text-primary">
+                Открыть «Ход»
+              </span>
+            </div>
+            <span className="text-[12px] text-text-tertiary">
+              KPI, sparkline, аккаунты →
+            </span>
+          </button>
         </div>
       )}
     </div>

@@ -52,6 +52,25 @@ export interface PrimingCampaign {
   updated_at: string;
 }
 
+export interface PrimingLiveAccountRow {
+  id: number;
+  account_id: number;
+  state: "idle" | "working" | "cooldown" | "quarantined" | "disabled";
+  primes_today: number;
+  primes_total: number;
+  flood_waits_consecutive: number;
+  last_prime_at: string | null;
+  next_available_at: string | null;
+}
+
+export interface PrimingLiveSnapshot {
+  status: PrimingCampaignStatus;
+  dry_run: boolean;
+  counters: Record<string, number>;
+  sparkline_24h: number[];
+  accounts: PrimingLiveAccountRow[];
+}
+
 export interface PrimingCampaignCreateBody {
   name: string;
   trigger_action: PrimingTriggerAction;

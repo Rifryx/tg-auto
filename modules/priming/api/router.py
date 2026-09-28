@@ -32,6 +32,7 @@ from modules.priming.repositories import (
     CampaignAccountRepository,
     CampaignRepository,
     CampaignTargetRepository,
+    ExecutionLogRepository,
 )
 from modules.priming.schemas import (
     PrimingCampaignCreate,
@@ -167,6 +168,43 @@ async def resume_campaign(
     except service.ServiceError as exc:
         _raise(exc)
     return PrimingCampaignRead.model_validate(campaign)
+
+
+@router.get("/campaigns/{campaign_id}/live")
+def campaign_live_snapshot(
+    campaign_id: int, session: Session = Depends(get_session),
+):
+    """Компактный снапшот для экрана «Ход»: счётчики, sparkline 24ч,
+    последние аккаунты. Фронт поллит эндпоинт раз в 5 сек и мержит с
+    live-алертами из priming.alert канала.
+    """
+    try:
+        campaign = service.get_campaign(session, campaign_id)
+    except service.ServiceError as exc:
+        _raise(exc)
+    log_repo = ExecutionLogRepository(session)
+    counters = log_repo.outcome_counts(campaign_id)
+    sparkline = log_repo.hourly_buckets(campaign_id, hours=24)
+    accounts = CampaignAccountRepository(session).list_by_campaign(campaign_id)
+    return {
+        "status": campaign.status,
+        "dry_run": bool(campaign.dry_run),
+        "counters": counters,
+        "sparkline_24h": sparkline,
+        "accounts": [
+            {
+                "id": ca.id,
+                "account_id": ca.account_id,
+                "state": ca.state,
+                "primes_today": ca.primes_today,
+                "primes_total": ca.primes_total,
+                "flood_waits_consecutive": ca.flood_waits_consecutive,
+                "last_prime_at": ca.last_prime_at,
+                "next_available_at": ca.next_available_at,
+            }
+            for ca in accounts
+        ],
+    }
 
 
 @router.post("/campaigns/{campaign_id}/stop", response_model=PrimingCampaignRead)

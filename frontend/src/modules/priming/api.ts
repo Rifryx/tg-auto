@@ -1,5 +1,9 @@
 import { api } from "../../shared/api";
-import type { PrimingCampaign, PrimingCampaignCreateBody } from "./types";
+import type {
+  PrimingCampaign,
+  PrimingCampaignCreateBody,
+  PrimingLiveSnapshot,
+} from "./types";
 
 const BASE = "/modules/priming/campaigns";
 
@@ -35,6 +39,10 @@ export const primingApi = {
   pause: (id: number) => api.post<PrimingCampaign>(`${BASE}/${id}/pause`, {}),
   resume: (id: number) => api.post<PrimingCampaign>(`${BASE}/${id}/resume`, {}),
   stop: (id: number) => api.post<PrimingCampaign>(`${BASE}/${id}/stop`, {}),
+
+  update: (id: number, body: Partial<PrimingCampaignCreateBody> & { dry_run?: boolean }) =>
+    api.patch<PrimingCampaign>(`${BASE}/${id}`, body),
+  live: (id: number) => api.get<PrimingLiveSnapshot>(`${BASE}/${id}/live`),
 
   attachAccounts: (id: number, accountIds: number[]) =>
     api.post<AttachAccountsResult>(`${BASE}/${id}/accounts`, {

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from core.repositories.base import BaseRepository
 from modules.priming.models import PrimingExecutionLog
@@ -83,3 +83,54 @@ class ExecutionLogRepository(BaseRepository[PrimingExecutionLog]):
             .limit(window)
         )
         return [row[0] for row in self.session.execute(stmt)]
+
+    def outcome_counts(
+        self,
+        campaign_id: int,
+        *,
+        since: Optional[datetime] = None,
+    ) -> dict[str, int]:
+        """Суммарные счётчики по outcome (для мини-KPI экрана «Ход»)."""
+        stmt = (
+            select(
+                PrimingExecutionLog.outcome,
+                func.count(PrimingExecutionLog.id),
+            )
+            .where(PrimingExecutionLog.campaign_id == campaign_id)
+            .group_by(PrimingExecutionLog.outcome)
+        )
+        if since is not None:
+            stmt = stmt.where(PrimingExecutionLog.finished_at >= since)
+        return {row[0]: int(row[1]) for row in self.session.execute(stmt)}
+
+    def hourly_buckets(
+        self,
+        campaign_id: int,
+        *,
+        hours: int = 24,
+        now: Optional[datetime] = None,
+    ) -> list[int]:
+        """Кол-во попыток по часам за последние ``hours`` — для sparkline.
+
+        Возвращает список длиной ``hours``, элемент 0 — самый старый час,
+        элемент -1 — текущий (даже если пустой).
+        """
+        now = now or datetime.now(timezone.utc)
+        since = now - timedelta(hours=hours)
+        stmt = (
+            select(PrimingExecutionLog.finished_at)
+            .where(
+                PrimingExecutionLog.campaign_id == campaign_id,
+                PrimingExecutionLog.finished_at >= since,
+            )
+        )
+        buckets = [0] * hours
+        for (finished_at,) in self.session.execute(stmt):
+            if finished_at is None:
+                continue
+            if finished_at.tzinfo is None:
+                finished_at = finished_at.replace(tzinfo=timezone.utc)
+            delta_hours = int((finished_at - since).total_seconds() // 3600)
+            if 0 <= delta_hours < hours:
+                buckets[delta_hours] += 1
+        return buckets
