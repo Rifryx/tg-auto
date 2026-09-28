@@ -128,29 +128,38 @@ class BlacklistRepository(BaseRepository[PrimingBlacklist]):
             return None
         now = now or datetime.now(timezone.utc)
         cutoff = now - timedelta(days=window_days)
+
+        # WHERE строим динамически: psycopg + prepared statements не выводят
+        # тип NULL-параметра в ветке ``$n IS NOT NULL`` (AmbiguousParameter),
+        # поэтому не отправляем то, что не задано.
+        key_clauses: list[str] = []
+        params: dict[str, object] = {"cutoff": cutoff, "owner": owner_user_id}
+        if tg_user_id is not None:
+            key_clauses.append("tg_user_id = :tg")
+            params["tg"] = tg_user_id
+        if username is not None:
+            key_clauses.append("username = :username")
+            params["username"] = username
+        if phone is not None:
+            key_clauses.append("phone = :phone")
+            params["phone"] = phone
+
+        if owner_user_id is None:
+            owner_filter = "owner_user_id IS NULL"
+            params.pop("owner", None)
+        else:
+            owner_filter = "(owner_user_id IS NULL OR owner_user_id = :owner)"
+
         stmt = text(
-            """
+            f"""
             SELECT module, id, owner_user_id, tg_user_id, username, phone,
                    reason, added_at
             FROM core.blacklist_all
             WHERE added_at >= :cutoff
-              AND (owner_user_id IS NULL OR owner_user_id = :owner)
-              AND (
-                    (:tg IS NOT NULL AND tg_user_id = :tg)
-                 OR (:username IS NOT NULL AND username = :username)
-                 OR (:phone IS NOT NULL AND phone = :phone)
-              )
+              AND {owner_filter}
+              AND ({' OR '.join(key_clauses)})
             LIMIT 1
             """
         )
-        row = self.session.execute(
-            stmt,
-            {
-                "cutoff": cutoff,
-                "owner": owner_user_id,
-                "tg": tg_user_id,
-                "username": username,
-                "phone": phone,
-            },
-        ).mappings().first()
+        row = self.session.execute(stmt, params).mappings().first()
         return dict(row) if row is not None else None

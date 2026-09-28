@@ -79,8 +79,9 @@ def test_match_cross_module_passes_owner_and_keys_and_window() -> None:
     params = session.last_params or {}
     assert params["owner"] == 1
     assert params["tg"] == 100
-    assert params["username"] is None
-    assert params["phone"] is None
+    # Только заданные ключи попадают в params (psycopg AmbiguousParameter).
+    assert "username" not in params
+    assert "phone" not in params
     assert params["cutoff"] == now - timedelta(days=3)
 
 
@@ -94,4 +95,7 @@ def test_match_cross_module_default_window() -> None:
     params = session.last_params or {}
     assert params["cutoff"] == now - timedelta(days=CROSS_MODULE_WINDOW_DAYS)
     assert params["username"] == "alice"
-    assert params["owner"] is None
+    # owner_user_id=None → в params не попадает (owner_filter = IS NULL).
+    assert "owner" not in params
+    assert "tg" not in params
+    assert "phone" not in params
