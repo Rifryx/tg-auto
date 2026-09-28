@@ -397,6 +397,22 @@ def import_from_list(
     return result.to_dict()
 
 
+@router.get("/accounts/{account_id}/health-sparkline")
+def account_health_sparkline(
+    account_id: int, session: Session = Depends(get_session),
+):
+    """7-дневная health-биометрия аккаунта для строки списка (prompt 7.5).
+
+    Возвращает 7 точек ``{successes, floods, privacy}`` от старого дня
+    к новому. Пустые дни возвращаются нулями — фронт рисует «плоскую»
+    линию, а не скрывает точку.
+    """
+    days = ExecutionLogRepository(session).daily_health_buckets(
+        account_id, days=7,
+    )
+    return {"days": days}
+
+
 @router.get("/campaigns/{campaign_id}/forecast")
 def campaign_forecast(
     campaign_id: int, session: Session = Depends(get_session),

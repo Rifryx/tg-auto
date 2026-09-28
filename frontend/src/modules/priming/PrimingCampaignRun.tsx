@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { primingApi } from "./api";
+import { HealthSparkline } from "./components/HealthSparkline";
 import { StatusDot } from "./components/StatusDot";
 import type { PrimingLiveAccountRow } from "./types";
 
@@ -362,6 +363,11 @@ function ABColumn({ label, value }: { label: string; value: number }) {
 }
 
 function AccountRunRow({ row }: { row: PrimingLiveAccountRow }) {
+  const health = useQuery({
+    queryKey: ["priming", "account-health", row.account_id],
+    queryFn: () => primingApi.accountHealthSparkline(row.account_id),
+    staleTime: 60_000,
+  });
   const stateLabel: Record<PrimingLiveAccountRow["state"], string> = {
     idle: "ожидает",
     working: "работает",
@@ -407,12 +413,15 @@ function AccountRunRow({ row }: { row: PrimingLiveAccountRow }) {
           </div>
         </div>
       </div>
-      <div className="text-right">
-        <div className="text-[14px] tabular-nums text-text-primary">
-          {row.primes_today}
-        </div>
-        <div className="text-[10px] uppercase tracking-wider text-text-tertiary">
-          сегодня
+      <div className="flex items-center gap-3">
+        <HealthSparkline days={health.data?.days} />
+        <div className="text-right">
+          <div className="text-[14px] tabular-nums text-text-primary">
+            {row.primes_today}
+          </div>
+          <div className="text-[10px] uppercase tracking-wider text-text-tertiary">
+            сегодня
+          </div>
         </div>
       </div>
     </div>

@@ -86,6 +86,16 @@ export interface PrimingLogsPage {
   next_cursor: number | null;
 }
 
+export interface HealthDay {
+  successes: number;
+  floods: number;
+  privacy: number;
+}
+
+export interface AccountHealthSparkline {
+  days: HealthDay[];
+}
+
 export interface PrimingForecast {
   expected_primes_per_hour: number;
   expected_flood_per_hour: number;

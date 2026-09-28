@@ -1,5 +1,6 @@
 import { api } from "../../shared/api";
 import type {
+  AccountHealthSparkline,
   PrimingCampaign,
   PrimingCampaignCreateBody,
   PrimingExecutionOutcome,
@@ -47,6 +48,10 @@ export const primingApi = {
     api.patch<PrimingCampaign>(`${BASE}/${id}`, body),
   live: (id: number) => api.get<PrimingLiveSnapshot>(`${BASE}/${id}/live`),
   forecast: (id: number) => api.get<PrimingForecast>(`${BASE}/${id}/forecast`),
+  accountHealthSparkline: (accountId: number) =>
+    api.get<AccountHealthSparkline>(
+      `/modules/priming/accounts/${accountId}/health-sparkline`,
+    ),
 
   logs: (
     id: number,

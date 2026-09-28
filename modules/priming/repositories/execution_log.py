@@ -141,6 +141,50 @@ class ExecutionLogRepository(BaseRepository[PrimingExecutionLog]):
             stmt = stmt.where(PrimingExecutionLog.finished_at >= since)
         return {row[0]: int(row[1]) for row in self.session.execute(stmt)}
 
+    def daily_health_buckets(
+        self,
+        account_id: int,
+        *,
+        days: int = 7,
+        now: Optional[datetime] = None,
+    ) -> list[dict[str, int]]:
+        """7 (или ``days``) точек — по дням, для health-sparkline аккаунта.
+
+        Возвращает список от старого дня к новому длиной ``days``,
+        каждый элемент — {successes, floods, privacy}. День −0 —
+        сегодня, −(days-1) — самый старый.
+        """
+        now = now or datetime.now(timezone.utc)
+        since = now - timedelta(days=days)
+        stmt = (
+            select(
+                PrimingExecutionLog.finished_at,
+                PrimingExecutionLog.outcome,
+            )
+            .where(
+                PrimingExecutionLog.account_id == account_id,
+                PrimingExecutionLog.finished_at >= since,
+            )
+        )
+        buckets: list[dict[str, int]] = [
+            {"successes": 0, "floods": 0, "privacy": 0} for _ in range(days)
+        ]
+        for finished_at, outcome in self.session.execute(stmt):
+            if finished_at is None:
+                continue
+            if finished_at.tzinfo is None:
+                finished_at = finished_at.replace(tzinfo=timezone.utc)
+            delta_days = int((finished_at - since).total_seconds() // 86400)
+            if not (0 <= delta_days < days):
+                continue
+            if outcome == "primed":
+                buckets[delta_days]["successes"] += 1
+            elif outcome == "flood_wait":
+                buckets[delta_days]["floods"] += 1
+            elif outcome == "privacy_restricted":
+                buckets[delta_days]["privacy"] += 1
+        return buckets
+
     def hourly_buckets(
         self,
         campaign_id: int,
