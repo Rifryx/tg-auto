@@ -46,6 +46,7 @@ from modules.priming.schemas.enums import (
     TriggerRotationStrategy,
 )
 from modules.priming.worker.alerts import emit_priming_alert
+from modules.priming.worker.quiet_hours import is_quiet_hour_for
 from modules.priming.worker.rotation import pick_trigger_action
 from modules.priming.worker.trigger import (
     GOVERNOR_ACTION_TYPE,
@@ -182,22 +183,33 @@ async def execute_prime(
             username=target.username,
             phone=target.phone,
         )
+        quiet_hours_target = bool(getattr(campaign, "quiet_hours_target", False))
+        quiet_hours_tz = getattr(campaign, "quiet_hours_tz", None)
 
-    # 2. Открываем клиента через ClientPool (в dry-run — не открываем;
-    # runner не будет к нему обращаться, но пропускать шаг чище через
-    # пустышку, чтобы не расходовать pool-квоту).
+    # 2. Тихие часы цели — до открытия клиента, чтобы не расходовать
+    # квоту pool'а зря. Если известна TZ (пока — из кампании) и в ней
+    # ночь (00:00–07:00), сразу отдаём SKIPPED_QUIET.
     pool = _pool(ctx)
     started_at = _now(ctx)
-    client = None if dry_run else await pool.get(account_id)
-    try:
-        runner = _trigger_runner_factory(ctx)(
-            client, _governor(ctx), account_id, dry_run=dry_run,
+    if quiet_hours_target and is_quiet_hour_for(quiet_hours_tz, now=started_at):
+        finished_at = started_at
+        result = TriggerResult(
+            outcome=ExecutionOutcome.SKIPPED_QUIET,
+            latency_ms=0,
+            error_code=None,
+            flood_wait_sec=None,
         )
-        result: TriggerResult = await runner.run(trigger_action, target_ref)
-    finally:
-        if not dry_run:
-            await pool.release(account_id)
-    finished_at = _now(ctx)
+    else:
+        client = None if dry_run else await pool.get(account_id)
+        try:
+            runner = _trigger_runner_factory(ctx)(
+                client, _governor(ctx), account_id, dry_run=dry_run,
+            )
+            result = await runner.run(trigger_action, target_ref)
+        finally:
+            if not dry_run:
+                await pool.release(account_id)
+        finished_at = _now(ctx)
 
     outcome = result.outcome
 

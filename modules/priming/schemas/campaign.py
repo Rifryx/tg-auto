@@ -50,6 +50,9 @@ class PrimingCampaignCreate(PrimingBaseModel):
 
     stop_on_privacy_rate: float = Field(default=0.3, ge=0.0, le=1.0)
 
+    quiet_hours_target: bool = False
+    quiet_hours_tz: Optional[str] = Field(default=None, max_length=48)
+
     dry_run: bool = False
 
     created_by: Optional[int] = None
@@ -89,6 +92,9 @@ class PrimingCampaignUpdate(PrimingBaseModel):
     exclude_admins: Optional[bool] = None
 
     stop_on_privacy_rate: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+    quiet_hours_target: Optional[bool] = None
+    quiet_hours_tz: Optional[str] = Field(default=None, max_length=48)
 
     dry_run: Optional[bool] = None
 
@@ -141,6 +147,9 @@ class PrimingCampaignRead(PrimingBaseModel):
     exclude_admins: bool
 
     stop_on_privacy_rate: float
+
+    quiet_hours_target: bool = False
+    quiet_hours_tz: Optional[str] = None
 
     dry_run: bool = False
 

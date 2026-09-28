@@ -169,6 +169,18 @@ class PrimingCampaign(Base, TimestampMixin):
         Float, nullable=False, default=0.3, server_default="0.3"
     )
 
+    # ── Тихие часы цели (prompt 7.2) ───────────────────────────────────
+    # Executor пропустит цель (outcome=SKIPPED_QUIET), если её локальное
+    # время внутри окна 00:00–07:00. TZ либо задаётся на кампании
+    # (fallback для всей аудитории), либо executor не срабатывает
+    # (пока TZ на целях не хранится, cм. 4.4 spec).
+    quiet_hours_target: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false",
+    )
+    quiet_hours_tz: Mapped[Optional[str]] = mapped_column(
+        String(48), nullable=True,
+    )
+
     # ── Runtime ────────────────────────────────────────────────────────
     status: Mapped[str] = mapped_column(
         String, nullable=False, default=PrimingCampaignStatus.DRAFT.value,

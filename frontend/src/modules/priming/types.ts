@@ -44,6 +44,8 @@ export interface PrimingCampaign {
   exclude_admins: boolean;
   stop_on_privacy_rate: number;
   dry_run: boolean;
+  quiet_hours_target: boolean;
+  quiet_hours_tz: string | null;
   status: PrimingCampaignStatus;
   started_at: string | null;
   finished_at: string | null;
@@ -112,4 +114,6 @@ export interface PrimingCampaignCreateBody {
   delay_between_targets_sec_max?: number;
   daily_limit_per_account?: number;
   dry_run?: boolean;
+  quiet_hours_target?: boolean;
+  quiet_hours_tz?: string | null;
 }

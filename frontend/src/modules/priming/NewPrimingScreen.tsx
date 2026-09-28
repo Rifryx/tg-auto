@@ -86,6 +86,8 @@ export function NewPrimingScreen() {
   const [delayMax, setDelayMax] = useState(200);
   const [humanizer, setHumanizer] = useState<HumanizerMode>("balanced");
   const [dryRun, setDryRun] = useState(false);
+  const [quietHours, setQuietHours] = useState(false);
+  const [quietTz, setQuietTz] = useState<string>("");
 
   const [pickedAccounts, setPickedAccounts] = useState<Set<number>>(new Set());
   const [manualList, setManualList] = useState("");
@@ -160,6 +162,8 @@ export function NewPrimingScreen() {
         delay_between_targets_sec_min: delayMin,
         delay_between_targets_sec_max: delayMax,
         dry_run: dryRun,
+        quiet_hours_target: quietHours,
+        quiet_hours_tz: quietHours && quietTz.trim() ? quietTz.trim() : null,
       });
       await primingApi.attachAccounts(created.id, Array.from(pickedAccounts));
       if (audienceTab === "parsing" && pickedList) {
@@ -474,6 +478,42 @@ export function NewPrimingScreen() {
               unit="с"
             />
           </div>
+        </Section>
+
+        {/* §5.5b Тихие часы */}
+        <Section
+          title="Тихие часы цели"
+          description="Не будим цель ночью в её часовом поясе. Если TZ не указать — правило не сработает (гео неизвестно)."
+        >
+          <label className="flex cursor-pointer items-center justify-between gap-3">
+            <span className="text-[15px] text-text-primary">
+              Пропускать 00:00–07:00 у цели
+            </span>
+            <input
+              type="checkbox"
+              checked={quietHours}
+              onChange={(e) => setQuietHours(e.target.checked)}
+              className="h-5 w-5 accent-text-primary"
+            />
+          </label>
+          {quietHours && (
+            <div className="mt-3">
+              <label className="block text-[13px] font-medium text-text-secondary">
+                Часовой пояс (IANA)
+              </label>
+              <input
+                type="text"
+                value={quietTz}
+                onChange={(e) => setQuietTz(e.target.value)}
+                placeholder="например: Europe/Moscow"
+                className="mt-2 w-full rounded-xl border border-hairline bg-surface-2 p-3 font-mono text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
+              />
+              <p className="mt-2 text-[12px] text-text-tertiary">
+                Executor записывает outcome=skipped_quiet без обращения к
+                Telethon.
+              </p>
+            </div>
+          )}
         </Section>
 
         {/* §5.6 Humanizer */}
