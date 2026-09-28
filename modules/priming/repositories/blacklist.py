@@ -7,12 +7,19 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, text
 
 from core.repositories.base import BaseRepository
 from modules.priming.models import PrimingBlacklist
+
+
+# Скользящее окно кросс-модульного blacklist'а. За пределами окна
+# старые пометки не блокируют цель — пользователи меняют настройки
+# приватности, поэтому вечный бан по умолчанию не ставим.
+CROSS_MODULE_WINDOW_DAYS = 7
 
 
 class BlacklistRepository(BaseRepository[PrimingBlacklist]):
@@ -102,3 +109,48 @@ class BlacklistRepository(BaseRepository[PrimingBlacklist]):
             .limit(1)
         )
         return self.session.execute(stmt).scalars().first()
+
+    def match_cross_module(
+        self,
+        owner_user_id: Optional[int],
+        *,
+        tg_user_id: Optional[int] = None,
+        username: Optional[str] = None,
+        phone: Optional[str] = None,
+        window_days: int = CROSS_MODULE_WINDOW_DAYS,
+        now: Optional[datetime] = None,
+    ) -> Optional[dict]:
+        """Проверяет ``core.blacklist_all`` — user-level blacklist по всем
+        модулям в скользящем окне ``window_days``. Возвращает первую
+        совпавшую запись в виде dict (module/id/reason/added_at) или None.
+        """
+        if tg_user_id is None and username is None and phone is None:
+            return None
+        now = now or datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=window_days)
+        stmt = text(
+            """
+            SELECT module, id, owner_user_id, tg_user_id, username, phone,
+                   reason, added_at
+            FROM core.blacklist_all
+            WHERE added_at >= :cutoff
+              AND (owner_user_id IS NULL OR owner_user_id = :owner)
+              AND (
+                    (:tg IS NOT NULL AND tg_user_id = :tg)
+                 OR (:username IS NOT NULL AND username = :username)
+                 OR (:phone IS NOT NULL AND phone = :phone)
+              )
+            LIMIT 1
+            """
+        )
+        row = self.session.execute(
+            stmt,
+            {
+                "cutoff": cutoff,
+                "owner": owner_user_id,
+                "tg": tg_user_id,
+                "username": username,
+                "phone": phone,
+            },
+        ).mappings().first()
+        return dict(row) if row is not None else None

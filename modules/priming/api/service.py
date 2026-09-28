@@ -407,6 +407,11 @@ def import_targets(
             tg_user_id=tg_user_id,
             username=username,
             phone=phone,
+        ) is not None or blacklist.match_cross_module(
+            owner_user_id=owner_user_id,
+            tg_user_id=tg_user_id,
+            username=username,
+            phone=phone,
         ) is not None:
             result.skipped_blacklisted += 1
             continue

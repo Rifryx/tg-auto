@@ -186,4 +186,12 @@ def _first_drop_reason(
         )
         if hit is not None:
             return REASON_BLACKLISTED
+        cross = blacklist_repo.match_cross_module(
+            owner_user_id=options.owner_user_id,
+            tg_user_id=row.get("tg_user_id"),
+            username=row.get("username"),
+            phone=row.get("phone"),
+        )
+        if cross is not None:
+            return REASON_BLACKLISTED
     return None
