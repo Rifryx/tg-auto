@@ -30,6 +30,13 @@ export function PrimingCampaignRun() {
     enabled: Number.isFinite(numericId),
     refetchInterval: REFRESH_MS,
   });
+  const forecastQuery = useQuery({
+    queryKey: ["priming", "campaign", numericId, "forecast"],
+    queryFn: () => primingApi.forecast(numericId),
+    enabled: Number.isFinite(numericId),
+    refetchInterval: REFRESH_MS * 4,
+  });
+  const forecast = forecastQuery.data;
 
   const campaign = campaignQuery.data;
   const live = liveQuery.data;
@@ -162,6 +169,47 @@ export function PrimingCampaignRun() {
               </div>
             </div>
           </div>
+
+          {/* Прогноз «Что произойдёт за час» */}
+          {forecast && (
+            <div className="card p-4">
+              <div className="text-[11px] uppercase tracking-wider text-text-tertiary">
+                Прогноз на ближайший час
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-3">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-text-tertiary">
+                    Ожидается primed
+                  </div>
+                  <div className="mt-1 text-[20px] font-semibold tabular-nums text-text-primary">
+                    ≈ {forecast.expected_primes_per_hour}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-text-tertiary">
+                    Ожидается flood
+                  </div>
+                  <div className="mt-1 text-[20px] font-semibold tabular-nums text-status-warning">
+                    ≈ {forecast.expected_flood_per_hour}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-text-tertiary">
+                    Старт через
+                  </div>
+                  <div className="mt-1 text-[20px] font-semibold tabular-nums text-text-primary">
+                    {forecast.best_start_after === 0
+                      ? "сейчас"
+                      : `${Math.ceil(forecast.best_start_after / 60)}м`}
+                  </div>
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] text-text-tertiary">
+                На основе {forecast.sample_size} последних попыток и текущего
+                профиля прогрева.
+              </p>
+            </div>
+          )}
 
           {/* A/B breakdown — только если тест включён */}
           {live.ab_split_enabled && live.ab_breakdown && (

@@ -3,6 +3,7 @@ import type {
   PrimingCampaign,
   PrimingCampaignCreateBody,
   PrimingExecutionOutcome,
+  PrimingForecast,
   PrimingLiveSnapshot,
   PrimingLogsPage,
 } from "./types";
@@ -45,6 +46,7 @@ export const primingApi = {
   update: (id: number, body: Partial<PrimingCampaignCreateBody> & { dry_run?: boolean }) =>
     api.patch<PrimingCampaign>(`${BASE}/${id}`, body),
   live: (id: number) => api.get<PrimingLiveSnapshot>(`${BASE}/${id}/live`),
+  forecast: (id: number) => api.get<PrimingForecast>(`${BASE}/${id}/forecast`),
 
   logs: (
     id: number,

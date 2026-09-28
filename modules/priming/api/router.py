@@ -29,6 +29,11 @@ from api.deps.db import get_session
 from api.deps.queue import get_task_queue
 from core.queue import TaskQueue
 from modules.priming.api import service
+from modules.priming.api.forecast import (
+    ForecastAccountView,
+    ForecastCampaignView,
+    compute_forecast,
+)
 from modules.priming.repositories import (
     CampaignAccountRepository,
     CampaignRepository,
@@ -390,6 +395,43 @@ def import_from_list(
         _raise(exc)
     session.commit()
     return result.to_dict()
+
+
+@router.get("/campaigns/{campaign_id}/forecast")
+def campaign_forecast(
+    campaign_id: int, session: Session = Depends(get_session),
+):
+    """Прогноз на ближайший час (карточка-симуляция в мастере)."""
+    try:
+        campaign = service.get_campaign(session, campaign_id)
+    except service.ServiceError as exc:
+        _raise(exc)
+    accounts = CampaignAccountRepository(session).list_by_campaign(campaign_id)
+    outcomes = ExecutionLogRepository(session).recent_outcomes(
+        campaign_id, window=500,
+    )
+    result = compute_forecast(
+        ForecastCampaignView(
+            warmup_profile=campaign.warmup_profile,
+            daily_limit_per_account=campaign.daily_limit_per_account,
+        ),
+        [
+            ForecastAccountView(
+                state=a.state,
+                primes_today=a.primes_today,
+                warmup_started_at=a.warmup_started_at,
+                next_available_at=a.next_available_at,
+            )
+            for a in accounts
+        ],
+        outcomes,
+    )
+    return {
+        "expected_primes_per_hour": result.expected_primes_per_hour,
+        "expected_flood_per_hour": result.expected_flood_per_hour,
+        "best_start_after": result.best_start_after,
+        "sample_size": result.sample_size,
+    }
 
 
 @router.get("/campaigns/{campaign_id}/logs")

@@ -86,6 +86,13 @@ export interface PrimingLogsPage {
   next_cursor: number | null;
 }
 
+export interface PrimingForecast {
+  expected_primes_per_hour: number;
+  expected_flood_per_hour: number;
+  best_start_after: number;
+  sample_size: number;
+}
+
 export interface PrimingLiveAccountRow {
   id: number;
   account_id: number;
