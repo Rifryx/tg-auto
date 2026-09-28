@@ -22,6 +22,8 @@ export type FeatureKey =
   | "shilling_campaigns_active_max"
   | "shilling_targets_per_campaign_max"
   | "shilling_scenario_steps_max"
+  // Модуль priming (boolean)
+  | "priming_enabled"
   // Общее
   | "ai_provider_custom"
   | "priority_queue"
@@ -65,6 +67,7 @@ export const PLANS: Plan[] = [
       shilling_campaigns_active_max: 1,
       shilling_targets_per_campaign_max: 10,
       shilling_scenario_steps_max: 6,
+      priming_enabled: false,
       ai_provider_custom: false,
       priority_queue: false,
       audit_history_days: 3,
@@ -95,6 +98,7 @@ export const PLANS: Plan[] = [
       shilling_campaigns_active_max: UNLIMITED,
       shilling_targets_per_campaign_max: UNLIMITED,
       shilling_scenario_steps_max: 30,
+      priming_enabled: true,
       ai_provider_custom: true,
       priority_queue: true,
       audit_history_days: 365,

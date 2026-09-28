@@ -4,8 +4,11 @@ import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { EmptyState } from "../../components/EmptyState";
+import { PLANS } from "../../shared/plans";
+import { useUiStore } from "../../shared/store";
 import { primingApi } from "./api";
 import { CampaignCard } from "./components/CampaignCard";
+import { PaywallCapsule } from "./components/PaywallCapsule";
 import { StatusDot } from "./components/StatusDot";
 import { useCampaigns } from "./hooks/useCampaigns";
 import type { PrimingCampaign } from "./types";
@@ -37,6 +40,9 @@ export function PrimingListScreen() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [filter, setFilter] = useState<Filter>("all");
+  const planId = useUiStore((s) => s.planId);
+  const primingEnabled = !!PLANS.find((p) => p.id === planId)?.limits
+    .priming_enabled;
   const { data, isLoading, isError } = useCampaigns();
   const [showRepeatSheet, setShowRepeatSheet] = useState(false);
   const timerRef = useRef<number | null>(null);
@@ -92,6 +98,15 @@ export function PrimingListScreen() {
       return;
     }
     navigate("/modules/priming/campaigns/new");
+  }
+
+  if (!primingEnabled) {
+    return (
+      <div className="min-h-full pb-24">
+        <ScreenHeader title="Прайминг" />
+        <PaywallCapsule />
+      </div>
+    );
   }
 
   return (

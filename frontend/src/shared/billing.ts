@@ -21,6 +21,13 @@ export interface LimitExceededDetail {
   plan_id: PlanId;
 }
 
+/** Тело 402-ответа от require_feature (boolean-фича заблокирована планом). */
+export interface FeatureLockedDetail {
+  reason: "feature_locked";
+  feature: string;
+  plan_id: PlanId;
+}
+
 export const billingApi = {
   getPlan: () => api.get<PlanSnapshot>("/billing/plan"),
   setPlan: (plan_id: PlanId, payment_method?: PaymentMethodId) =>

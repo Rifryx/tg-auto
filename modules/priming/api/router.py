@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
+from api.deps.limits import require_feature
 from api.deps.queue import get_task_queue
 from core.queue import TaskQueue
 from modules.priming.api import service
@@ -55,7 +56,12 @@ from modules.priming.schemas import (
 router = APIRouter(
     prefix="/modules/priming",
     tags=["priming"],
-    dependencies=[Depends(require_user)],
+    dependencies=[
+        Depends(require_user),
+        # GET открыт — UI на нём показывает пейволл-капсулу; POST/PATCH/
+        # DELETE отдают 402, если priming_enabled=False на плане.
+        Depends(require_feature("priming_enabled")),
+    ],
 )
 
 
