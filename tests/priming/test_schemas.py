@@ -13,7 +13,6 @@ from pydantic import ValidationError
 
 from modules.priming.schemas import (
     AnchorChannelCreate,
-    AvatarSource,
     HumanizerMode,
     ParserRunRequest,
     ParserSourceKind,
@@ -22,9 +21,7 @@ from modules.priming.schemas import (
     PrimingCampaignUpdate,
     PrimingTargetCreate,
     PrimingTargetImport,
-    ProfilePresetCreate,
     TriggerAction,
-    UsernameGenerator,
     WarmupProfile,
 )
 
@@ -144,24 +141,6 @@ def test_target_tg_user_id_positive() -> None:
 def test_target_import_min_length() -> None:
     with pytest.raises(ValidationError):
         PrimingTargetImport(targets=[])
-
-
-# ---------------------------------------------------------------------------
-# ProfilePreset
-# ---------------------------------------------------------------------------
-
-def test_profile_preset_defaults() -> None:
-    preset = ProfilePresetCreate(owner_user_id=1, name="Preset A")
-    assert preset.username_generator is UsernameGenerator.LLM
-    assert preset.avatar_source is AvatarSource.UPLOAD
-    assert preset.first_name_pool == []
-
-
-def test_profile_preset_bio_length() -> None:
-    with pytest.raises(ValidationError):
-        ProfilePresetCreate(
-            owner_user_id=1, name="p", bio_text="x" * 141,
-        )
 
 
 # ---------------------------------------------------------------------------

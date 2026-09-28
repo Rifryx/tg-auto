@@ -62,8 +62,12 @@ class TaskName(str, Enum):
     PRIMING_EXECUTE_PRIME = "priming.execute_prime"
     PRIMING_ORCHESTRATOR_TICK = "priming.orchestrator_tick"
     PRIMING_HUMANIZER_BEAT = "priming.humanizer_beat"
+    # PRIMING_PARSER_RUN оставлен под уже настроенный enqueue из
+    # /modules/parsing/lists/run/*; сам хендлер живёт в modules/parsing.
     PRIMING_PARSER_RUN = "priming.parser_run"
-    PRIMING_PROFILE_APPLY = "priming.profile_apply"
+    # PRIMING_PROFILE_APPLY удалён: оформление профилей — не задача
+    # priming. Работает через bulk-действия из modules/bulk/actions/
+    # (apply_profile, apply_profile_pool, generate_and_apply_profile).
 
 
 class QueueName(str, Enum):

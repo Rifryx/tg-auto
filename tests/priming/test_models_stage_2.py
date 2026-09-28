@@ -1,8 +1,8 @@
 """Промпт 1.4: остальные ORM-модели модуля прайминга.
 
-Metadata-уровневые проверки для target_sources, profile_presets,
-anchor_channels, execution_log, flood_incidents, blacklist.
-Живой ``alembic upgrade head`` идёт через общий conftest.
+Metadata-уровневые проверки для target_sources, anchor_channels,
+execution_log, flood_incidents, blacklist. profile_presets убраны
+миграцией 0045 — оформление профилей вынесено в общий блок «Аккаунты».
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from modules.priming.models import (
     PrimingBlacklist,
     PrimingExecutionLog,
     PrimingFloodIncident,
-    PrimingProfilePreset,
     PrimingTargetSource,
 )
 
@@ -49,36 +48,6 @@ def test_target_source_checks() -> None:
         "ck_target_sources_min_messages_valid",
     ):
         assert expected in checks, expected
-
-
-# --- profile_presets --------------------------------------------------------
-
-def test_profile_preset_columns_and_defaults() -> None:
-    cols = {c.name for c in PrimingProfilePreset.__table__.columns}
-    for expected in (
-        "owner_user_id", "name", "first_name_pool", "last_name_pool",
-        "username_generator", "bio_text", "bio_link", "avatar_source",
-        "stories_pool_id", "anchor_channel_template_id",
-    ):
-        assert expected in cols
-    ug = PrimingProfilePreset.__table__.c.username_generator.server_default
-    assert ug is not None and "llm" in str(ug.arg)
-    av = PrimingProfilePreset.__table__.c.avatar_source.server_default
-    assert av is not None and "upload" in str(av.arg)
-
-
-def test_profile_preset_index_on_owner() -> None:
-    idx_names = {i.name for i in PrimingProfilePreset.__table__.indexes}
-    assert "ix_profile_presets_owner" in idx_names
-
-
-def test_profile_preset_forward_refs_have_no_fk() -> None:
-    # stories_pool_id / anchor_channel_template_id — FK будет добавлен на
-    # этапе 4 (POC-визард).
-    for col_name in ("stories_pool_id", "anchor_channel_template_id"):
-        col = PrimingProfilePreset.__table__.c[col_name]
-        assert col.nullable is True
-        assert list(col.foreign_keys) == []
 
 
 # --- anchor_channels --------------------------------------------------------
@@ -161,6 +130,6 @@ def test_core_models_reexports_everything() -> None:
 
     for cls in (
         PrimingAnchorChannel, PrimingBlacklist, PrimingExecutionLog,
-        PrimingFloodIncident, PrimingProfilePreset, PrimingTargetSource,
+        PrimingFloodIncident, PrimingTargetSource,
     ):
         assert getattr(models, cls.__name__) is cls

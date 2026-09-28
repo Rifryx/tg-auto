@@ -35,7 +35,6 @@ from core.models.priming import (
     PrimingCampaignTarget,
     PrimingExecutionLog,
     PrimingFloodIncident,
-    PrimingProfilePreset,
     PrimingTargetSource,
 )
 from core.models.proxy import Proxy
@@ -85,7 +84,6 @@ __all__ = [
     "PrimingCampaignTarget",
     "PrimingExecutionLog",
     "PrimingFloodIncident",
-    "PrimingProfilePreset",
     "PrimingTargetSource",
     "Proxy",
     "ShillingBlacklist",

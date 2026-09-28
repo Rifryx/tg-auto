@@ -102,12 +102,10 @@ def test_campaign_account_unique_pair() -> None:
     assert "uq_campaign_accounts_campaign_id_account_id" in named
 
 
-def test_campaign_account_profile_preset_fk() -> None:
-    """FK на priming.profile_presets добавлен миграцией 0041 (промпт 1.4)."""
-    fks = _fk_map(PrimingCampaignAccount.__table__)
-    assert fks["profile_preset_id"] == (
-        f"{PRIMING_SCHEMA}.profile_presets", "SET NULL",
-    )
+def test_campaign_account_has_no_profile_preset_column() -> None:
+    """0045 удалил колонку — пресеты живут в общем модуле «Аккаунты»."""
+    cols = {c.name for c in PrimingCampaignAccount.__table__.columns}
+    assert "profile_preset_id" not in cols
 
 
 def test_campaign_account_state_default() -> None:

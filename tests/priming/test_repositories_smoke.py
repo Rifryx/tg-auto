@@ -16,7 +16,6 @@ from modules.priming.repositories import (
     CampaignTargetRepository,
     ExecutionLogRepository,
     FloodIncidentRepository,
-    ProfilePresetRepository,
     TargetSourceRepository,
 )
 
@@ -39,8 +38,6 @@ REPO_REQUIRED_COMMON = ["get", "get_by_id"]  # get унаследован от B
                                     "claim_next", "mark_result"]),
         (TargetSourceRepository, ["list_by_campaign", "create", "update",
                                   "delete_hard"]),
-        (ProfilePresetRepository, ["list_by_owner", "create", "update",
-                                   "delete_hard"]),
         (AnchorChannelRepository, ["list_by_campaign", "get_by_account",
                                    "create", "update", "delete_hard"]),
         (ExecutionLogRepository, ["list_by_campaign", "append",

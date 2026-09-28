@@ -11,7 +11,6 @@ from modules.priming.models.campaign_account import PrimingCampaignAccount
 from modules.priming.models.campaign_target import PrimingCampaignTarget
 from modules.priming.models.execution_log import PrimingExecutionLog
 from modules.priming.models.flood_incident import PrimingFloodIncident
-from modules.priming.models.profile_preset import PrimingProfilePreset
 from modules.priming.models.target_source import PrimingTargetSource
 
 __all__ = [
@@ -22,6 +21,5 @@ __all__ = [
     "PrimingCampaignTarget",
     "PrimingExecutionLog",
     "PrimingFloodIncident",
-    "PrimingProfilePreset",
     "PrimingTargetSource",
 ]

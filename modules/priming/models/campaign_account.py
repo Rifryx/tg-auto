@@ -92,12 +92,7 @@ class PrimingCampaignAccount(Base, CreatedAtMixin):
         DateTime(timezone=True), nullable=True
     )
 
-    # Пресет оформления профиля (spec §4.5). SET NULL: удалённый пресет не
-    # должен ронять историю кампании.
-    profile_preset_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger,
-        ForeignKey(
-            f"{PRIMING_SCHEMA}.profile_presets.id", ondelete="SET NULL"
-        ),
-        nullable=True,
-    )
+    # Пресет оформления профиля переехал в общий блок «Аккаунты» —
+    # priming больше не хранит эту связку (см. Alembic 0045). Если
+    # в будущем понадобится ссылка на конкретный shared-preset, введём
+    # новую колонку под уже реальный сервис.

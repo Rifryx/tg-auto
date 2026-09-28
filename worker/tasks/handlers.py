@@ -79,10 +79,10 @@ _STUB_TASKS = [
     TaskName.ACCOUNT_RETIRE,
     TaskName.ACCOUNT_ACKNOWLEDGE_BAN,
     # priming: execute_prime (2.2), orchestrator_tick (2.3),
-    # parser_run (3.3 через modules/parsing). Заглушки — humanizer_beat
-    # (5.1) и profile_apply (4.x).
+    # parser_run (3.3 через modules/parsing). Заглушка — humanizer_beat
+    # (5.1). Profile-apply здесь нет: оформление профилей — общий блок
+    # «Аккаунты» и уже реализованные bulk-действия.
     TaskName.PRIMING_HUMANIZER_BEAT,
-    TaskName.PRIMING_PROFILE_APPLY,
 ]
 
 

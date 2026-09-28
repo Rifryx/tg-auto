@@ -350,15 +350,25 @@ export function NewPrimingScreen() {
           )}
         </Section>
 
-        {/* §5.4 Профиль-пресет — заглушка до промпта 4.4 */}
+        {/* Оформление профиля живёт в общем блоке «Аккаунты» —
+            редактируйте профили там (по одному или пачками через
+            bulk-actions apply_profile / apply_profile_pool). */}
         <Section
-          title="Профиль-пресет (POC)"
-          description="Оформление профиля под конверсию. Полный редактор — на этапе 4."
+          title="Оформление профиля"
+          description="Точка конверсии — сам аккаунт. Управляйте пулом в разделе «Аккаунты» → там же ИИ-генерация, bulk-apply и per-account редактор."
+          action={
+            <button
+              type="button"
+              onClick={() => navigate("/accounts")}
+              className="inline-flex h-8 items-center gap-1 rounded-pill bg-surface-2 px-3 text-[12px] text-text-secondary active:text-text-primary"
+            >
+              К аккаунтам →
+            </button>
+          }
         >
           <div className="rounded-2xl border border-dashed border-strong bg-surface-1 p-4 text-[13px] text-text-secondary">
-            Пока используется профиль аккаунта как есть.
-            <br />
-            Anchor-канал, stories и bio-редактор — на этапе 4 (см. docs/priming-ui.md §8).
+            Прайминг использует профили аккаунтов как есть — их bio, аватар и
+            закреплённые каналы уже настраиваются в блоке «Аккаунты».
           </div>
         </Section>
 

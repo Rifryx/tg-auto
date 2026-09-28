@@ -13,9 +13,6 @@ from modules.priming.repositories.execution_log import ExecutionLogRepository
 from modules.priming.repositories.flood_incident import (
     FloodIncidentRepository,
 )
-from modules.priming.repositories.profile_preset import (
-    ProfilePresetRepository,
-)
 from modules.priming.repositories.target_source import (
     TargetSourceRepository,
 )
@@ -28,6 +25,5 @@ __all__ = [
     "CampaignTargetRepository",
     "ExecutionLogRepository",
     "FloodIncidentRepository",
-    "ProfilePresetRepository",
     "TargetSourceRepository",
 ]

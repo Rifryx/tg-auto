@@ -13,7 +13,6 @@ from modules.priming.models import (
     PrimingCampaignTarget,
     PrimingExecutionLog,
     PrimingFloodIncident,
-    PrimingProfilePreset,
     PrimingTargetSource,
 )
 
@@ -25,6 +24,5 @@ __all__ = [
     "PrimingCampaignTarget",
     "PrimingExecutionLog",
     "PrimingFloodIncident",
-    "PrimingProfilePreset",
     "PrimingTargetSource",
 ]

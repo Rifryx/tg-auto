@@ -30,7 +30,6 @@ from modules.priming.schemas.common import (
 )
 from modules.priming.schemas.enums import (
     AnchorChannelState,
-    AvatarSource,
     BlacklistReason,
     ExecutionOutcome,
     HumanizerMode,
@@ -41,7 +40,6 @@ from modules.priming.schemas.enums import (
     TargetLastSeen,
     TargetStatus,
     TriggerAction,
-    UsernameGenerator,
     WarmupProfile,
     all_enums,
     can_target_status_transition,
@@ -53,13 +51,6 @@ from modules.priming.schemas.parser import (
     ParserJobStatus,
     ParserRunRequest,
     TargetSourceRead,
-)
-from modules.priming.schemas.profile_preset import (
-    ApplyPresetJob,
-    ApplyPresetRequest,
-    ProfilePresetCreate,
-    ProfilePresetRead,
-    ProfilePresetUpdate,
 )
 from modules.priming.schemas.stats import (
     CampaignAccountRow,
@@ -83,7 +74,6 @@ __all__ = [
     "TimeRange",
     # enums
     "AnchorChannelState",
-    "AvatarSource",
     "BlacklistReason",
     "ExecutionOutcome",
     "HumanizerMode",
@@ -94,7 +84,6 @@ __all__ = [
     "TargetLastSeen",
     "TargetStatus",
     "TriggerAction",
-    "UsernameGenerator",
     "WarmupProfile",
     "all_enums",
     "can_target_status_transition",
@@ -109,12 +98,6 @@ __all__ = [
     "PrimingTargetImport",
     "PrimingTargetRead",
     "PrimingTargetBulkBlacklist",
-    # profile preset
-    "ProfilePresetCreate",
-    "ProfilePresetUpdate",
-    "ProfilePresetRead",
-    "ApplyPresetRequest",
-    "ApplyPresetJob",
     # anchor
     "AnchorChannelCreate",
     "AnchorChannelUpdate",
