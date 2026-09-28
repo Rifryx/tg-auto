@@ -15,6 +15,7 @@ import { Stepper } from "./components/Stepper";
 import type {
   HumanizerMode,
   PrimingTriggerAction,
+  TriggerRotationStrategy,
   WarmupProfile,
 } from "./types";
 
@@ -37,6 +38,12 @@ const TRIGGER_OPTIONS: { key: PrimingTriggerAction; label: string; note: string 
     label: "Добавление в контакты",
     note: "«{{name}} добавил вас в контакты» — требует username/phone",
   },
+];
+
+const ROTATION_OPTIONS: { key: TriggerRotationStrategy; label: string }[] = [
+  { key: "random", label: "Случайно" },
+  { key: "round_robin", label: "По очереди" },
+  { key: "weighted", label: "С весами" },
 ];
 
 const HUMANIZER_OPTIONS: { key: HumanizerMode; label: string }[] = [
@@ -69,6 +76,10 @@ export function NewPrimingScreen() {
   // Форма
   const [name, setName] = useState("");
   const [action, setAction] = useState<PrimingTriggerAction>("secret_chat_request");
+  const [actions, setActions] = useState<Set<PrimingTriggerAction>>(
+    new Set<PrimingTriggerAction>(["secret_chat_request"]),
+  );
+  const [rotation, setRotation] = useState<TriggerRotationStrategy>("random");
   const [warmup, setWarmup] = useState<WarmupProfile>("warm");
   const [dailyLimit, setDailyLimit] = useState(20);
   const [delayMin, setDelayMin] = useState(60);
@@ -131,13 +142,18 @@ export function NewPrimingScreen() {
     problems.push("Добавьте хотя бы одну цель");
   }
   if (delayMin > delayMax) problems.push("Минимальная задержка больше максимальной");
+  if (actions.size === 0) problems.push("Выберите хотя бы один триггер");
 
   // Запуск
   const submit = useMutation({
     mutationFn: async () => {
+      const actionsList = Array.from(actions);
+      const defaultAction = actions.has(action) ? action : actionsList[0];
       const created = await primingApi.create({
         name: name.trim(),
-        trigger_action: action,
+        trigger_action: defaultAction,
+        trigger_actions: actionsList,
+        trigger_rotation_strategy: rotation,
         humanizer_mode: humanizer,
         warmup_profile: warmup,
         daily_limit_per_account: dailyLimit,
@@ -201,36 +217,81 @@ export function NewPrimingScreen() {
         >
           <div className="flex flex-col gap-2.5">
             {TRIGGER_OPTIONS.map(({ key, label, note }) => {
-              const active = action === key;
+              const checked = actions.has(key);
+              const isPreview = action === key;
               return (
-                <button
-                  type="button"
+                <div
                   key={key}
-                  onClick={() => setAction(key)}
                   className={[
-                    "flex items-start gap-3 rounded-2xl border p-3.5 text-left transition-colors",
-                    active
+                    "flex items-start gap-3 rounded-2xl border p-3.5 transition-colors",
+                    checked
                       ? "border-strong bg-surface-2"
-                      : "border-hairline bg-surface-1 active:bg-surface-2",
+                      : "border-hairline bg-surface-1",
                   ].join(" ")}
                 >
-                  <span
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = new Set(actions);
+                      if (next.has(key)) {
+                        if (next.size > 1) next.delete(key);
+                      } else {
+                        next.add(key);
+                      }
+                      setActions(next);
+                      if (!next.has(action)) {
+                        const first = next.values().next().value;
+                        if (first) setAction(first);
+                      }
+                    }}
                     className={[
-                      "mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
-                      active ? "border-text-primary" : "border-strong",
+                      "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border",
+                      checked ? "border-text-primary bg-text-primary" : "border-strong",
                     ].join(" ")}
-                    aria-hidden
+                    aria-label={checked ? `Убрать ${label}` : `Добавить ${label}`}
                   >
-                    {active && <span className="h-2 w-2 rounded-full bg-text-primary" />}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="text-[15px] font-medium text-text-primary">{label}</div>
+                    {checked && (
+                      <Check className="h-3.5 w-3.5 text-accent-on" strokeWidth={2.5} />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAction(key)}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-[15px] font-medium text-text-primary">
+                        {label}
+                      </span>
+                      {isPreview && (
+                        <span className="rounded-pill bg-surface-1 px-2 py-0.5 text-[10px] uppercase tracking-wider text-text-secondary">
+                          preview
+                        </span>
+                      )}
+                    </div>
                     <div className="mt-0.5 text-[12px] text-text-tertiary">{note}</div>
-                  </div>
-                </button>
+                  </button>
+                </div>
               );
             })}
           </div>
+
+          {actions.size > 1 && (
+            <div className="mt-4">
+              <div className="mb-2 text-[13px] font-medium text-text-secondary">
+                Стратегия ротации
+              </div>
+              <PillGroup
+                value={rotation}
+                options={ROTATION_OPTIONS}
+                onChange={setRotation}
+                fullWidth
+              />
+              <p className="mt-2 text-[12px] text-text-tertiary">
+                Из выбранных ({actions.size}) действий одно подставится в момент прайминга.
+              </p>
+            </div>
+          )}
 
           <div className="mt-4">
             <PushPreview action={action} />

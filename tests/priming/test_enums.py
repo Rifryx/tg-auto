@@ -102,6 +102,7 @@ def test_all_enums_registry_matches_module_symbols() -> None:
         "TargetLastSeen",
         "ExecutionOutcome",
         "ParserSourceKind",
+        "TriggerRotationStrategy",
         "BlacklistReason",
         "AnchorChannelState",
     }

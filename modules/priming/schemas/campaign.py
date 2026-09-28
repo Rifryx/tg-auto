@@ -19,6 +19,7 @@ from modules.priming.schemas.enums import (
     PrimingCampaignStatus,
     PrimingMode,
     TriggerAction,
+    TriggerRotationStrategy,
     WarmupProfile,
 )
 
@@ -27,6 +28,10 @@ class PrimingCampaignCreate(PrimingBaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     mode: PrimingMode = PrimingMode.PRIMING
     trigger_action: TriggerAction
+    # Список триггеров для ротации (промпт 5.2). Если не передан —
+    # сервисный слой подставит [trigger_action].
+    trigger_actions: Optional[list[TriggerAction]] = None
+    trigger_rotation_strategy: TriggerRotationStrategy = TriggerRotationStrategy.RANDOM
 
     humanizer_mode: HumanizerMode = HumanizerMode.BALANCED
 
@@ -66,6 +71,8 @@ class PrimingCampaignUpdate(PrimingBaseModel):
 
     name: Optional[str] = Field(default=None, min_length=1, max_length=120)
     trigger_action: Optional[TriggerAction] = None
+    trigger_actions: Optional[list[TriggerAction]] = None
+    trigger_rotation_strategy: Optional[TriggerRotationStrategy] = None
     humanizer_mode: Optional[HumanizerMode] = None
 
     delay_between_targets_sec_min: Optional[int] = Field(default=None, ge=0)
@@ -116,6 +123,8 @@ class PrimingCampaignRead(PrimingBaseModel):
     name: str
     mode: PrimingMode
     trigger_action: TriggerAction
+    trigger_actions: list[TriggerAction] = Field(default_factory=list)
+    trigger_rotation_strategy: TriggerRotationStrategy = TriggerRotationStrategy.RANDOM
     humanizer_mode: HumanizerMode
 
     delay_between_targets_sec_min: int

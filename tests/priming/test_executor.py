@@ -57,6 +57,7 @@ def _setup(session, *, max_flood_waits: int = 3):
     campaign = CampaignRepository(session).create({
         "name": "c",
         "trigger_action": TriggerAction.SECRET_CHAT_REQUEST.value,
+        "trigger_actions": [TriggerAction.SECRET_CHAT_REQUEST.value],
         "max_flood_waits_per_account": max_flood_waits,
         "flood_wait_pause_sec": 500,
     })

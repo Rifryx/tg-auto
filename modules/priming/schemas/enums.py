@@ -181,6 +181,20 @@ class BlacklistReason(StrEnum):
     COMPLAINT = "complaint"
 
 
+class TriggerRotationStrategy(StrEnum):
+    """Как выбирать очередной ``TriggerAction`` из списка (spec §5, 5.2).
+
+    ``random`` — независимая случайная выборка каждый прайм.
+    ``round_robin`` — циклический перебор по индексу.
+    ``weighted`` — random с весами (задел; веса появятся с UI, MVP =
+    равномерный, т.е. вырождается в random).
+    """
+
+    RANDOM = "random"
+    ROUND_ROBIN = "round_robin"
+    WEIGHTED = "weighted"
+
+
 class AnchorChannelState(StrEnum):
     """Состояние закреплённого канала-переходника (spec §4.6)."""
 
@@ -204,6 +218,7 @@ def all_enums() -> Iterable[type[StrEnum]]:
         ParserSourceKind,
         BlacklistReason,
         AnchorChannelState,
+        TriggerRotationStrategy,
     )
 
 
@@ -220,6 +235,7 @@ __all__ = [
     "ParserSourceKind",
     "BlacklistReason",
     "AnchorChannelState",
+    "TriggerRotationStrategy",
     "target_status_allowed_transitions",
     "can_target_status_transition",
     "all_enums",

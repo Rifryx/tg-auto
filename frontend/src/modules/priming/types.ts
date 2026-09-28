@@ -21,12 +21,15 @@ export type PrimingTriggerAction =
 
 export type HumanizerMode = "off" | "balanced" | "aggressive";
 export type WarmupProfile = "cold" | "warm" | "hot";
+export type TriggerRotationStrategy = "random" | "round_robin" | "weighted";
 
 export interface PrimingCampaign {
   id: number;
   name: string;
   mode: "priming";
   trigger_action: PrimingTriggerAction;
+  trigger_actions: PrimingTriggerAction[];
+  trigger_rotation_strategy: TriggerRotationStrategy;
   humanizer_mode: HumanizerMode;
   warmup_profile: WarmupProfile;
   delay_between_targets_sec_min: number;
@@ -52,6 +55,8 @@ export interface PrimingCampaign {
 export interface PrimingCampaignCreateBody {
   name: string;
   trigger_action: PrimingTriggerAction;
+  trigger_actions?: PrimingTriggerAction[];
+  trigger_rotation_strategy?: TriggerRotationStrategy;
   humanizer_mode?: HumanizerMode;
   warmup_profile?: WarmupProfile;
   delay_between_targets_sec_min?: number;

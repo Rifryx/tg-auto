@@ -87,6 +87,22 @@ def create_campaign(session: Session, data: Mapping[str, Any]):
     # trigger_action может прийти как enum-member — приведём к value.
     if isinstance(payload.get("trigger_action"), TriggerAction):
         payload["trigger_action"] = payload["trigger_action"].value
+
+    # trigger_actions: если не передан, подставим одиночный список из
+    # trigger_action; каждый элемент — value (enum-member или строка).
+    actions = payload.get("trigger_actions")
+    if not actions:
+        actions = [payload["trigger_action"]]
+    payload["trigger_actions"] = [
+        a.value if isinstance(a, TriggerAction) else a for a in actions
+    ]
+    # rotation strategy — enum → value
+    from modules.priming.schemas.enums import TriggerRotationStrategy
+
+    rot = payload.get("trigger_rotation_strategy")
+    if isinstance(rot, TriggerRotationStrategy):
+        payload["trigger_rotation_strategy"] = rot.value
+
     return CampaignRepository(session).create(payload)
 
 

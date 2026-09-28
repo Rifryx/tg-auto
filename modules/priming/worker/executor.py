@@ -43,7 +43,9 @@ from modules.priming.schemas.enums import (
     PrimingAccountState,
     TargetStatus,
     TriggerAction,
+    TriggerRotationStrategy,
 )
+from modules.priming.worker.rotation import pick_trigger_action
 from modules.priming.worker.trigger import (
     GOVERNOR_ACTION_TYPE,
     TargetRef,
@@ -158,7 +160,18 @@ async def execute_prime(
             return None
 
         # Снимок нужных значений — сессия сейчас закроется.
-        trigger_action = TriggerAction(campaign.trigger_action)
+        # trigger_action выбирается ЗДЕСЬ (в момент старта прайминга,
+        # spec §7.1) через ротацию по списку кампании; фолбэк на старую
+        # одиночную колонку — для кампаний, которые ещё не пере-
+        # инициализированы (backfill сделал это, но подстраховка не мешает).
+        actions_list = list(campaign.trigger_actions or [])
+        if not actions_list and campaign.trigger_action:
+            actions_list = [campaign.trigger_action]
+        strategy = TriggerRotationStrategy(campaign.trigger_rotation_strategy)
+        trigger_action = pick_trigger_action(
+            actions_list, strategy,
+            counter=campaign_account.primes_total,
+        )
         flood_wait_pause_sec = campaign.flood_wait_pause_sec
         max_flood_waits = campaign.max_flood_waits_per_account
         dry_run = bool(campaign.dry_run)

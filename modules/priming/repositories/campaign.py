@@ -30,7 +30,15 @@ class CampaignRepository(BaseRepository[PrimingCampaign]):
         return list(self.session.execute(stmt).scalars())
 
     def create(self, data: Mapping[str, Any]) -> PrimingCampaign:
-        campaign = PrimingCampaign(**dict(data))
+        payload = dict(data)
+        # Бэкфилл trigger_actions из одиночной колонки — CHECK требует
+        # непустой массив (см. campaign.py и миграцию 0046).
+        actions = payload.get("trigger_actions")
+        if not actions:
+            single = payload.get("trigger_action")
+            if single is not None:
+                payload["trigger_actions"] = [single]
+        campaign = PrimingCampaign(**payload)
         return self._add(campaign)
 
     def update(

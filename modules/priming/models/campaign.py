@@ -18,6 +18,7 @@ from sqlalchemy import (
     Integer,
     String,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.models.base import PRIMING_SCHEMA, Base, TimestampMixin
@@ -26,6 +27,7 @@ from modules.priming.schemas.enums import (
     PrimingCampaignStatus,
     PrimingMode,
     TriggerAction,
+    TriggerRotationStrategy,
     WarmupProfile,
 )
 
@@ -57,6 +59,15 @@ class PrimingCampaign(Base, TimestampMixin):
         CheckConstraint(
             f"trigger_action IN ({_in_clause(TriggerAction)})",
             name="trigger_action_allowed",
+        ),
+        CheckConstraint(
+            f"trigger_rotation_strategy IN ("
+            f"{_in_clause(TriggerRotationStrategy)})",
+            name="trigger_rotation_strategy_allowed",
+        ),
+        CheckConstraint(
+            "jsonb_array_length(trigger_actions) >= 1",
+            name="trigger_actions_nonempty",
         ),
         CheckConstraint(
             f"humanizer_mode IN ({_in_clause(HumanizerMode)})",
@@ -99,6 +110,17 @@ class PrimingCampaign(Base, TimestampMixin):
         server_default=PrimingMode.PRIMING.value,
     )
     trigger_action: Mapped[str] = mapped_column(String, nullable=False)
+    # Список триггеров для ротации (spec §5). Executor выбирает
+    # конкретный action в момент запуска прайминга — можно менять
+    # список без перепланирования очереди.
+    trigger_actions: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]",
+    )
+    trigger_rotation_strategy: Mapped[str] = mapped_column(
+        String, nullable=False,
+        default=TriggerRotationStrategy.RANDOM.value,
+        server_default=TriggerRotationStrategy.RANDOM.value,
+    )
     humanizer_mode: Mapped[str] = mapped_column(
         String, nullable=False, default=HumanizerMode.BALANCED.value,
         server_default=HumanizerMode.BALANCED.value,
