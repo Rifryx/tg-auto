@@ -47,6 +47,9 @@ def test_apply_filters_first_reason_wins() -> None:
 def test_apply_filters_require_username_and_blacklist() -> None:
     bl = MagicMock()
     bl.match.side_effect = lambda **kw: "hit" if kw.get("tg_user_id") == 99 else None
+    # cross-module match не должен ловить локально-не-совпавших — иначе
+    # MagicMock вернёт truthy stub по умолчанию.
+    bl.match_cross_module.return_value = None
     rows = [
         _row(tg_user_id=1),
         _row(tg_user_id=2, username=None),

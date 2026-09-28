@@ -23,6 +23,8 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+CREATE_SCHEMA_SQL = "CREATE SCHEMA IF NOT EXISTS core"
+
 VIEW_SQL = """
 CREATE OR REPLACE VIEW core.blacklist_all AS
 SELECT
@@ -39,8 +41,13 @@ FROM priming.blacklist
 
 
 def upgrade() -> None:
+    # Пакет ``core`` в Python не связан с PG-схемой core — она заводится
+    # именно сейчас, только под этот view. Другие таблицы core.* пока
+    # не планируются.
+    op.execute(CREATE_SCHEMA_SQL)
     op.execute(VIEW_SQL)
 
 
 def downgrade() -> None:
     op.execute("DROP VIEW IF EXISTS core.blacklist_all")
+    # Схему не дропаем — вдруг что-то ещё в ней появится.
