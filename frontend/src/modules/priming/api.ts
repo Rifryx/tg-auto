@@ -2,7 +2,9 @@ import { api } from "../../shared/api";
 import type {
   PrimingCampaign,
   PrimingCampaignCreateBody,
+  PrimingExecutionOutcome,
   PrimingLiveSnapshot,
+  PrimingLogsPage,
 } from "./types";
 
 const BASE = "/modules/priming/campaigns";
@@ -43,6 +45,36 @@ export const primingApi = {
   update: (id: number, body: Partial<PrimingCampaignCreateBody> & { dry_run?: boolean }) =>
     api.patch<PrimingCampaign>(`${BASE}/${id}`, body),
   live: (id: number) => api.get<PrimingLiveSnapshot>(`${BASE}/${id}/live`),
+
+  logs: (
+    id: number,
+    params: {
+      outcome?: PrimingExecutionOutcome;
+      q?: string;
+      cursor?: number;
+      limit?: number;
+    } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.outcome) qs.set("outcome", params.outcome);
+    if (params.q) qs.set("q", params.q);
+    if (params.cursor != null) qs.set("cursor", String(params.cursor));
+    if (params.limit != null) qs.set("limit", String(params.limit));
+    const tail = qs.toString();
+    return api.get<PrimingLogsPage>(
+      `${BASE}/${id}/logs${tail ? `?${tail}` : ""}`,
+    );
+  },
+  exportLogsCsvUrl: (
+    id: number,
+    params: { outcome?: PrimingExecutionOutcome; q?: string } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.outcome) qs.set("outcome", params.outcome);
+    if (params.q) qs.set("q", params.q);
+    const tail = qs.toString();
+    return `${BASE}/${id}/logs/export.csv${tail ? `?${tail}` : ""}`;
+  },
 
   attachAccounts: (id: number, accountIds: number[]) =>
     api.post<AttachAccountsResult>(`${BASE}/${id}/accounts`, {

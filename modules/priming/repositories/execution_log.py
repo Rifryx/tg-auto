@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Iterator, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from core.repositories.base import BaseRepository
 from modules.priming.models import PrimingExecutionLog
@@ -22,10 +22,15 @@ class ExecutionLogRepository(BaseRepository[PrimingExecutionLog]):
         campaign_id: int,
         *,
         outcome: Optional[str] = None,
+        q: Optional[str] = None,
         limit: int = 100,
         after_id: Optional[int] = None,
     ) -> list[PrimingExecutionLog]:
-        """Keyset-пагинация по id DESC, фильтр по outcome опционален."""
+        """Keyset-пагинация по (started_at desc, id desc), фильтр по outcome
+        опционален, ``q`` ищет по error_code / trigger_action.
+        """
+        # Сортируем по id DESC — id монотонно растёт (bigserial), это
+        # прокси для started_at DESC и даёт консистентный keyset.
         stmt = (
             select(PrimingExecutionLog)
             .where(PrimingExecutionLog.campaign_id == campaign_id)
@@ -36,7 +41,40 @@ class ExecutionLogRepository(BaseRepository[PrimingExecutionLog]):
             stmt = stmt.where(PrimingExecutionLog.outcome == outcome)
         if after_id is not None:
             stmt = stmt.where(PrimingExecutionLog.id < after_id)
+        if q:
+            like = f"%{q.lower()}%"
+            stmt = stmt.where(
+                or_(
+                    func.lower(PrimingExecutionLog.error_code).like(like),
+                    func.lower(PrimingExecutionLog.trigger_action).like(like),
+                )
+            )
         return list(self.session.execute(stmt).scalars())
+
+    def iter_for_export(
+        self,
+        campaign_id: int,
+        *,
+        outcome: Optional[str] = None,
+        q: Optional[str] = None,
+        batch_size: int = 500,
+    ) -> Iterator[PrimingExecutionLog]:
+        """Итератор для стримингового CSV-экспорта: не грузит всё в память,
+        keyset по id DESC.
+        """
+        after_id: Optional[int] = None
+        while True:
+            rows = self.list_by_campaign(
+                campaign_id, outcome=outcome, q=q,
+                limit=batch_size, after_id=after_id,
+            )
+            if not rows:
+                return
+            for row in rows:
+                yield row
+            after_id = rows[-1].id
+            if len(rows) < batch_size:
+                return
 
     def append(
         self,

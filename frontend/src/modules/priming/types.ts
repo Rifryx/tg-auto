@@ -52,6 +52,36 @@ export interface PrimingCampaign {
   updated_at: string;
 }
 
+export type PrimingExecutionOutcome =
+  | "primed"
+  | "already_applied"
+  | "flood_wait"
+  | "privacy_restricted"
+  | "deleted"
+  | "not_found"
+  | "channel_pinned_error"
+  | "skipped_quiet"
+  | "internal_error";
+
+export interface PrimingLogRow {
+  id: number;
+  started_at: string;
+  finished_at: string;
+  account_id: number;
+  target_id: number;
+  outcome: PrimingExecutionOutcome;
+  trigger_action: PrimingTriggerAction;
+  latency_ms: number;
+  error_code: string | null;
+  flood_wait_sec: number | null;
+  dry_run: boolean;
+}
+
+export interface PrimingLogsPage {
+  items: PrimingLogRow[];
+  next_cursor: number | null;
+}
+
 export interface PrimingLiveAccountRow {
   id: number;
   account_id: number;

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, AlertOctagon, ArrowLeft, Play } from "lucide-react";
+import { Activity, AlertOctagon, ArrowLeft, FileText, Play } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { primingApi } from "./api";
@@ -121,6 +121,28 @@ export function PrimingDetailScreen() {
             </div>
             <span className="text-[12px] text-text-tertiary">
               KPI, sparkline, аккаунты →
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              navigate(`/modules/priming/campaigns/${numericId}/logs`)
+            }
+            className="card flex items-center justify-between p-4 text-left active:bg-surface-2"
+          >
+            <div className="flex items-center gap-2">
+              <FileText
+                className="h-4 w-4 text-text-secondary"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <span className="text-[14px] font-medium text-text-primary">
+                Логи и CSV экспорт
+              </span>
+            </div>
+            <span className="text-[12px] text-text-tertiary">
+              фильтры + ⤓ CSV →
             </span>
           </button>
         </div>

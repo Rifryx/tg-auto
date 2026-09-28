@@ -21,6 +21,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
@@ -374,6 +375,85 @@ def import_from_list(
         _raise(exc)
     session.commit()
     return result.to_dict()
+
+
+@router.get("/campaigns/{campaign_id}/logs")
+def list_logs(
+    campaign_id: int,
+    session: Session = Depends(get_session),
+    outcome: Optional[str] = Query(default=None),
+    q: Optional[str] = Query(default=None, max_length=100),
+    cursor: Optional[int] = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """Keyset-пагинация: ``cursor`` — id последней записи предыдущей
+    страницы; ответ содержит ``next_cursor`` (или null, если больше нет).
+    """
+    try:
+        service.get_campaign(session, campaign_id)
+    except service.ServiceError as exc:
+        _raise(exc)
+    rows = ExecutionLogRepository(session).list_by_campaign(
+        campaign_id, outcome=outcome, q=q, limit=limit, after_id=cursor,
+    )
+    return {
+        "items": [
+            {
+                "id": r.id,
+                "started_at": r.started_at,
+                "finished_at": r.finished_at,
+                "account_id": r.account_id,
+                "target_id": r.target_id,
+                "outcome": r.outcome,
+                "trigger_action": r.trigger_action,
+                "latency_ms": r.latency_ms,
+                "error_code": r.error_code,
+                "flood_wait_sec": r.flood_wait_sec,
+                "dry_run": r.dry_run,
+            }
+            for r in rows
+        ],
+        "next_cursor": rows[-1].id if len(rows) == limit else None,
+    }
+
+
+@router.get("/campaigns/{campaign_id}/logs/export.csv")
+def export_logs_csv(
+    campaign_id: int,
+    session: Session = Depends(get_session),
+    outcome: Optional[str] = Query(default=None),
+    q: Optional[str] = Query(default=None, max_length=100),
+):
+    try:
+        service.get_campaign(session, campaign_id)
+    except service.ServiceError as exc:
+        _raise(exc)
+
+    def _rows():
+        yield (
+            "id,started_at,finished_at,account_id,target_id,outcome,"
+            "trigger_action,latency_ms,error_code,flood_wait_sec,dry_run\n"
+        )
+        for r in ExecutionLogRepository(session).iter_for_export(
+            campaign_id, outcome=outcome, q=q,
+        ):
+            yield (
+                f"{r.id},{r.started_at.isoformat()},{r.finished_at.isoformat()},"
+                f"{r.account_id},{r.target_id},{r.outcome},{r.trigger_action},"
+                f"{r.latency_ms},{r.error_code or ''},"
+                f"{r.flood_wait_sec if r.flood_wait_sec is not None else ''},"
+                f"{int(r.dry_run)}\n"
+            )
+
+    return StreamingResponse(
+        _rows(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="priming_{campaign_id}_logs.csv"'
+            ),
+        },
+    )
 
 
 @router.post("/campaigns/{campaign_id}/targets/blacklist")
