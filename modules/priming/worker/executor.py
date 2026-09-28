@@ -45,6 +45,7 @@ from modules.priming.schemas.enums import (
     TriggerAction,
     TriggerRotationStrategy,
 )
+from modules.priming.worker.alerts import emit_priming_alert
 from modules.priming.worker.rotation import pick_trigger_action
 from modules.priming.worker.trigger import (
     GOVERNOR_ACTION_TYPE,
@@ -242,6 +243,13 @@ async def execute_prime(
                     "priming.execute_prime.quarantined",
                     campaign_id=campaign_id,
                     campaign_account_id=campaign_account_id,
+                    consecutive=updated.flood_waits_consecutive,
+                )
+                emit_priming_alert(
+                    ctx.get("publisher"), "quarantined",
+                    campaign_id=campaign_id,
+                    campaign_account_id=campaign_account_id,
+                    account_id=account_id,
                     consecutive=updated.flood_waits_consecutive,
                 )
         else:

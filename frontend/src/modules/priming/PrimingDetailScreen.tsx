@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertOctagon, ArrowLeft, Play } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { primingApi } from "./api";
@@ -10,12 +10,21 @@ import { StatusDot } from "./components/StatusDot";
 export function PrimingDetailScreen() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const numericId = Number(id);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["priming", "campaign", numericId],
     queryFn: () => primingApi.get(numericId),
     enabled: Number.isFinite(numericId),
+  });
+
+  const resume = useMutation({
+    mutationFn: () => primingApi.resume(numericId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["priming", "campaign", numericId] });
+      qc.invalidateQueries({ queryKey: ["priming", "campaigns"] });
+    },
   });
 
   return (
@@ -43,6 +52,34 @@ export function PrimingDetailScreen() {
 
       {data && (
         <div className="flex flex-col gap-3">
+          {data.status === "paused" && (
+            <div className="card flex items-start gap-3 border-l-[4px] border-status-critical bg-surface-1 p-4">
+              <AlertOctagon
+                className="mt-0.5 h-5 w-5 shrink-0 text-status-critical"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <div className="min-w-0 flex-1">
+                <div className="text-[14px] font-medium text-text-primary">
+                  Кампания на автопаузе
+                </div>
+                <p className="mt-1 text-[12px] text-text-tertiary">
+                  Сработал автостоп: скорее всего слишком высокая доля
+                  privacy_restricted или flood_wait за последнее окно.
+                  Проверьте логи и профиль прогрева перед возобновлением.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => resume.mutate()}
+                  disabled={resume.isPending}
+                  className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-pill bg-accent px-4 text-[13px] font-semibold text-accent-on disabled:opacity-50"
+                >
+                  <Play className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
+                  {resume.isPending ? "Возобновляю…" : "Понял, продолжить"}
+                </button>
+              </div>
+            </div>
+          )}
           <div className="card p-4">
             <div className="flex items-center gap-2">
               <StatusDot status={data.status} />

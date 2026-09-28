@@ -26,12 +26,14 @@ from typing import Optional
 
 import structlog
 
+from core import audit
 from core.config.priming_warmup import (
     effective_daily_limit,
     effective_delay_range,
 )
 from core.queue import TaskQueue
 from core.queue.task_names import TaskName
+from modules.priming.worker.alerts import emit_priming_alert
 from modules.priming.repositories import (
     CampaignAccountRepository,
     CampaignRepository,
@@ -51,11 +53,16 @@ get_logger = structlog.get_logger
 # Пока нет пары (аккаунт, цель) — откладываем tick на минуту.
 IDLE_RETRY_SECONDS = 60
 
-# На сколько последних outcome'ов смотрим при расчёте privacy_rate.
-PRIVACY_RATE_WINDOW = 200
+# На сколько последних outcome'ов смотрим при расчёте privacy_rate/flood_rate.
+AUTOPAUSE_WINDOW = 200
 
 # Минимум записей, чтобы вообще применять правило автостопа.
-PRIVACY_RATE_MIN_SAMPLES = 20
+AUTOPAUSE_MIN_SAMPLES = 20
+
+# Автопауза по доле FLOOD_WAIT в окне. Порог сейчас захардкожен —
+# конкретное значение подкрутим по данным с продакшена; в spec §11.2
+# записан просто как «правило автостопа», без числа.
+FLOOD_RATE_THRESHOLD = 0.25
 
 
 # --- ctx helpers ------------------------------------------------------------
@@ -70,6 +77,10 @@ def _rng(ctx: dict) -> random.Random:
 
 def _task_queue(ctx: dict) -> TaskQueue:
     return ctx.get("task_queue") or TaskQueue(redis=ctx.get("redis"))
+
+
+def _publisher(ctx: dict):
+    return ctx.get("publisher")
 
 
 # --- ядро -------------------------------------------------------------------
@@ -99,18 +110,39 @@ async def orchestrator_tick(ctx: dict, campaign_id: int) -> Optional[dict]:
             )
             return {"scheduled": 0, "paused": False, "idle": True}
 
-        # Автостоп по privacy_rate (перед раскладкой — если сработает,
-        # смысла раздавать новые праймы нет).
-        if _should_autopause_privacy(session, campaign_id, campaign.stop_on_privacy_rate):
+        # Автостоп по privacy_rate/flood_rate — считаем один раз перед
+        # раздачей новых пар. Если сработал, кампания -> paused; тик
+        # заканчивается без scheduled и без re-scheduling следующего.
+        autopause_reason = _check_autopause(
+            session, campaign_id, campaign.stop_on_privacy_rate,
+        )
+        if autopause_reason is not None:
+            reason, rate = autopause_reason
             CampaignRepository(session).set_status(
                 campaign_id, PrimingCampaignStatus.PAUSED.value,
             )
             session.commit()
             log.warning(
-                "priming.orchestrator_tick.autopause.privacy",
+                "priming.orchestrator_tick.autopause",
                 campaign_id=campaign_id,
+                reason=reason,
+                rate=rate,
             )
-            return {"scheduled": 0, "paused": True, "idle": False}
+            audit.admin_action(
+                actor_id="system:priming",
+                action=f"priming.autopause_{reason}",
+                campaign_id=campaign_id,
+                rate=rate,
+                window=AUTOPAUSE_WINDOW,
+            )
+            emit_priming_alert(
+                _publisher(ctx), f"autopause_{reason}",
+                campaign_id=campaign_id, rate=rate,
+            )
+            return {
+                "scheduled": 0, "paused": True, "idle": False,
+                "reason": reason,
+            }
 
         # Снимок значений кампании — сессия сейчас закроется.
         # daily_limit — это КЭП кампании; фактический лимит на аккаунт
@@ -218,21 +250,32 @@ async def orchestrator_tick(ctx: dict, campaign_id: int) -> Optional[dict]:
     return {"scheduled": scheduled, "paused": False, "idle": idle}
 
 
-# --- автостоп по privacy_rate -----------------------------------------------
+# --- автостоп по privacy_rate / flood_rate ----------------------------------
 
-def _should_autopause_privacy(
-    session, campaign_id: int, stop_on_privacy_rate: float
-) -> bool:
-    """Возвращает True, если доля PRIVACY_RESTRICTED в последних N попытках
-    превысила порог (и выборка достаточно большая, чтобы это не был шум).
+def _check_autopause(
+    session, campaign_id: int, stop_on_privacy_rate: float,
+) -> Optional[tuple[str, float]]:
+    """Проверяет два правила автостопа на одном скользящем окне.
+
+    Возвращает ``(reason, rate)`` первого сработавшего или ``None``.
+    Порядок: privacy > flood (privacy — критичнее, публичное «пожаловались»).
     """
     outcomes = ExecutionLogRepository(session).recent_outcomes(
-        campaign_id, window=PRIVACY_RATE_WINDOW,
+        campaign_id, window=AUTOPAUSE_WINDOW,
     )
-    if len(outcomes) < PRIVACY_RATE_MIN_SAMPLES:
-        return False
-    privacy = sum(
-        1 for o in outcomes if o == ExecutionOutcome.PRIVACY_RESTRICTED.value
+    if len(outcomes) < AUTOPAUSE_MIN_SAMPLES:
+        return None
+    total = len(outcomes)
+    privacy_rate = (
+        sum(1 for o in outcomes if o == ExecutionOutcome.PRIVACY_RESTRICTED.value)
+        / total
     )
-    rate = privacy / len(outcomes)
-    return rate > stop_on_privacy_rate
+    if privacy_rate > stop_on_privacy_rate:
+        return ("privacy", privacy_rate)
+    flood_rate = (
+        sum(1 for o in outcomes if o == ExecutionOutcome.FLOOD_WAIT.value)
+        / total
+    )
+    if flood_rate > FLOOD_RATE_THRESHOLD:
+        return ("flood", flood_rate)
+    return None

@@ -39,7 +39,9 @@ from modules.priming.schemas.enums import (
     TargetStatus,
     TriggerAction,
 )
+from modules.priming.worker.alerts import PRIMING_ALERT_CHANNEL
 from modules.priming.worker.orchestrator import (
+    FLOOD_RATE_THRESHOLD,
     IDLE_RETRY_SECONDS,
     orchestrator_tick,
 )
@@ -96,12 +98,20 @@ class _SpyTaskQueue:
         self.scheduled.append((name, run_at, args, kwargs))
 
 
-def _ctx(session_factory, *, now=None, rng_seed=42):
+class _SpyPublisher:
+    def __init__(self):
+        self.published: list = []
+    def publish(self, channel, payload):
+        self.published.append((channel, payload))
+
+
+def _ctx(session_factory, *, now=None, rng_seed=42, publisher=None):
     return {
         "session_factory": session_factory,
         "task_queue": _SpyTaskQueue(),
         "rng": random.Random(rng_seed),
         "now": now or datetime.now(timezone.utc),
+        "publisher": publisher,
     }
 
 
@@ -237,6 +247,76 @@ async def test_autopause_when_privacy_rate_exceeds_threshold(session) -> None:
     session.expire_all()
     campaign_after = CampaignRepository(session).get_by_id(campaign.id)
     assert campaign_after.status == PrimingCampaignStatus.PAUSED.value
+
+
+async def test_autopause_publishes_alert(session) -> None:
+    campaign = _make_running_campaign(session, stop_on_privacy_rate=0.5)
+    acc = _make_account(session)
+    CampaignAccountRepository(session).create({
+        "campaign_id": campaign.id, "account_id": acc.id,
+    })
+    target = CampaignTargetRepository(session).create({
+        "campaign_id": campaign.id, "username": "u",
+    })
+    log_repo = ExecutionLogRepository(session)
+    now = datetime.now(timezone.utc)
+    for i in range(30):
+        log_repo.append(
+            campaign_id=campaign.id, account_id=acc.id, target_id=target.id,
+            started_at=now, finished_at=now,
+            outcome=(
+                ExecutionOutcome.PRIVACY_RESTRICTED.value if i < 18
+                else ExecutionOutcome.PRIMED.value
+            ),
+            trigger_action=TriggerAction.SECRET_CHAT_REQUEST.value,
+            latency_ms=1,
+        )
+    session.commit()
+
+    pub = _SpyPublisher()
+    ctx = _ctx(_factory(session), publisher=pub)
+    result = await orchestrator_tick(ctx, campaign.id)
+    assert result["paused"] is True
+    assert result["reason"] == "privacy"
+
+    assert len(pub.published) == 1
+    channel, payload = pub.published[0]
+    assert channel == PRIMING_ALERT_CHANNEL
+    assert payload["event"] == "autopause_privacy"
+    assert payload["campaign_id"] == campaign.id
+    assert payload["rate"] > 0.5
+
+
+async def test_autopause_on_flood_rate(session) -> None:
+    campaign = _make_running_campaign(session, stop_on_privacy_rate=0.99)
+    acc = _make_account(session)
+    CampaignAccountRepository(session).create({
+        "campaign_id": campaign.id, "account_id": acc.id,
+    })
+    target = CampaignTargetRepository(session).create({
+        "campaign_id": campaign.id, "username": "u",
+    })
+    log_repo = ExecutionLogRepository(session)
+    now = datetime.now(timezone.utc)
+    # Доля flood_wait выше FLOOD_RATE_THRESHOLD.
+    flood_count = int(30 * (FLOOD_RATE_THRESHOLD + 0.1)) + 1
+    for i in range(30):
+        log_repo.append(
+            campaign_id=campaign.id, account_id=acc.id, target_id=target.id,
+            started_at=now, finished_at=now,
+            outcome=(
+                ExecutionOutcome.FLOOD_WAIT.value if i < flood_count
+                else ExecutionOutcome.PRIMED.value
+            ),
+            trigger_action=TriggerAction.SECRET_CHAT_REQUEST.value,
+            latency_ms=1,
+        )
+    session.commit()
+
+    ctx = _ctx(_factory(session))
+    result = await orchestrator_tick(ctx, campaign.id)
+    assert result["paused"] is True
+    assert result["reason"] == "flood"
 
 
 async def test_autopause_ignores_small_samples(session) -> None:
