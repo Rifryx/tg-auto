@@ -53,6 +53,9 @@ class PrimingCampaignCreate(PrimingBaseModel):
     quiet_hours_target: bool = False
     quiet_hours_tz: Optional[str] = Field(default=None, max_length=48)
 
+    ab_split_enabled: bool = False
+    ab_split_ratio: float = Field(default=0.5, gt=0, lt=1)
+
     dry_run: bool = False
 
     created_by: Optional[int] = None
@@ -95,6 +98,9 @@ class PrimingCampaignUpdate(PrimingBaseModel):
 
     quiet_hours_target: Optional[bool] = None
     quiet_hours_tz: Optional[str] = Field(default=None, max_length=48)
+
+    ab_split_enabled: Optional[bool] = None
+    ab_split_ratio: Optional[float] = Field(default=None, gt=0, lt=1)
 
     dry_run: Optional[bool] = None
 
@@ -150,6 +156,9 @@ class PrimingCampaignRead(PrimingBaseModel):
 
     quiet_hours_target: bool = False
     quiet_hours_tz: Optional[str] = None
+
+    ab_split_enabled: bool = False
+    ab_split_ratio: float = 0.5
 
     dry_run: bool = False
 

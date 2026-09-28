@@ -50,6 +50,10 @@ class PrimingCampaignAccount(Base, CreatedAtMixin):
             "primes_today >= 0 AND primes_total >= 0",
             name="prime_counters_nonneg",
         ),
+        CheckConstraint(
+            "ab_bucket IS NULL OR ab_bucket IN ('a', 'b')",
+            name="ab_bucket_allowed",
+        ),
         {"schema": PRIMING_SCHEMA},
     )
 
@@ -97,6 +101,12 @@ class PrimingCampaignAccount(Base, CreatedAtMixin):
     # кампании — прогрев считаем от факта начала работы.
     warmup_started_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+    # A/B bucket (prompt 7.3). NULL — bucket не назначен (кампания
+    # без A/B); 'a' | 'b' — детерминированный назначенный bucket.
+    ab_bucket: Mapped[Optional[str]] = mapped_column(
+        String(1), nullable=True,
     )
 
     # Пресет оформления профиля переехал в общий блок «Аккаунты» —

@@ -46,6 +46,8 @@ export interface PrimingCampaign {
   dry_run: boolean;
   quiet_hours_target: boolean;
   quiet_hours_tz: string | null;
+  ab_split_enabled: boolean;
+  ab_split_ratio: number;
   status: PrimingCampaignStatus;
   started_at: string | null;
   finished_at: string | null;
@@ -93,6 +95,7 @@ export interface PrimingLiveAccountRow {
   flood_waits_consecutive: number;
   last_prime_at: string | null;
   next_available_at: string | null;
+  ab_bucket: "a" | "b" | null;
 }
 
 export interface PrimingLiveSnapshot {
@@ -100,6 +103,9 @@ export interface PrimingLiveSnapshot {
   dry_run: boolean;
   counters: Record<string, number>;
   sparkline_24h: number[];
+  ab_split_enabled: boolean;
+  ab_split_ratio: number;
+  ab_breakdown: { a: number; b: number } | null;
   accounts: PrimingLiveAccountRow[];
 }
 
@@ -116,4 +122,6 @@ export interface PrimingCampaignCreateBody {
   dry_run?: boolean;
   quiet_hours_target?: boolean;
   quiet_hours_tz?: string | null;
+  ab_split_enabled?: boolean;
+  ab_split_ratio?: number;
 }

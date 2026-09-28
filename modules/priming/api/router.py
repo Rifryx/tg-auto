@@ -187,11 +187,25 @@ def campaign_live_snapshot(
     counters = log_repo.outcome_counts(campaign_id)
     sparkline = log_repo.hourly_buckets(campaign_id, hours=24)
     accounts = CampaignAccountRepository(session).list_by_campaign(campaign_id)
+
+    # A/B breakdown (prompt 7.3): считаем primed по bucket'ам через
+    # накопленный primes_total на аккаунтах (execution_log в MVP не
+    # хранит bucket, а per-attempt JOIN дорого; для дашборда достаточно).
+    ab_breakdown = None
+    if getattr(campaign, "ab_split_enabled", False):
+        ab_breakdown = {"a": 0, "b": 0}
+        for ca in accounts:
+            if ca.ab_bucket in ("a", "b"):
+                ab_breakdown[ca.ab_bucket] += ca.primes_total
+
     return {
         "status": campaign.status,
         "dry_run": bool(campaign.dry_run),
         "counters": counters,
         "sparkline_24h": sparkline,
+        "ab_split_enabled": bool(getattr(campaign, "ab_split_enabled", False)),
+        "ab_split_ratio": float(getattr(campaign, "ab_split_ratio", 0.5) or 0.5),
+        "ab_breakdown": ab_breakdown,
         "accounts": [
             {
                 "id": ca.id,
@@ -202,6 +216,7 @@ def campaign_live_snapshot(
                 "flood_waits_consecutive": ca.flood_waits_consecutive,
                 "last_prime_at": ca.last_prime_at,
                 "next_available_at": ca.next_available_at,
+                "ab_bucket": ca.ab_bucket,
             }
             for ca in accounts
         ],

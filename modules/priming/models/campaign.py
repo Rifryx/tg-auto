@@ -98,6 +98,10 @@ class PrimingCampaign(Base, TimestampMixin):
             "stop_on_privacy_rate >= 0 AND stop_on_privacy_rate <= 1",
             name="stop_on_privacy_rate_valid",
         ),
+        CheckConstraint(
+            "ab_split_ratio > 0 AND ab_split_ratio < 1",
+            name="ab_split_ratio_valid",
+        ),
         {"schema": PRIMING_SCHEMA},
     )
 
@@ -179,6 +183,17 @@ class PrimingCampaign(Base, TimestampMixin):
     )
     quiet_hours_tz: Mapped[Optional[str]] = mapped_column(
         String(48), nullable=True,
+    )
+
+    # ── A/B split (prompt 7.3) ─────────────────────────────────────────
+    # Половина аккаунтов кампании работает под bucket='a', половина 'b'.
+    # Пресеты профилей — в общем блоке «Аккаунты»; кампания хранит
+    # только сам факт эксперимента и долю в bucket A.
+    ab_split_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false",
+    )
+    ab_split_ratio: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.5, server_default="0.5",
     )
 
     # ── Runtime ────────────────────────────────────────────────────────

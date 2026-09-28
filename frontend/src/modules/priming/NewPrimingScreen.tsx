@@ -88,6 +88,8 @@ export function NewPrimingScreen() {
   const [dryRun, setDryRun] = useState(false);
   const [quietHours, setQuietHours] = useState(false);
   const [quietTz, setQuietTz] = useState<string>("");
+  const [abSplit, setAbSplit] = useState(false);
+  const [abRatio, setAbRatio] = useState(0.5);
 
   const [pickedAccounts, setPickedAccounts] = useState<Set<number>>(new Set());
   const [manualList, setManualList] = useState("");
@@ -164,6 +166,8 @@ export function NewPrimingScreen() {
         dry_run: dryRun,
         quiet_hours_target: quietHours,
         quiet_hours_tz: quietHours && quietTz.trim() ? quietTz.trim() : null,
+        ab_split_enabled: abSplit,
+        ab_split_ratio: abRatio,
       });
       await primingApi.attachAccounts(created.id, Array.from(pickedAccounts));
       if (audienceTab === "parsing" && pickedList) {
@@ -478,6 +482,48 @@ export function NewPrimingScreen() {
               unit="с"
             />
           </div>
+        </Section>
+
+        {/* §5.5c A/B split */}
+        <Section
+          title="A/B тест"
+          description="Половина аккаунтов идёт в bucket A, половина — в B. Пресеты профилей задаются в «Аккаунтах»; здесь только split и метрики."
+        >
+          <label className="flex cursor-pointer items-center justify-between gap-3">
+            <span className="text-[15px] text-text-primary">
+              Включить A/B split
+            </span>
+            <input
+              type="checkbox"
+              checked={abSplit}
+              onChange={(e) => setAbSplit(e.target.checked)}
+              className="h-5 w-5 accent-text-primary"
+            />
+          </label>
+          {abSplit && (
+            <div className="mt-3">
+              <div className="mb-2 flex items-center justify-between text-[13px] text-text-secondary">
+                <span>Доля bucket A</span>
+                <span className="tabular-nums text-text-primary">
+                  {Math.round(abRatio * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={10}
+                max={90}
+                step={5}
+                value={Math.round(abRatio * 100)}
+                onChange={(e) => setAbRatio(Number(e.target.value) / 100)}
+                className="w-full accent-text-primary"
+              />
+              <p className="mt-2 text-[12px] text-text-tertiary">
+                Bucket назначается детерминированно по хешу пары
+                (campaign_id, account_id) — повторный attach даёт тот же
+                результат.
+              </p>
+            </div>
+          )}
         </Section>
 
         {/* §5.5b Тихие часы */}

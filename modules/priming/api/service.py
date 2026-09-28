@@ -272,7 +272,7 @@ def attach_accounts(
     if not account_ids:
         raise ValidationError("account_ids must not be empty")
 
-    get_campaign(session, campaign_id)  # 404 если нет
+    campaign = get_campaign(session, campaign_id)  # 404 если нет
     result = AccountAttachResult()
     repo = CampaignAccountRepository(session)
 
@@ -282,6 +282,9 @@ def attach_accounts(
     # Аккаунты уже занятые другими активными кампаниями.
     busy = _accounts_busy_elsewhere(session, campaign_id, account_ids)
 
+    ab_enabled = bool(getattr(campaign, "ab_split_enabled", False))
+    ab_ratio = float(getattr(campaign, "ab_split_ratio", 0.5) or 0.5)
+
     for account_id in account_ids:
         if account_id in existing:
             result.skipped_duplicate.append(account_id)
@@ -289,10 +292,16 @@ def attach_accounts(
         if account_id in busy:
             result.skipped_busy.append(account_id)
             continue
-        created = repo.create({
+        payload = {
             "campaign_id": campaign_id,
             "account_id": account_id,
-        })
+        }
+        if ab_enabled:
+            from modules.priming.worker.ab_split import assign_ab_bucket
+            payload["ab_bucket"] = assign_ab_bucket(
+                campaign_id, account_id, ratio=ab_ratio,
+            )
+        created = repo.create(payload)
         result.attached.append(created.id)
         existing.add(account_id)
 

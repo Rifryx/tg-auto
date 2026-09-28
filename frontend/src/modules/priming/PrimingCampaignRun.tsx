@@ -163,6 +163,19 @@ export function PrimingCampaignRun() {
             </div>
           </div>
 
+          {/* A/B breakdown — только если тест включён */}
+          {live.ab_split_enabled && live.ab_breakdown && (
+            <div className="card p-4">
+              <div className="mb-3 text-[11px] uppercase tracking-wider text-text-tertiary">
+                A/B test · доля A ~ {Math.round(live.ab_split_ratio * 100)}%
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <ABColumn label="A" value={live.ab_breakdown.a} />
+                <ABColumn label="B" value={live.ab_breakdown.b} />
+              </div>
+            </div>
+          )}
+
           {/* Мини-KPI */}
           <div className="-mx-4 overflow-x-auto px-4 pb-1">
             <div className="flex gap-2">
@@ -286,6 +299,20 @@ function MiniKpi({
   );
 }
 
+function ABColumn({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-hairline bg-surface-1 p-3">
+      <div className="text-[10px] uppercase tracking-wider text-text-tertiary">
+        Bucket {label}
+      </div>
+      <div className="mt-1 text-[20px] font-semibold tabular-nums text-text-primary">
+        {value}
+      </div>
+      <div className="text-[10px] text-text-tertiary">primed</div>
+    </div>
+  );
+}
+
 function AccountRunRow({ row }: { row: PrimingLiveAccountRow }) {
   const stateLabel: Record<PrimingLiveAccountRow["state"], string> = {
     idle: "ожидает",
@@ -309,8 +336,15 @@ function AccountRunRow({ row }: { row: PrimingLiveAccountRow }) {
           aria-hidden
         />
         <div className="min-w-0">
-          <div className="truncate text-[14px] text-text-primary">
-            #{row.account_id}
+          <div className="flex items-center gap-2">
+            <span className="truncate text-[14px] text-text-primary">
+              #{row.account_id}
+            </span>
+            {row.ab_bucket && (
+              <span className="rounded-pill bg-surface-2 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-text-secondary">
+                {row.ab_bucket}
+              </span>
+            )}
           </div>
           <div className="text-[11px] text-text-tertiary">
             {stateLabel[row.state]}
