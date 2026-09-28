@@ -91,6 +91,13 @@ class PrimingCampaignAccount(Base, CreatedAtMixin):
     next_available_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Когда аккаунт впервые начал работать в этой кампании — точка
+    # отсчёта warmup-рампы (spec §11.1, prompt 6.1). Ставится при
+    # первом ``acquire_next`` и не сдвигается при паузе/возобновлении
+    # кампании — прогрев считаем от факта начала работы.
+    warmup_started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Пресет оформления профиля переехал в общий блок «Аккаунты» —
     # priming больше не хранит эту связку (см. Alembic 0045). Если

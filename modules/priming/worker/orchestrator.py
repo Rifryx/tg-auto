@@ -26,6 +26,10 @@ from typing import Optional
 
 import structlog
 
+from core.config.priming_warmup import (
+    effective_daily_limit,
+    effective_delay_range,
+)
 from core.queue import TaskQueue
 from core.queue.task_names import TaskName
 from modules.priming.repositories import (
@@ -109,9 +113,20 @@ async def orchestrator_tick(ctx: dict, campaign_id: int) -> Optional[dict]:
             return {"scheduled": 0, "paused": True, "idle": False}
 
         # Снимок значений кампании — сессия сейчас закроется.
+        # daily_limit — это КЭП кампании; фактический лимит на аккаунт
+        # считается по warmup-профилю ниже (prompt 6.1).
         daily_limit = campaign.daily_limit_per_account
+        warmup_profile = campaign.warmup_profile
+        # Диапазон задержек: если у кампании стандартные значения профиля
+        # (её сгенерил wizard), берём их; иначе — уже пользовательские.
         delay_min = campaign.delay_between_targets_sec_min
         delay_max = campaign.delay_between_targets_sec_max
+        # Диапазон профиля используется только как страховочный дефолт,
+        # если кампания вдруг сохранила невалидную пару (min > max) —
+        # прод-путь берёт значения из кампании.
+        prof_min, prof_max = effective_delay_range(warmup_profile)
+        if delay_min > delay_max:
+            delay_min, delay_max = prof_min, prof_max
         humanizer_mode = HumanizerMode(campaign.humanizer_mode)
 
     scheduled = 0
@@ -128,6 +143,28 @@ async def orchestrator_tick(ctx: dict, campaign_id: int) -> Optional[dict]:
                 idle = True
                 session.commit()
                 break
+
+            # Warmup-рампа: эффективный дневной лимит на КОНКРЕТНЫЙ
+            # аккаунт с его warmup_started_at и профилем кампании.
+            # Если аккаунт уже упёрся в него — вернуть в idle и
+            # попробовать следующего (пусть на этом тике он не работает).
+            eff_limit = effective_daily_limit(
+                warmup_profile,
+                acquired.warmup_started_at,
+                now,
+                campaign_cap=daily_limit,
+            )
+            if acquired.primes_today >= eff_limit:
+                ca_repo.update(acquired.id, {
+                    "state": PrimingAccountState.IDLE.value,
+                })
+                session.commit()
+                continue
+
+            # Первый прайм в этой кампании — фиксируем стартовую точку
+            # рампы. Дальше warmup_started_at не сдвигается.
+            if acquired.warmup_started_at is None:
+                ca_repo.update(acquired.id, {"warmup_started_at": now})
 
             target = CampaignTargetRepository(session).claim_next(
                 campaign_id, acquired.account_id
