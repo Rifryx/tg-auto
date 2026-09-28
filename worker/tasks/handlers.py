@@ -47,6 +47,9 @@ from modules.shilling.worker.orchestrator import (
     start_campaign as shilling_start_campaign_impl,
 )
 from modules.priming.worker.executor import execute_prime as priming_execute_prime_impl
+from modules.priming.worker.humanizer import (
+    humanizer_beat as priming_humanizer_beat_impl,
+)
 from modules.priming.worker.orchestrator import (
     orchestrator_tick as priming_orchestrator_tick_impl,
 )
@@ -78,11 +81,9 @@ from worker.tasks.warming import (
 _STUB_TASKS = [
     TaskName.ACCOUNT_RETIRE,
     TaskName.ACCOUNT_ACKNOWLEDGE_BAN,
-    # priming: execute_prime (2.2), orchestrator_tick (2.3),
-    # parser_run (3.3 через modules/parsing). Заглушка — humanizer_beat
-    # (5.1). Profile-apply здесь нет: оформление профилей — общий блок
-    # «Аккаунты» и уже реализованные bulk-действия.
-    TaskName.PRIMING_HUMANIZER_BEAT,
+    # priming: все реальные хендлеры уже смонтированы (execute_prime,
+    # orchestrator_tick, humanizer_beat, parser_run). Profile-apply
+    # ушёл в общий блок «Аккаунты» через bulk-actions.
 ]
 
 
@@ -202,6 +203,10 @@ priming_orchestrator_tick = task(TaskName.PRIMING_ORCHESTRATOR_TICK.value)(
 parsing_parser_run = task(TaskName.PRIMING_PARSER_RUN.value)(
     parsing_parser_run_impl
 )
+# priming humanizer (промпт 5.1) — фоновая имитация.
+priming_humanizer_beat = task(TaskName.PRIMING_HUMANIZER_BEAT.value)(
+    priming_humanizer_beat_impl
+)
 
 TASK_FUNCTIONS = [
     func(task(name.value)(_make_stub(name.value)), name=name.value, max_tries=3)
@@ -288,6 +293,12 @@ TASK_FUNCTIONS = [
     func(
         parsing_parser_run,
         name=TaskName.PRIMING_PARSER_RUN.value,
+        max_tries=1,
+    ),
+    # humanizer_beat: 1 попытка — best-effort фон, ретрай бессмысленен.
+    func(
+        priming_humanizer_beat,
+        name=TaskName.PRIMING_HUMANIZER_BEAT.value,
         max_tries=1,
     ),
     # Recovery-email flow (этап 7, backlog #1): max_tries=1 — при

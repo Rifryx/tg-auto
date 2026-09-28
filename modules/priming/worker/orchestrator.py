@@ -36,6 +36,7 @@ from modules.priming.repositories import (
 )
 from modules.priming.schemas.enums import (
     ExecutionOutcome,
+    HumanizerMode,
     PrimingAccountState,
     PrimingCampaignStatus,
 )
@@ -111,6 +112,7 @@ async def orchestrator_tick(ctx: dict, campaign_id: int) -> Optional[dict]:
         daily_limit = campaign.daily_limit_per_account
         delay_min = campaign.delay_between_targets_sec_min
         delay_max = campaign.delay_between_targets_sec_max
+        humanizer_mode = HumanizerMode(campaign.humanizer_mode)
 
     scheduled = 0
     idle = False
@@ -149,6 +151,19 @@ async def orchestrator_tick(ctx: dict, campaign_id: int) -> Optional[dict]:
             target_id,
         )
         scheduled += 1
+
+        # Humanizer beat в паузе. Планируем с случайной микро-задержкой в
+        # пределах delay-диапазона — так beat приземлится ПОСЛЕ execute_prime
+        # (тот держит state=working) и humanizer сам сделает no-op, если
+        # аккаунт всё ещё занят.
+        if humanizer_mode is not HumanizerMode.OFF:
+            beat_at = now + timedelta(
+                seconds=rng.randint(max(1, delay_min // 3), max(1, delay_max // 2))
+            )
+            await task_queue.schedule(
+                TaskName.PRIMING_HUMANIZER_BEAT,
+                beat_at, campaign_id, campaign_account_id,
+            )
 
     # Планируем следующий tick с рандом-джиттером (или через IDLE_RETRY_SECONDS,
     # если совсем нечего раздавать).
