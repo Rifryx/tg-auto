@@ -228,6 +228,23 @@ def campaign_live_snapshot(
     }
 
 
+@router.post(
+    "/campaigns/{campaign_id}/duplicate",
+    response_model=PrimingCampaignRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def duplicate_campaign(campaign_id: int, session: Session = Depends(get_session)):
+    """Дубликат кампании (prompt 7.6): настройки + аккаунты + PENDING-цели.
+    Логи и уже прошедшие цели не переносим.
+    """
+    try:
+        clone = service.duplicate_campaign(session, campaign_id)
+    except service.ServiceError as exc:
+        _raise(exc)
+    session.commit()
+    return PrimingCampaignRead.model_validate(clone)
+
+
 @router.post("/campaigns/{campaign_id}/stop", response_model=PrimingCampaignRead)
 def stop_campaign(campaign_id: int, session: Session = Depends(get_session)):
     try:

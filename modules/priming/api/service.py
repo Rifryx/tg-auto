@@ -113,6 +113,84 @@ def get_campaign(session: Session, campaign_id: int):
     return campaign
 
 
+# Поля, которые копируются в дубликат. Всё связанное с runtime-состоянием
+# (status, started_at, finished_at) намеренно опущено — новый draft.
+_DUPLICATE_FIELDS = (
+    "name",
+    "mode",
+    "trigger_action",
+    "trigger_actions",
+    "trigger_rotation_strategy",
+    "humanizer_mode",
+    "delay_between_targets_sec_min",
+    "delay_between_targets_sec_max",
+    "flood_wait_pause_sec",
+    "max_flood_waits_per_account",
+    "daily_limit_per_account",
+    "warmup_profile",
+    "require_username",
+    "premium_only",
+    "exclude_bots",
+    "exclude_deleted",
+    "exclude_admins",
+    "stop_on_privacy_rate",
+    "quiet_hours_target",
+    "quiet_hours_tz",
+    "ab_split_enabled",
+    "ab_split_ratio",
+    "dry_run",
+    "created_by",
+)
+
+
+def duplicate_campaign(session: Session, campaign_id: int):
+    """Создаёт draft-копию кампании: настройки + аккаунты + pending-цели.
+
+    execution_log, flood_incidents и статусы целей PRIMED/FAILED/SKIPPED —
+    не копируются: это фактическая история старой кампании.
+    """
+    original = get_campaign(session, campaign_id)
+
+    payload: dict[str, Any] = {
+        f: getattr(original, f) for f in _DUPLICATE_FIELDS
+    }
+    # Имя — добавляем суффикс, чтобы UI отличал.
+    payload["name"] = f"{original.name} (копия)"[:120]
+
+    clone = CampaignRepository(session).create(payload)
+    session.flush()
+
+    # Аккаунты: те же account_id (эксклюзивность проверит attach). Не
+    # переносим bucket'ы — их пересчитает attach по новому campaign_id.
+    ca_repo = CampaignAccountRepository(session)
+    src_accounts = ca_repo.list_by_campaign(campaign_id)
+    if src_accounts:
+        try:
+            attach_accounts(
+                session, clone.id, [ca.account_id for ca in src_accounts]
+            )
+        except ValidationError:
+            # Пустой список — оставим кампанию без аккаунтов.
+            pass
+
+    # Цели: копируем только PENDING (остальные — сделаны/пропущены).
+    src_targets = CampaignTargetRepository(session).list_by_campaign(
+        campaign_id, status=TargetStatus.PENDING.value, limit=10000,
+    )
+    if src_targets:
+        rows = [
+            {
+                "tg_user_id": t.tg_user_id,
+                "username": t.username,
+                "phone": t.phone,
+            }
+            for t in src_targets
+        ]
+        CampaignTargetRepository(session).bulk_create(clone.id, rows)
+
+    return clone
+
+
 def update_campaign(session: Session, campaign_id: int, data: Mapping[str, Any]):
     campaign = get_campaign(session, campaign_id)
     if campaign.status not in _EDITABLE_STATUSES:

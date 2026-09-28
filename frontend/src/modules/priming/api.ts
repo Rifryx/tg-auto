@@ -39,6 +39,8 @@ export const primingApi = {
     api.post<PrimingCampaign>(BASE, body),
   remove: (id: number) => api.del<void>(`${BASE}/${id}`),
 
+  duplicate: (id: number) =>
+    api.post<PrimingCampaign>(`${BASE}/${id}/duplicate`, {}),
   start: (id: number) => api.post<PrimingCampaign>(`${BASE}/${id}/start`, {}),
   pause: (id: number) => api.post<PrimingCampaign>(`${BASE}/${id}/pause`, {}),
   resume: (id: number) => api.post<PrimingCampaign>(`${BASE}/${id}/resume`, {}),
