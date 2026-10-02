@@ -1,5 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, ArrowLeft, Check, Upload } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  BellRing,
+  Check,
+  Globe,
+  Hash,
+  Moon,
+  Target,
+  Upload,
+  Users,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
@@ -8,6 +19,7 @@ import type { ParsedList } from "../parsing/types";
 import { accountsApi } from "../../shared/accounts";
 import type { Account } from "../../shared/types";
 import { primingApi } from "./api";
+import { Checkbox } from "./components/Checkbox";
 import { PillGroup } from "./components/PillGroup";
 import { PushPreview } from "./components/PushPreview";
 import { Section } from "./components/Section";
@@ -88,6 +100,8 @@ export function NewPrimingScreen() {
   const [dryRun, setDryRun] = useState(false);
   const [quietHours, setQuietHours] = useState(false);
   const [quietTz, setQuietTz] = useState<string>("");
+  const [quietStart, setQuietStart] = useState<number>(0);
+  const [quietEnd, setQuietEnd] = useState<number>(7);
   const [abSplit, setAbSplit] = useState(false);
   const [abRatio, setAbRatio] = useState(0.5);
 
@@ -147,6 +161,12 @@ export function NewPrimingScreen() {
   }
   if (delayMin > delayMax) problems.push("Минимальная задержка больше максимальной");
   if (actions.size === 0) problems.push("Выберите хотя бы один триггер");
+  if (quietHours) {
+    if (quietStart >= quietEnd)
+      problems.push("Окно тихих часов: «с» должно быть меньше «до»");
+    if (!quietTz.trim())
+      problems.push("Укажите часовой пояс (IANA) для тихих часов");
+  }
 
   // Запуск
   const submit = useMutation({
@@ -166,6 +186,8 @@ export function NewPrimingScreen() {
         dry_run: dryRun,
         quiet_hours_target: quietHours,
         quiet_hours_tz: quietHours && quietTz.trim() ? quietTz.trim() : null,
+        quiet_hours_start: quietStart,
+        quiet_hours_end: quietEnd,
         ab_split_enabled: abSplit,
         ab_split_ratio: abRatio,
       });
@@ -187,7 +209,7 @@ export function NewPrimingScreen() {
   const canSubmit = problems.length === 0 && !submit.isPending;
 
   return (
-    <div className="min-h-full pb-40">
+    <div className="min-h-full">
       <ScreenHeader
         title="Новая кампания"
         action={
@@ -220,66 +242,72 @@ export function NewPrimingScreen() {
 
         {/* §5.1 Триггер + preview */}
         <Section
+          accent="primary"
+          icon={<BellRing className="h-4 w-4 text-accent" strokeWidth={2.2} aria-hidden />}
           title="Что увидит цель в уведомлении"
-          description="Push реально приходит у большинства клиентов — конкретные проценты уточняем в R&D."
+          description="Push реально приходит у большинства клиентов — конкретные проценты уточняем в R&D. Клик по строке — выбор; preview снизу показывает последнее выбранное."
         >
           <div className="flex flex-col gap-2.5">
             {TRIGGER_OPTIONS.map(({ key, label, note }) => {
               const checked = actions.has(key);
               const isPreview = action === key;
+              const toggle = () => {
+                const next = new Set(actions);
+                if (next.has(key)) {
+                  if (next.size > 1) {
+                    next.delete(key);
+                  } else {
+                    return; // нельзя убрать последний
+                  }
+                } else {
+                  next.add(key);
+                  setAction(key); // новый выбранный становится preview
+                }
+                setActions(next);
+                if (!next.has(action)) {
+                  const first = next.values().next().value;
+                  if (first) setAction(first);
+                }
+              };
               return (
-                <div
+                <button
                   key={key}
+                  type="button"
+                  onClick={toggle}
                   className={[
-                    "flex items-start gap-3 rounded-2xl border p-3.5 transition-colors",
+                    "flex w-full items-start gap-3 rounded-2xl border p-3.5 text-left transition-colors",
                     checked
                       ? "border-strong bg-surface-2"
-                      : "border-hairline bg-surface-1",
+                      : "border-hairline bg-surface-1 active:bg-surface-2",
                   ].join(" ")}
                 >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = new Set(actions);
-                      if (next.has(key)) {
-                        if (next.size > 1) next.delete(key);
-                      } else {
-                        next.add(key);
-                      }
-                      setActions(next);
-                      if (!next.has(action)) {
-                        const first = next.values().next().value;
-                        if (first) setAction(first);
-                      }
-                    }}
+                  <span
                     className={[
-                      "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border",
-                      checked ? "border-text-primary bg-text-primary" : "border-strong",
+                      "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors",
+                      checked
+                        ? "border-text-primary bg-text-primary"
+                        : "border-strong",
                     ].join(" ")}
-                    aria-label={checked ? `Убрать ${label}` : `Добавить ${label}`}
+                    aria-hidden
                   >
                     {checked && (
-                      <Check className="h-3.5 w-3.5 text-accent-on" strokeWidth={2.5} />
+                      <Check className="h-3.5 w-3.5 text-accent-on" strokeWidth={2.6} />
                     )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAction(key)}
-                    className="min-w-0 flex-1 text-left"
-                  >
+                  </span>
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-[15px] font-medium text-text-primary">
                         {label}
                       </span>
                       {isPreview && (
-                        <span className="rounded-pill bg-surface-1 px-2 py-0.5 text-[10px] uppercase tracking-wider text-text-secondary">
+                        <span className="rounded-pill bg-accent/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-accent">
                           preview
                         </span>
                       )}
                     </div>
                     <div className="mt-0.5 text-[12px] text-text-tertiary">{note}</div>
-                  </button>
-                </div>
+                  </div>
+                </button>
               );
             })}
           </div>
@@ -308,6 +336,8 @@ export function NewPrimingScreen() {
 
         {/* §5.2 Аккаунты */}
         <Section
+          accent="secondary"
+          icon={<Users className="h-4 w-4 text-status-active" strokeWidth={2.2} aria-hidden />}
           title={`Аккаунты · ${pickedAccounts.size} выбрано`}
           description="Только аккаунты в статусе pool. Работать одновременно с двумя кампаниями один аккаунт не сможет."
         >
@@ -338,6 +368,8 @@ export function NewPrimingScreen() {
 
         {/* §5.3 Аудитория */}
         <Section
+          accent="secondary"
+          icon={<Target className="h-4 w-4 text-status-active" strokeWidth={2.2} aria-hidden />}
           title="Аудитория"
           description="Кого праймить. Готовые списки берутся из отдельного сервиса «Парсинг»."
           action={
@@ -486,26 +518,43 @@ export function NewPrimingScreen() {
 
         {/* §5.5c A/B split */}
         <Section
+          icon={<Hash className="h-4 w-4 text-text-secondary" strokeWidth={2.2} aria-hidden />}
           title="A/B тест"
-          description="Половина аккаунтов идёт в bucket A, половина — в B. Пресеты профилей задаются в «Аккаунтах»; здесь только split и метрики."
+          description="Разбить аккаунты кампании на две группы и сравнить, какое оформление профиля конвертит лучше."
         >
-          <label className="flex cursor-pointer items-center justify-between gap-3">
-            <span className="text-[15px] text-text-primary">
-              Включить A/B split
-            </span>
-            <input
-              type="checkbox"
-              checked={abSplit}
-              onChange={(e) => setAbSplit(e.target.checked)}
-              className="h-5 w-5 accent-text-primary"
-            />
-          </label>
+          <div className="mb-3 rounded-xl border border-hairline bg-surface-1 p-3 text-[12px] leading-relaxed text-text-secondary">
+            <p>
+              <span className="text-text-primary">Как это работает.</span>{" "}
+              При включённом split каждый прикреплённый аккаунт
+              детерминированно попадает в bucket <b>A</b> или <b>B</b>
+              (хеш пары <code>campaign_id × account_id</code>). Повторный
+              attach даёт тот же bucket — группы не «перетасовываются».
+            </p>
+            <p className="mt-2">
+              <span className="text-text-primary">Что сравниваем.</span>{" "}
+              Пресеты профилей задаются в разделе «Аккаунты» — здесь
+              кампания только хранит сам факт split'а и долю; метрика
+              <b> primed per bucket</b> появится на экране «Ход».
+            </p>
+            <p className="mt-2 text-text-tertiary">
+              Используй, если хочешь понять: тот же push «секретный чат» +
+              новое bio даёт больше ответов, чем старое? Запусти 50/50 и
+              смотри цифры по bucket'ам.
+            </p>
+          </div>
+
+          <Checkbox
+            checked={abSplit}
+            onChange={setAbSplit}
+            label="Включить A/B split"
+            description="Иначе bucket не назначается, метрика A/B на «Ходе» скрыта."
+          />
           {abSplit && (
-            <div className="mt-3">
+            <div className="mt-3 rounded-xl bg-surface-2 p-3">
               <div className="mb-2 flex items-center justify-between text-[13px] text-text-secondary">
                 <span>Доля bucket A</span>
                 <span className="tabular-nums text-text-primary">
-                  {Math.round(abRatio * 100)}%
+                  {Math.round(abRatio * 100)}% / {100 - Math.round(abRatio * 100)}%
                 </span>
               </div>
               <input
@@ -518,9 +567,8 @@ export function NewPrimingScreen() {
                 className="w-full accent-text-primary"
               />
               <p className="mt-2 text-[12px] text-text-tertiary">
-                Bucket назначается детерминированно по хешу пары
-                (campaign_id, account_id) — повторный attach даёт тот же
-                результат.
+                50/50 — классика; 70/30 — если один вариант уже выглядит
+                сильнее и большую часть выборки хочется отдать ему.
               </p>
             </div>
           )}
@@ -528,35 +576,55 @@ export function NewPrimingScreen() {
 
         {/* §5.5b Тихие часы */}
         <Section
+          icon={<Moon className="h-4 w-4 text-text-secondary" strokeWidth={2.2} aria-hidden />}
           title="Тихие часы цели"
-          description="Не будим цель ночью в её часовом поясе. Если TZ не указать — правило не сработает (гео неизвестно)."
+          description="Не будим цель ночью в её часовом поясе. Нужны и часы, и IANA-timezone — иначе правило не срабатывает (гео неизвестно)."
         >
-          <label className="flex cursor-pointer items-center justify-between gap-3">
-            <span className="text-[15px] text-text-primary">
-              Пропускать 00:00–07:00 у цели
-            </span>
-            <input
-              type="checkbox"
-              checked={quietHours}
-              onChange={(e) => setQuietHours(e.target.checked)}
-              className="h-5 w-5 accent-text-primary"
-            />
-          </label>
+          <Checkbox
+            checked={quietHours}
+            onChange={setQuietHours}
+            label="Включить тихие часы"
+            description="Executor пишет outcome=skipped_quiet без обращения к Telethon — pool-квота не тратится."
+          />
           {quietHours && (
-            <div className="mt-3">
-              <label className="block text-[13px] font-medium text-text-secondary">
-                Часовой пояс (IANA)
+            <div className="mt-3 grid gap-3 rounded-xl bg-surface-2 p-3 sm:grid-cols-2">
+              <label className="text-[13px] font-medium text-text-secondary">
+                <div className="mb-2 flex items-center gap-2">
+                  <Globe
+                    className="h-3.5 w-3.5 text-text-tertiary"
+                    strokeWidth={2}
+                    aria-hidden
+                  />
+                  Часовой пояс (IANA)
+                </div>
+                <input
+                  type="text"
+                  value={quietTz}
+                  onChange={(e) => setQuietTz(e.target.value)}
+                  placeholder="например: Europe/Moscow"
+                  className="w-full rounded-xl border border-hairline bg-surface-1 p-3 font-mono text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
+                />
               </label>
-              <input
-                type="text"
-                value={quietTz}
-                onChange={(e) => setQuietTz(e.target.value)}
-                placeholder="например: Europe/Moscow"
-                className="mt-2 w-full rounded-xl border border-hairline bg-surface-2 p-3 font-mono text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
-              />
-              <p className="mt-2 text-[12px] text-text-tertiary">
-                Executor записывает outcome=skipped_quiet без обращения к
-                Telethon.
+              <div className="text-[13px] font-medium text-text-secondary">
+                <div className="mb-2">Окно, часы (локальное время цели)</div>
+                <div className="flex items-center gap-2">
+                  <HourInput
+                    value={quietStart}
+                    onChange={setQuietStart}
+                    aria-label="С часа"
+                  />
+                  <span className="text-text-tertiary">—</span>
+                  <HourInput
+                    value={quietEnd}
+                    onChange={setQuietEnd}
+                    aria-label="До часа"
+                  />
+                </div>
+              </div>
+              <p className="col-span-full text-[12px] text-text-tertiary">
+                Пример: TZ <code>Europe/Moscow</code>, окно 0–7 → в
+                03:00 по Москве цель получит skipped_quiet, в 10:00 —
+                обычный прайм. Если TZ пустая, окно игнорируется.
               </p>
             </div>
           )}
@@ -580,26 +648,23 @@ export function NewPrimingScreen() {
           title="Тестовый прогон"
           description="Симуляция outcome по распределению без реальных Push. Полезно для UI/E2E."
         >
-          <label className="flex cursor-pointer items-center justify-between gap-3">
-            <span className="text-[15px] text-text-primary">dry-run</span>
-            <input
-              type="checkbox"
-              checked={dryRun}
-              onChange={(e) => setDryRun(e.target.checked)}
-              className="h-5 w-5 accent-text-primary"
-            />
-          </label>
+          <Checkbox
+            checked={dryRun}
+            onChange={setDryRun}
+            label="Включить dry-run"
+            description="78/12/8/2 — распределение по спеке; execution_log пишется с флагом dry_run=true."
+          />
         </Section>
-      </div>
 
-      {/* §5.7 Sticky footer */}
-      <div
-        className="fixed inset-x-0 bottom-0 z-30 mx-auto border-t border-hairline bg-bg-elevated/95 px-4 pt-3 pb-4 backdrop-blur"
-        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
-      >
-        <div className="mx-auto flex max-w-2xl flex-col gap-2">
+        {/* §5.7 Sticky-футер — внутри потока блоков, не фиксированный */}
+        <div
+          className="sticky bottom-0 z-10 -mx-4 border-t border-hairline bg-bg-elevated/95 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded-2xl sm:border"
+          style={{
+            paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)",
+          }}
+        >
           {problems.length > 0 && (
-            <div className="flex items-start gap-2 rounded-xl border-l-[4px] border-status-warning bg-surface-1 p-3">
+            <div className="mb-2 flex items-start gap-2 rounded-xl border-l-[4px] border-status-warning bg-surface-1 p-3">
               <AlertCircle
                 className="mt-0.5 h-4 w-4 shrink-0 text-status-warning"
                 strokeWidth={2}
@@ -613,14 +678,20 @@ export function NewPrimingScreen() {
             </div>
           )}
           {submit.isError && (
-            <p className="text-[13px] text-status-critical">
+            <p className="mb-2 text-[13px] text-status-critical">
               Не удалось запустить кампанию. Проверьте лимиты и повторите.
             </p>
           )}
           <div className="flex items-center justify-between gap-3">
             <div className="text-[13px] text-text-secondary">
-              <span className="tabular-nums text-text-primary">{pickedAccounts.size}</span> акк ·{" "}
-              <span className="tabular-nums text-text-primary">{targets.length}</span> целей
+              <span className="tabular-nums text-text-primary">
+                {pickedAccounts.size}
+              </span>{" "}
+              акк ·{" "}
+              <span className="tabular-nums text-text-primary">
+                {targets.length}
+              </span>{" "}
+              целей
             </div>
             <button
               type="button"
@@ -645,7 +716,33 @@ export function NewPrimingScreen() {
           </div>
         </div>
       </div>
+
     </div>
+  );
+}
+
+function HourInput({
+  value,
+  onChange,
+  "aria-label": ariaLabel,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  "aria-label": string;
+}) {
+  return (
+    <input
+      type="number"
+      min={0}
+      max={23}
+      value={value}
+      onChange={(e) => {
+        const v = parseInt(e.target.value || "0", 10);
+        if (Number.isFinite(v)) onChange(Math.max(0, Math.min(23, v)));
+      }}
+      aria-label={ariaLabel}
+      className="w-16 rounded-xl border border-hairline bg-surface-1 p-2.5 text-center text-[15px] tabular-nums text-text-primary focus:border-strong focus:outline-none"
+    />
   );
 }
 

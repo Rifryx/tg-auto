@@ -46,6 +46,8 @@ export interface PrimingCampaign {
   dry_run: boolean;
   quiet_hours_target: boolean;
   quiet_hours_tz: string | null;
+  quiet_hours_start: number;
+  quiet_hours_end: number;
   ab_split_enabled: boolean;
   ab_split_ratio: number;
   status: PrimingCampaignStatus;
@@ -139,6 +141,8 @@ export interface PrimingCampaignCreateBody {
   dry_run?: boolean;
   quiet_hours_target?: boolean;
   quiet_hours_tz?: string | null;
+  quiet_hours_start?: number;
+  quiet_hours_end?: number;
   ab_split_enabled?: boolean;
   ab_split_ratio?: number;
 }

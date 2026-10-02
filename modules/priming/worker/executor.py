@@ -185,13 +185,20 @@ async def execute_prime(
         )
         quiet_hours_target = bool(getattr(campaign, "quiet_hours_target", False))
         quiet_hours_tz = getattr(campaign, "quiet_hours_tz", None)
+        quiet_start = int(getattr(campaign, "quiet_hours_start", 0) or 0)
+        quiet_end = int(getattr(campaign, "quiet_hours_end", 7) or 7)
 
     # 2. Тихие часы цели — до открытия клиента, чтобы не расходовать
     # квоту pool'а зря. Если известна TZ (пока — из кампании) и в ней
     # ночь (00:00–07:00), сразу отдаём SKIPPED_QUIET.
     pool = _pool(ctx)
     started_at = _now(ctx)
-    if quiet_hours_target and is_quiet_hour_for(quiet_hours_tz, now=started_at):
+    if quiet_hours_target and is_quiet_hour_for(
+        quiet_hours_tz,
+        now=started_at,
+        start_hour=quiet_start,
+        end_hour=quiet_end,
+    ):
         finished_at = started_at
         result = TriggerResult(
             outcome=ExecutionOutcome.SKIPPED_QUIET,

@@ -102,6 +102,12 @@ class PrimingCampaign(Base, TimestampMixin):
             "ab_split_ratio > 0 AND ab_split_ratio < 1",
             name="ab_split_ratio_valid",
         ),
+        CheckConstraint(
+            "quiet_hours_start >= 0 AND quiet_hours_start < 24 "
+            "AND quiet_hours_end > quiet_hours_start "
+            "AND quiet_hours_end <= 24",
+            name="quiet_hours_window_valid",
+        ),
         {"schema": PRIMING_SCHEMA},
     )
 
@@ -183,6 +189,13 @@ class PrimingCampaign(Base, TimestampMixin):
     )
     quiet_hours_tz: Mapped[Optional[str]] = mapped_column(
         String(48), nullable=True,
+    )
+    # Окно тишины в локальной TZ цели: [start, end), start<end (prompt 7.2+).
+    quiet_hours_start: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0",
+    )
+    quiet_hours_end: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=7, server_default="7",
     )
 
     # ── A/B split (prompt 7.3) ─────────────────────────────────────────
