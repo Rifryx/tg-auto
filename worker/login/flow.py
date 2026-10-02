@@ -28,6 +28,7 @@ from telethon.errors import (
     SessionPasswordNeededError,
 )
 
+from core.config import get_settings
 from core.crypto import encrypt_session
 from core.enums import Initiator
 from core.queue import TaskQueue
@@ -196,6 +197,19 @@ async def login_start_impl(ctx: dict, account_id: int) -> None:
         return
     phone, _ = data
 
+    # DEV_MODE: Telethon-креды фиктивные (api_id=0), реальный send_code SMS
+    # не отправит. Чтобы фронт логина был пригоден в dev — короткое
+    # замыкание: пишем dummy code_hash, публикуем WAITING_CODE. Любой код
+    # «123456» примет login_confirm_impl ниже.
+    settings = get_settings()
+    if settings.dev_mode:
+        get_logger().info(
+            "login.dev_mode_bypass", account_id=account_id, phone=phone,
+        )
+        _store_pending(session_factory, account_id, "dev-code-hash", "")
+        _publish(publisher, account_id, LoginState.WAITING_CODE)
+        return
+
     client = await pool.get(account_id)
     try:
         # governor 'login' — до реального обращения к Telegram: исчерпан → ждём.
@@ -234,6 +248,16 @@ async def login_confirm_impl(ctx: dict, account_id: int, code: str) -> None:
     phone, code_hash = data
     if not code_hash:
         _publish(publisher, account_id, LoginState.FAILED, "no pending login")
+        return
+
+    # DEV_MODE: короткое замыкание — любой 5–6-значный код считается
+    # верным, аккаунт сразу уезжает created → warming без Telethon.
+    settings = get_settings()
+    if settings.dev_mode and code_hash == "dev-code-hash":
+        if not (code.isdigit() and 4 <= len(code) <= 6):
+            _publish(publisher, account_id, LoginState.FAILED, "код неверный")
+            return
+        await _finish_login(ctx, account_id, "")
         return
 
     needs_password = False
