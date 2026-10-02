@@ -139,6 +139,15 @@ async def create_account(
         )
     except accounts_service.ProxyNotFoundError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except accounts_service.PhoneAlreadyExistsError as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "reason": "phone_already_exists",
+                "phone": exc.phone,
+                "message": "Аккаунт с таким номером уже есть в системе.",
+            },
+        ) from exc
 
     await task_queue.enqueue(TaskName.ACCOUNT_LOGIN_START, account.id)
     return AccountRead.model_validate(account)
@@ -189,6 +198,15 @@ async def import_session_account(
         )
     except accounts_service.ProxyNotFoundError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except accounts_service.PhoneAlreadyExistsError as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "reason": "phone_already_exists",
+                "phone": exc.phone,
+                "message": "Аккаунт с таким номером уже есть в системе.",
+            },
+        ) from exc
     return AccountRead.model_validate(account)
 
 

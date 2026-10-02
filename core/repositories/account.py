@@ -38,6 +38,14 @@ class AccountRepository(BaseRepository[Account]):
         account = Account(**data.model_dump())
         return self._add(account)
 
+    def get_by_phone(self, phone: str) -> Optional[Account]:
+        """Поиск аккаунта по телефону (uq_accounts_phone). Используется
+        для pre-check в сервисе создания — чтобы отдать 409 вместо 500
+        при явном дубликате."""
+        return self.session.execute(
+            select(Account).where(Account.phone == phone)
+        ).scalar_one_or_none()
+
     def update(self, id_: int, data: AccountUpdate) -> Optional[Account]:
         account = self.get(id_)
         if account is None:
