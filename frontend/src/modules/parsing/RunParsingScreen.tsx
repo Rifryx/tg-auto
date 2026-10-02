@@ -1,13 +1,21 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Play } from "lucide-react";
+import { AlertCircle, ArrowLeft, Filter, Link2, Play, UserCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { accountsApi } from "../../shared/accounts";
 import { parsingApi } from "./api";
+import { Checkbox } from "./components/Checkbox";
 
 /* Экран запуска парсера. Никакого drawer-в-мастере — parsing это
-   отдельный сервис (см. docs/priming-spec §8). */
+   отдельный сервис (см. docs/priming-spec §8).
+
+   Визуальный акцент (prompt от пользователя):
+   - card--primary: главный блок (тип + ссылка) выделен тонкой
+     --accent-полосой слева;
+   - card--accent-dim: аккаунт-парсер — лёгкий status-active-фон как
+     вторичный акцент;
+   - sticky-футер прибит к контенту (не fixed), не перекрывает нав-бар. */
 
 type Kind = "chat_messages" | "chat_members";
 
@@ -60,7 +68,7 @@ export function RunParsingScreen() {
   if (!collectorId) problems.push("Выберите аккаунт-парсер (collector)");
 
   return (
-    <div className="min-h-full pb-40">
+    <div className="min-h-full">
       <ScreenHeader
         title="Запуск парсинга"
         action={
@@ -76,6 +84,7 @@ export function RunParsingScreen() {
       />
 
       <div className="flex flex-col gap-4">
+        {/* Имя списка — вспомогательное поле */}
         <div className="card p-5">
           <label className="block text-[13px] font-medium text-text-secondary">
             Имя списка
@@ -88,10 +97,23 @@ export function RunParsingScreen() {
           />
         </div>
 
-        <div className="card p-5">
-          <div className="mb-2 text-[13px] font-medium text-text-secondary">
-            Тип парсинга
+        {/* Главный блок: тип + источник. Акцент — левая полоса. */}
+        <div className="card relative overflow-hidden p-5">
+          <span
+            className="absolute inset-y-0 left-0 w-[3px] bg-accent"
+            aria-hidden
+          />
+          <div className="mb-3 flex items-center gap-2">
+            <Link2
+              className="h-4 w-4 text-accent"
+              strokeWidth={2.2}
+              aria-hidden
+            />
+            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">
+              Источник
+            </div>
           </div>
+
           <div className="flex gap-2">
             {(["chat_messages", "chat_members"] as Kind[]).map((k) => (
               <button
@@ -147,24 +169,37 @@ export function RunParsingScreen() {
           )}
 
           {kind === "chat_members" && (
-            <label className="mt-4 flex cursor-pointer items-center justify-between gap-3">
-              <span className="text-[15px] text-text-primary">
-                Только «был недавно»
-              </span>
-              <input
-                type="checkbox"
+            <div className="mt-4">
+              <Checkbox
                 checked={onlyRecentlySeen}
-                onChange={(e) => setOnlyRecentlySeen(e.target.checked)}
-                className="h-5 w-5 accent-text-primary"
+                onChange={setOnlyRecentlySeen}
+                label="Только «был недавно»"
+                description="Активные за последние ~7 дней по user.status."
               />
-            </label>
+            </div>
           )}
         </div>
 
-        <div className="card p-5">
-          <div className="mb-2 text-[13px] font-medium text-text-secondary">
-            Аккаунт-парсер (не должен совпадать с прайминг-аккаунтом)
+        {/* Collector — второй по важности, подсветка status-active */}
+        <div className="card relative overflow-hidden p-5">
+          <span
+            className="absolute inset-y-0 left-0 w-[3px] bg-status-active opacity-80"
+            aria-hidden
+          />
+          <div className="mb-2 flex items-center gap-2">
+            <UserCheck
+              className="h-4 w-4 text-status-active"
+              strokeWidth={2.2}
+              aria-hidden
+            />
+            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">
+              Аккаунт-парсер
+            </div>
           </div>
+          <p className="mb-3 text-[12px] text-text-tertiary">
+            Не должен совпадать с прайминг-аккаунтом. Безопасно отделяет
+            чтение от праймов.
+          </p>
           <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
             {collectors.map((a) => (
               <button
@@ -175,7 +210,7 @@ export function RunParsingScreen() {
                   "flex items-center justify-between rounded-xl border p-3 text-left transition-colors",
                   collectorId === a.id
                     ? "border-strong bg-surface-2"
-                    : "border-hairline bg-surface-1",
+                    : "border-hairline bg-surface-1 active:bg-surface-2",
                 ].join(" ")}
               >
                 <div className="min-w-0">
@@ -183,6 +218,11 @@ export function RunParsingScreen() {
                     {a.username ? `@${a.username}` : a.phone}
                   </div>
                 </div>
+                {collectorId === a.id && (
+                  <span className="rounded-pill bg-status-active/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-status-active">
+                    выбран
+                  </span>
+                )}
               </button>
             ))}
             {collectors.length === 0 && (
@@ -193,47 +233,57 @@ export function RunParsingScreen() {
           </div>
         </div>
 
+        {/* Фильтры */}
         <div className="card p-5">
-          <div className="mb-2 text-[13px] font-medium text-text-secondary">
-            Фильтры
+          <div className="mb-2 flex items-center gap-2">
+            <Filter
+              className="h-4 w-4 text-text-secondary"
+              strokeWidth={2}
+              aria-hidden
+            />
+            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">
+              Фильтры
+            </div>
           </div>
-          <label className="flex cursor-pointer items-center justify-between gap-3 py-2">
-            <span className="text-[15px] text-text-primary">Только с @username</span>
-            <input
-              type="checkbox"
-              checked={requireUsername}
-              onChange={(e) => setRequireUsername(e.target.checked)}
-              className="h-5 w-5 accent-text-primary"
-            />
-          </label>
-          <label className="flex cursor-pointer items-center justify-between gap-3 py-2">
-            <span className="text-[15px] text-text-primary">Только Telegram Premium</span>
-            <input
-              type="checkbox"
-              checked={premiumOnly}
-              onChange={(e) => setPremiumOnly(e.target.checked)}
-              className="h-5 w-5 accent-text-primary"
-            />
-          </label>
+          <Checkbox
+            checked={requireUsername}
+            onChange={setRequireUsername}
+            label="Только с @username"
+          />
+          <Checkbox
+            checked={premiumOnly}
+            onChange={setPremiumOnly}
+            label="Только Telegram Premium"
+          />
         </div>
-      </div>
 
-      <div
-        className="fixed inset-x-0 bottom-0 z-30 border-t border-hairline bg-bg-elevated/95 px-4 pt-3 pb-4 backdrop-blur"
-        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
-      >
-        <div className="mx-auto flex max-w-2xl flex-col gap-2">
+        {/* Sticky action bar — внутри потока блоков, не fixed */}
+        <div
+          className="sticky bottom-0 z-10 -mx-4 mt-2 border-t border-hairline bg-bg-elevated/95 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded-2xl sm:border"
+          style={{
+            paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)",
+          }}
+        >
           {problems.length > 0 && (
-            <ul className="rounded-xl border-l-[4px] border-status-warning bg-surface-1 p-3 text-[13px] text-text-secondary">
-              {problems.map((p, i) => (<li key={i}>{p}</li>))}
-            </ul>
+            <div className="mb-2 flex items-start gap-2 rounded-xl border-l-[4px] border-status-warning bg-surface-1 p-3">
+              <AlertCircle
+                className="mt-0.5 h-4 w-4 shrink-0 text-status-warning"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <ul className="text-[13px] text-text-secondary">
+                {problems.map((p, i) => (
+                  <li key={i}>{p}</li>
+                ))}
+              </ul>
+            </div>
           )}
           <button
             type="button"
             disabled={problems.length > 0 || submit.isPending}
             onClick={() => submit.mutate()}
             className={[
-              "inline-flex h-11 w-full items-center justify-center gap-2 rounded-pill text-[15px] font-semibold",
+              "inline-flex h-11 w-full items-center justify-center gap-2 rounded-pill text-[15px] font-semibold transition-opacity",
               problems.length === 0
                 ? "bg-accent text-accent-on active:opacity-80"
                 : "bg-surface-2 text-text-tertiary",
@@ -241,7 +291,7 @@ export function RunParsingScreen() {
           >
             {submit.isPending ? "Запуск…" : (
               <>
-                <Play className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+                <Play className="h-4 w-4" strokeWidth={2.4} aria-hidden />
                 Запустить парсинг
               </>
             )}
