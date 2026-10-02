@@ -20,6 +20,7 @@ from api.deps.db import get_session
 from api.deps.queue import get_task_queue
 from core.models import Account
 from core.queue.task_names import TaskName
+from core.repositories.subscription import SubscriptionRepository
 from modules.priming.api.router import router as priming_router
 from modules.priming.repositories import (
     CampaignAccountRepository,
@@ -42,6 +43,10 @@ class _SpyTaskQueue:
 
 
 def _client(session, spy):
+    # Пейволл prompt 7.7: priming write-роуты требуют Pro-план. Ставим его
+    # для тестового user_id="1" прежде чем поднимаем TestClient.
+    SubscriptionRepository(session).upsert("1", "pro")
+    session.commit()
     app = FastAPI()
     app.include_router(priming_router)
     app.dependency_overrides[get_session] = lambda: session
