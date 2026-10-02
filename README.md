@@ -9,6 +9,23 @@ LLM), Postgres, Redis. Frontend — Telegram Mini App (React + Vite), разда
 [docs/PROJECT-STAGES.md](docs/PROJECT-STAGES.md); визуальный язык фронта —
 [docs/UI-DESIGN-BRIEF.md](docs/UI-DESIGN-BRIEF.md).
 
+## Модуль прайминга
+
+Мягкие MTProto-события (TTL, Secret chat, Add contact) триггерят у цели родное
+push-уведомление, не оставляя артефактов в чате. Точка конверсии — сам профиль
+(bio, аватар, канал-переходник). Отдельный модуль под своей PG-схемой
+`priming.*` с executor'ом, orchestrator'ом, warmup-рампой, autopause по
+privacy/flood rate, A/B split, cross-module blacklist, тихими часами цели и
+экраном «Ход» с live-KPI.
+
+- [docs/priming-spec.md](docs/priming-spec.md) — спецификация и схема БД.
+- [docs/priming-ui.md](docs/priming-ui.md) — экраны и визуальный язык.
+- [docs/priming-triggers.md](docs/priming-triggers.md) — реестр MTProto-триггеров.
+- [docs/priming-prompts.md](docs/priming-prompts.md) — план разработки 1.1–7.8.
+
+Soak-тест: `python scripts/priming_soak.py --days 7 --accounts 5` (см.
+`scripts/priming_soak/README.md`).
+
 ## Запуск (Docker)
 
 ```bash
