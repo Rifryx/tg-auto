@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import os
 from enum import Enum
 from typing import Any, Optional, Tuple
 
@@ -201,8 +202,10 @@ async def login_start_impl(ctx: dict, account_id: int) -> None:
     # не отправит. Чтобы фронт логина был пригоден в dev — короткое
     # замыкание: пишем dummy code_hash, публикуем WAITING_CODE. Любой код
     # «123456» примет login_confirm_impl ниже.
+    # В pytest этот путь намеренно пропускаем: тесты всегда работают с мок-
+    # Telethon через ClientPool и ожидают увидеть реальный поток send_code.
     settings = get_settings()
-    if settings.dev_mode:
+    if settings.dev_mode and not os.environ.get("PYTEST_CURRENT_TEST"):
         get_logger().info(
             "login.dev_mode_bypass", account_id=account_id, phone=phone,
         )
@@ -252,8 +255,13 @@ async def login_confirm_impl(ctx: dict, account_id: int, code: str) -> None:
 
     # DEV_MODE: короткое замыкание — любой 5–6-значный код считается
     # верным, аккаунт сразу уезжает created → warming без Telethon.
+    # В pytest путь пропускаем (см. login_start_impl).
     settings = get_settings()
-    if settings.dev_mode and code_hash == "dev-code-hash":
+    if (
+        settings.dev_mode
+        and code_hash == "dev-code-hash"
+        and not os.environ.get("PYTEST_CURRENT_TEST")
+    ):
         if not (code.isdigit() and 4 <= len(code) <= 6):
             _publish(publisher, account_id, LoginState.FAILED, "код неверный")
             return
