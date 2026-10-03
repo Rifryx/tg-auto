@@ -9,6 +9,7 @@ import { AboutScreen } from "./screens/more/AboutScreen";
 import { AuditScreen } from "./screens/more/AuditScreen";
 import { AutopilotScreen } from "./screens/more/AutopilotScreen";
 import { MoreScreen } from "./screens/more/MoreScreen";
+import { ServicesScreen } from "./screens/services/ServicesScreen";
 import { PersonasScreen } from "./screens/more/PersonasScreen";
 import { ProjectsScreen } from "./screens/more/ProjectsScreen";
 import { ProxiesScreen } from "./screens/more/ProxiesScreen";
@@ -53,6 +54,7 @@ export function App() {
         <Route path="/modules/priming/campaigns/:id/logs" element={<PrimingCampaignLogs />} />
         <Route path="/modules/parsing" element={<ParsingListsScreen />} />
         <Route path="/modules/parsing/run" element={<RunParsingScreen />} />
+        <Route path="/services" element={<ServicesScreen />} />
         <Route path="/more" element={<MoreScreen />} />
         <Route path="/more/personas" element={<PersonasScreen />} />
         <Route path="/more/projects" element={<ProjectsScreen />} />

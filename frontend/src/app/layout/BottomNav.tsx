@@ -1,60 +1,79 @@
-import { Home, LayoutGrid, MessagesSquare, MoreHorizontal, Users } from "lucide-react";
+import { Boxes, Home, MoreHorizontal, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { hapticSelection } from "../../shared/tg";
 
 /* Капсульный плавающий нижний навбар (§5 брифа):
    - тёмная «таблетка» (surface-1 + hairline), НЕ full-width таббар;
    - плавает над контентом с отступом от краёв и от низа (safe-area);
    - активный таб — светлая подложка (accent) с тёмной иконкой/подписью
-     (accent-on); неактивные — иконка + подпись text-secondary. */
+     (accent-on); неактивные — иконка + подпись text-secondary.
+
+   4 слота: Главная / Аккаунты / Сервисы / Ещё. Модули (комментинг,
+   шиллинг, прайминг, парсинг) живут за табом «Сервисы» — так на
+   мобилке нет конфликта между функциями и инструментами. */
 
 interface Tab {
   to: string;
   label: string;
   icon: LucideIcon;
+  /** Дополнительные префиксы пути, при которых таб тоже подсвечен. */
+  alsoActiveOn?: string[];
 }
 
 const TABS: Tab[] = [
   { to: "/", label: "Главная", icon: Home },
   { to: "/accounts", label: "Аккаунты", icon: Users },
-  { to: "/tasks", label: "Коммент", icon: LayoutGrid },
-  { to: "/modules/shilling", label: "Шиллинг", icon: MessagesSquare },
+  {
+    to: "/services",
+    label: "Сервисы",
+    icon: Boxes,
+    alsoActiveOn: ["/tasks", "/modules/"],
+  },
   { to: "/more", label: "Ещё", icon: MoreHorizontal },
 ];
 
 export function BottomNav() {
+  const { pathname } = useLocation();
   return (
     <nav
       className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center"
       style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
     >
       <div className="pointer-events-auto mx-3 flex h-16 items-center gap-0.5 rounded-pill border border-hairline bg-surface-1 px-1.5">
-        {TABS.map(({ to, label, icon: Icon }) => (
+        {TABS.map(({ to, label, icon: Icon, alsoActiveOn }) => (
           <NavLink
             key={to}
             to={to}
             end={to === "/"}
             onClick={() => hapticSelection()}
-            className={({ isActive }) =>
-              [
-                "flex h-12 min-w-[56px] flex-col items-center justify-center gap-0.5 rounded-pill px-2 transition-colors",
-                isActive
+            className={({ isActive }) => {
+              const active =
+                isActive || alsoActiveOn?.some((p) => pathname.startsWith(p));
+              return [
+                "flex h-12 min-w-[64px] flex-col items-center justify-center gap-0.5 rounded-pill px-3 transition-colors",
+                active
                   ? "bg-accent text-accent-on"
                   : "text-text-secondary active:text-text-primary",
-              ].join(" ")
-            }
+              ].join(" ");
+            }}
           >
-            {({ isActive }) => (
-              <>
-                <Icon
-                  className="h-[22px] w-[22px]"
-                  strokeWidth={isActive ? 2.2 : 1.8}
-                  aria-hidden
-                />
-                <span className="text-[10px] font-medium leading-none">{label}</span>
-              </>
-            )}
+            {({ isActive }) => {
+              const active =
+                isActive || alsoActiveOn?.some((p) => pathname.startsWith(p));
+              return (
+                <>
+                  <Icon
+                    className="h-[22px] w-[22px]"
+                    strokeWidth={active ? 2.2 : 1.8}
+                    aria-hidden
+                  />
+                  <span className="text-[11px] font-medium leading-none">
+                    {label}
+                  </span>
+                </>
+              );
+            }}
           </NavLink>
         ))}
       </div>
