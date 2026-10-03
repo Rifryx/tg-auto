@@ -55,6 +55,20 @@ class TaskName(str, Enum):
     SHILLING_FAILOVER = "shilling.failover"
     SHILLING_DRY_RUN = "shilling.dry_run"
 
+    # --- Модуль priming ---
+    # execute_prime — один прайм (target × campaign_account, промпт 2.2).
+    # orchestrator_tick — раскладывает пары и планирует execute_prime
+    # (промпт 2.3). humanizer_beat — фоновая имитация (промпт 5.1).
+    PRIMING_EXECUTE_PRIME = "priming.execute_prime"
+    PRIMING_ORCHESTRATOR_TICK = "priming.orchestrator_tick"
+    PRIMING_HUMANIZER_BEAT = "priming.humanizer_beat"
+    # PRIMING_PARSER_RUN оставлен под уже настроенный enqueue из
+    # /modules/parsing/lists/run/*; сам хендлер живёт в modules/parsing.
+    PRIMING_PARSER_RUN = "priming.parser_run"
+    # PRIMING_PROFILE_APPLY удалён: оформление профилей — не задача
+    # priming. Работает через bulk-действия из modules/bulk/actions/
+    # (apply_profile, apply_profile_pool, generate_and_apply_profile).
+
 
 class QueueName(str, Enum):
     """Логические очереди arq.

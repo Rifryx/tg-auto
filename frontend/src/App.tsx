@@ -19,6 +19,13 @@ import { NewCampaignScreen } from "./modules/commenting/NewCampaignScreen";
 import { ShillingListScreen } from "./modules/shilling/ShillingListScreen";
 import { NewShillingWizard } from "./modules/shilling/NewShillingWizard";
 import { ShillingDetailScreen } from "./modules/shilling/ShillingDetailScreen";
+import { PrimingListScreen } from "./modules/priming/PrimingListScreen";
+import { NewPrimingScreen } from "./modules/priming/NewPrimingScreen";
+import { PrimingDetailScreen } from "./modules/priming/PrimingDetailScreen";
+import { PrimingCampaignRun } from "./modules/priming/PrimingCampaignRun";
+import { PrimingCampaignLogs } from "./modules/priming/PrimingCampaignLogs";
+import { ParsingListsScreen } from "./modules/parsing/ParsingListsScreen";
+import { RunParsingScreen } from "./modules/parsing/RunParsingScreen";
 import { AdminScreen } from "./screens/admin/AdminScreen";
 import { BillingScreen } from "./screens/billing/BillingScreen";
 
@@ -39,6 +46,13 @@ export function App() {
         <Route path="/modules/shilling" element={<ShillingListScreen />} />
         <Route path="/modules/shilling/campaigns/new" element={<NewShillingWizard />} />
         <Route path="/modules/shilling/campaigns/:id" element={<ShillingDetailScreen />} />
+        <Route path="/modules/priming" element={<PrimingListScreen />} />
+        <Route path="/modules/priming/campaigns/new" element={<NewPrimingScreen />} />
+        <Route path="/modules/priming/campaigns/:id" element={<PrimingDetailScreen />} />
+        <Route path="/modules/priming/campaigns/:id/run" element={<PrimingCampaignRun />} />
+        <Route path="/modules/priming/campaigns/:id/logs" element={<PrimingCampaignLogs />} />
+        <Route path="/modules/parsing" element={<ParsingListsScreen />} />
+        <Route path="/modules/parsing/run" element={<RunParsingScreen />} />
         <Route path="/more" element={<MoreScreen />} />
         <Route path="/more/personas" element={<PersonasScreen />} />
         <Route path="/more/projects" element={<ProjectsScreen />} />

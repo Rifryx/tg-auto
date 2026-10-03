@@ -46,6 +46,14 @@ from modules.shilling.worker.orchestrator import (
     process_target as shilling_process_target_impl,
     start_campaign as shilling_start_campaign_impl,
 )
+from modules.priming.worker.executor import execute_prime as priming_execute_prime_impl
+from modules.priming.worker.humanizer import (
+    humanizer_beat as priming_humanizer_beat_impl,
+)
+from modules.priming.worker.orchestrator import (
+    orchestrator_tick as priming_orchestrator_tick_impl,
+)
+from modules.parsing.worker.dispatch import parser_run as parsing_parser_run_impl
 from worker.tasks.dispatch import task
 from worker.tasks.health import (
     check_account_impl,
@@ -73,6 +81,9 @@ from worker.tasks.warming import (
 _STUB_TASKS = [
     TaskName.ACCOUNT_RETIRE,
     TaskName.ACCOUNT_ACKNOWLEDGE_BAN,
+    # priming: все реальные хендлеры уже смонтированы (execute_prime,
+    # orchestrator_tick, humanizer_beat, parser_run). Profile-apply
+    # ушёл в общий блок «Аккаунты» через bulk-actions.
 ]
 
 
@@ -181,6 +192,22 @@ shilling_execute_step = task(TaskName.SHILLING_EXECUTE_STEP.value)(
 shilling_failover = task(TaskName.SHILLING_FAILOVER.value)(shilling_failover_impl)
 shilling_dry_run = task(TaskName.SHILLING_DRY_RUN.value)(shilling_dry_run_impl)
 
+# Модуль priming: исполнитель одной попытки (2.2) и tick-раскладчик (2.3).
+priming_execute_prime = task(TaskName.PRIMING_EXECUTE_PRIME.value)(
+    priming_execute_prime_impl
+)
+priming_orchestrator_tick = task(TaskName.PRIMING_ORCHESTRATOR_TICK.value)(
+    priming_orchestrator_tick_impl
+)
+# parsing service (промпт 3.3): dispatch по kind внутри самого хендлера.
+parsing_parser_run = task(TaskName.PRIMING_PARSER_RUN.value)(
+    parsing_parser_run_impl
+)
+# priming humanizer (промпт 5.1) — фоновая имитация.
+priming_humanizer_beat = task(TaskName.PRIMING_HUMANIZER_BEAT.value)(
+    priming_humanizer_beat_impl
+)
+
 TASK_FUNCTIONS = [
     func(task(name.value)(_make_stub(name.value)), name=name.value, max_tries=3)
     for name in _STUB_TASKS
@@ -247,6 +274,33 @@ TASK_FUNCTIONS = [
     func(shilling_failover, name=TaskName.SHILLING_FAILOVER.value, max_tries=1),
     # dry-run: 1 попытка — это симуляция для UI, ретрай бессмысленен.
     func(shilling_dry_run, name=TaskName.SHILLING_DRY_RUN.value, max_tries=1),
+    # priming.execute_prime: 1 попытка. Все внутренние ретраи (FLOOD_WAIT,
+    # смена аккаунта) — забота orchestrator'а (следующий тик подхватит).
+    func(
+        priming_execute_prime,
+        name=TaskName.PRIMING_EXECUTE_PRIME.value,
+        max_tries=1,
+    ),
+    # priming.orchestrator_tick: 1 попытка. Следующий tick планируется
+    # изнутри задачи, повтор из-за сбоя может задублировать job'ы.
+    func(
+        priming_orchestrator_tick,
+        name=TaskName.PRIMING_ORCHESTRATOR_TICK.value,
+        max_tries=1,
+    ),
+    # parser_run: 1 попытка — парсер идемпотентен per-run (создаёт новую
+    # ParsedList), повтор породил бы дубль-lists.
+    func(
+        parsing_parser_run,
+        name=TaskName.PRIMING_PARSER_RUN.value,
+        max_tries=1,
+    ),
+    # humanizer_beat: 1 попытка — best-effort фон, ретрай бессмысленен.
+    func(
+        priming_humanizer_beat,
+        name=TaskName.PRIMING_HUMANIZER_BEAT.value,
+        max_tries=1,
+    ),
     # Recovery-email flow (этап 7, backlog #1): max_tries=1 — при
     # EmailUnconfirmedError мы уже сохранили pending, повторный вызов только
     # спутает Telegram.

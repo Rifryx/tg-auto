@@ -1,0 +1,907 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertCircle,
+  ArrowLeft,
+  BellRing,
+  Check,
+  Globe,
+  Hash,
+  Moon,
+  Target,
+  Upload,
+  Users,
+} from "lucide-react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { ScreenHeader } from "../../app/layout/AppLayout";
+import { parsingApi } from "../parsing/api";
+import type { ParsedList } from "../parsing/types";
+import { accountsApi } from "../../shared/accounts";
+import type { Account } from "../../shared/types";
+import { primingApi } from "./api";
+import { Checkbox } from "./components/Checkbox";
+import { PillGroup } from "./components/PillGroup";
+import { PushPreview } from "./components/PushPreview";
+import { Section } from "./components/Section";
+import { Stepper } from "./components/Stepper";
+import type {
+  HumanizerMode,
+  PrimingTriggerAction,
+  TriggerRotationStrategy,
+  WarmupProfile,
+} from "./types";
+
+/* Мастер новой кампании (docs/priming-ui.md §5.1-5.7). Один вертикальный
+   скролл, секции-карточки, sticky footer с сводкой и CTA. */
+
+const TRIGGER_OPTIONS: { key: PrimingTriggerAction; label: string; note: string }[] = [
+  {
+    key: "secret_chat_request",
+    label: "Секретный чат",
+    note: "«{{name}} пригласил вас в секретный чат» — самый чистый push",
+  },
+  {
+    key: "set_ttl_1d",
+    label: "Автоудаление (24 ч)",
+    note: "«{{name}} включил автоудаление сообщений»",
+  },
+  {
+    key: "contact_added",
+    label: "Добавление в контакты",
+    note: "«{{name}} добавил вас в контакты» — требует username/phone",
+  },
+];
+
+const ROTATION_OPTIONS: { key: TriggerRotationStrategy; label: string }[] = [
+  { key: "random", label: "Случайно" },
+  { key: "round_robin", label: "По очереди" },
+  { key: "weighted", label: "С весами" },
+];
+
+const HUMANIZER_OPTIONS: { key: HumanizerMode; label: string }[] = [
+  { key: "off", label: "Off" },
+  { key: "balanced", label: "Balanced" },
+  { key: "aggressive", label: "Aggressive" },
+];
+
+const WARMUP_OPTIONS: { key: WarmupProfile; label: string }[] = [
+  { key: "cold", label: "Cold · 5/день" },
+  { key: "warm", label: "Warm · 20/день" },
+  { key: "hot", label: "Hot · 40/день" },
+];
+
+const WARMUP_DEFAULTS: Record<
+  WarmupProfile,
+  { limit: number; min: number; max: number }
+> = {
+  cold: { limit: 5, min: 200, max: 600 },
+  warm: { limit: 20, min: 60, max: 200 },
+  hot: { limit: 40, min: 20, max: 60 },
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+
+export function NewPrimingScreen() {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+
+  // Форма
+  const [name, setName] = useState("");
+  const [action, setAction] = useState<PrimingTriggerAction>("secret_chat_request");
+  const [actions, setActions] = useState<Set<PrimingTriggerAction>>(
+    new Set<PrimingTriggerAction>(["secret_chat_request"]),
+  );
+  const [rotation, setRotation] = useState<TriggerRotationStrategy>("random");
+  const [warmup, setWarmup] = useState<WarmupProfile>("warm");
+  const [dailyLimit, setDailyLimit] = useState(20);
+  const [delayMin, setDelayMin] = useState(60);
+  const [delayMax, setDelayMax] = useState(200);
+  const [humanizer, setHumanizer] = useState<HumanizerMode>("balanced");
+  const [dryRun, setDryRun] = useState(false);
+  const [quietHours, setQuietHours] = useState(false);
+  const [quietTz, setQuietTz] = useState<string>("");
+  const [quietStart, setQuietStart] = useState<number>(0);
+  const [quietEnd, setQuietEnd] = useState<number>(7);
+  const [abSplit, setAbSplit] = useState(false);
+  const [abRatio, setAbRatio] = useState(0.5);
+
+  const [pickedAccounts, setPickedAccounts] = useState<Set<number>>(new Set());
+  const [manualList, setManualList] = useState("");
+  const [csvName, setCsvName] = useState<string | null>(null);
+  const [csvRows, setCsvRows] = useState<
+    { tg_user_id?: number; username?: string; phone?: string }[]
+  >([]);
+  const [audienceTab, setAudienceTab] = useState<"parsing" | "manual" | "csv">("parsing");
+  const [pickedListId, setPickedListId] = useState<number | null>(null);
+
+  // Меняем warmup — подставляем дефолты, если пользователь не правил.
+  function applyWarmup(p: WarmupProfile) {
+    setWarmup(p);
+    const d = WARMUP_DEFAULTS[p];
+    setDailyLimit(d.limit);
+    setDelayMin(d.min);
+    setDelayMax(d.max);
+  }
+
+  // Аккаунты пула
+  const accountsQuery = useQuery({
+    queryKey: ["accounts", "pool"],
+    queryFn: () => accountsApi.list(),
+  });
+  const availableAccounts = useMemo(
+    () => (accountsQuery.data ?? []).filter((a) => a.status === "pool"),
+    [accountsQuery.data],
+  );
+
+  // Парсинг вручную-списка
+  const manualTargets = useMemo(() => parseManualList(manualList), [manualList]);
+  const targets = audienceTab === "csv" ? csvRows : manualTargets;
+
+  // Готовые списки из parsing
+  const parsedListsQuery = useQuery({
+    queryKey: ["parsing", "lists"],
+    queryFn: parsingApi.list,
+    enabled: audienceTab === "parsing",
+  });
+  const pickedList = useMemo(
+    () => (parsedListsQuery.data ?? []).find((l) => l.id === pickedListId) ?? null,
+    [parsedListsQuery.data, pickedListId],
+  );
+
+  // Валидация
+  const problems: string[] = [];
+  if (!name.trim()) problems.push("Укажите имя кампании");
+  if (pickedAccounts.size === 0) problems.push("Выберите хотя бы один аккаунт");
+  if (audienceTab === "parsing") {
+    if (!pickedList) problems.push("Выберите готовый список из парсинга");
+    else if (pickedList.after_filters_count === 0)
+      problems.push("Выбранный список пуст — запустите парсер заново");
+  } else if (targets.length === 0) {
+    problems.push("Добавьте хотя бы одну цель");
+  }
+  if (delayMin > delayMax) problems.push("Минимальная задержка больше максимальной");
+  if (actions.size === 0) problems.push("Выберите хотя бы один триггер");
+  if (quietHours) {
+    if (quietStart >= quietEnd)
+      problems.push("Окно тихих часов: «с» должно быть меньше «до»");
+    if (!quietTz.trim())
+      problems.push("Укажите часовой пояс (IANA) для тихих часов");
+  }
+
+  // Запуск
+  const submit = useMutation({
+    mutationFn: async () => {
+      const actionsList = Array.from(actions);
+      const defaultAction = actions.has(action) ? action : actionsList[0];
+      const created = await primingApi.create({
+        name: name.trim(),
+        trigger_action: defaultAction,
+        trigger_actions: actionsList,
+        trigger_rotation_strategy: rotation,
+        humanizer_mode: humanizer,
+        warmup_profile: warmup,
+        daily_limit_per_account: dailyLimit,
+        delay_between_targets_sec_min: delayMin,
+        delay_between_targets_sec_max: delayMax,
+        dry_run: dryRun,
+        quiet_hours_target: quietHours,
+        quiet_hours_tz: quietHours && quietTz.trim() ? quietTz.trim() : null,
+        quiet_hours_start: quietStart,
+        quiet_hours_end: quietEnd,
+        ab_split_enabled: abSplit,
+        ab_split_ratio: abRatio,
+      });
+      await primingApi.attachAccounts(created.id, Array.from(pickedAccounts));
+      if (audienceTab === "parsing" && pickedList) {
+        await primingApi.importFromList(created.id, pickedList.id);
+      } else {
+        await primingApi.importTargets(created.id, targets);
+      }
+      const started = await primingApi.start(created.id);
+      return started.id;
+    },
+    onSuccess: (id) => {
+      qc.invalidateQueries({ queryKey: ["priming", "campaigns"] });
+      navigate(`/modules/priming/campaigns/${id}`);
+    },
+  });
+
+  const canSubmit = problems.length === 0 && !submit.isPending;
+
+  return (
+    <div className="min-h-full">
+      <ScreenHeader
+        title="Новая кампания"
+        action={
+          <button
+            type="button"
+            onClick={() => navigate("/modules/priming")}
+            className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-surface-2 px-4 text-[14px] text-text-secondary active:text-text-primary"
+          >
+            <ArrowLeft className="h-4 w-4" strokeWidth={2} aria-hidden />
+            К списку
+          </button>
+        }
+      />
+
+      <div className="flex flex-col gap-6">
+        {/* Идентификация */}
+        <Section title="Идентификация">
+          <label className="block text-[13px] font-medium text-text-secondary">
+            Имя кампании
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Например: Запуск по чату «AI news RU»"
+            maxLength={120}
+            className="mt-2 w-full rounded-xl border border-hairline bg-surface-2 p-3 text-[15px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
+          />
+        </Section>
+
+        {/* §5.1 Триггер + preview */}
+        <Section
+          accent="primary"
+          icon={<BellRing className="h-4 w-4 text-accent" strokeWidth={2.2} aria-hidden />}
+          title="Что увидит цель в уведомлении"
+          description="Push реально приходит у большинства клиентов — конкретные проценты уточняем в R&D. Клик по строке — выбор; preview снизу показывает последнее выбранное."
+        >
+          <div className="flex flex-col gap-2.5">
+            {TRIGGER_OPTIONS.map(({ key, label, note }) => {
+              const checked = actions.has(key);
+              const isPreview = action === key;
+              const toggle = () => {
+                const next = new Set(actions);
+                if (next.has(key)) {
+                  if (next.size > 1) {
+                    next.delete(key);
+                  } else {
+                    return; // нельзя убрать последний
+                  }
+                } else {
+                  next.add(key);
+                  setAction(key); // новый выбранный становится preview
+                }
+                setActions(next);
+                if (!next.has(action)) {
+                  const first = next.values().next().value;
+                  if (first) setAction(first);
+                }
+              };
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={toggle}
+                  className={[
+                    "flex w-full items-start gap-3 rounded-2xl border p-3.5 text-left transition-colors",
+                    checked
+                      ? "border-strong bg-surface-2"
+                      : "border-hairline bg-surface-1 active:bg-surface-2",
+                  ].join(" ")}
+                >
+                  <span
+                    className={[
+                      "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors",
+                      checked
+                        ? "border-text-primary bg-text-primary"
+                        : "border-strong",
+                    ].join(" ")}
+                    aria-hidden
+                  >
+                    {checked && (
+                      <Check className="h-3.5 w-3.5 text-accent-on" strokeWidth={2.6} />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[15px] font-medium text-text-primary">
+                        {label}
+                      </span>
+                      {isPreview && (
+                        <span className="rounded-pill bg-accent/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-accent">
+                          preview
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 text-[12px] text-text-tertiary">{note}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {actions.size > 1 && (
+            <div className="mt-4">
+              <div className="mb-2 text-[13px] font-medium text-text-secondary">
+                Стратегия ротации
+              </div>
+              <PillGroup
+                value={rotation}
+                options={ROTATION_OPTIONS}
+                onChange={setRotation}
+                fullWidth
+              />
+              <p className="mt-2 text-[12px] text-text-tertiary">
+                Из выбранных ({actions.size}) действий одно подставится в момент прайминга.
+              </p>
+            </div>
+          )}
+
+          <div className="mt-4">
+            <PushPreview action={action} />
+          </div>
+        </Section>
+
+        {/* §5.2 Аккаунты */}
+        <Section
+          accent="secondary"
+          icon={<Users className="h-4 w-4 text-status-active" strokeWidth={2.2} aria-hidden />}
+          title={`Аккаунты · ${pickedAccounts.size} выбрано`}
+          description="Только аккаунты в статусе pool. Работать одновременно с двумя кампаниями один аккаунт не сможет."
+        >
+          {accountsQuery.isLoading && (
+            <div className="h-16 animate-pulse rounded-2xl bg-surface-2" />
+          )}
+          {availableAccounts.length === 0 && !accountsQuery.isLoading && (
+            <p className="text-[13px] text-text-secondary">
+              Нет аккаунтов в пуле. Добавьте или прогрейте сначала.
+            </p>
+          )}
+          <div className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
+            {availableAccounts.map((a) => (
+              <AccountRow
+                key={a.id}
+                account={a}
+                selected={pickedAccounts.has(a.id)}
+                onToggle={() => {
+                  const next = new Set(pickedAccounts);
+                  if (next.has(a.id)) next.delete(a.id);
+                  else next.add(a.id);
+                  setPickedAccounts(next);
+                }}
+              />
+            ))}
+          </div>
+        </Section>
+
+        {/* §5.3 Аудитория */}
+        <Section
+          accent="secondary"
+          icon={<Target className="h-4 w-4 text-status-active" strokeWidth={2.2} aria-hidden />}
+          title="Аудитория"
+          description="Кого праймить. Готовые списки берутся из отдельного сервиса «Парсинг»."
+          action={
+            <button
+              type="button"
+              onClick={() => navigate("/modules/parsing/run")}
+              className="inline-flex h-8 items-center gap-1 rounded-pill bg-surface-2 px-3 text-[12px] text-text-secondary active:text-text-primary"
+            >
+              Запустить парсинг →
+            </button>
+          }
+        >
+          <div className="mb-3">
+            <PillGroup
+              value={audienceTab}
+              options={[
+                { key: "parsing", label: "Из парсинга" },
+                { key: "manual", label: "Ручной" },
+                { key: "csv", label: "CSV" },
+              ]}
+              onChange={(v) => setAudienceTab(v)}
+              fullWidth
+            />
+          </div>
+
+          {audienceTab === "parsing" && (
+            <ParsingListPicker
+              lists={parsedListsQuery.data ?? []}
+              isLoading={parsedListsQuery.isLoading}
+              pickedId={pickedListId}
+              onPick={setPickedListId}
+            />
+          )}
+
+          {audienceTab === "manual" && (
+            <>
+              <textarea
+                value={manualList}
+                onChange={(e) => setManualList(e.target.value)}
+                placeholder={
+                  "Один @username или phone на строку\n@alice\n+79001234567\n123456789"
+                }
+                rows={6}
+                className="w-full resize-y rounded-xl border border-hairline bg-surface-2 p-3 font-mono text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
+              />
+              <p className="mt-2 text-[12px] text-text-tertiary">
+                Найдено целей: <span className="tabular-nums text-text-primary">
+                  {manualTargets.length}
+                </span>
+              </p>
+            </>
+          )}
+
+          {audienceTab === "csv" && (
+            <div className="flex flex-col gap-2">
+              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-strong bg-surface-1 p-6 text-[14px] text-text-secondary hover:text-text-primary">
+                <Upload className="h-4 w-4" strokeWidth={2} aria-hidden />
+                <span>Выберите CSV (tg_user_id / username / phone)</span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    setCsvName(f.name);
+                    setCsvRows(await parseCsvFile(f));
+                  }}
+                />
+              </label>
+              {csvName && (
+                <p className="text-[12px] text-text-tertiary">
+                  {csvName} · строк: <span className="tabular-nums text-text-primary">
+                    {csvRows.length}
+                  </span>
+                </p>
+              )}
+            </div>
+          )}
+        </Section>
+
+        {/* Оформление профиля живёт в общем блоке «Аккаунты» —
+            редактируйте профили там (по одному или пачками через
+            bulk-actions apply_profile / apply_profile_pool). */}
+        <Section
+          title="Оформление профиля"
+          description="Точка конверсии — сам аккаунт. Управляйте пулом в разделе «Аккаунты» → там же ИИ-генерация, bulk-apply и per-account редактор."
+          action={
+            <button
+              type="button"
+              onClick={() => navigate("/accounts")}
+              className="inline-flex h-8 items-center gap-1 rounded-pill bg-surface-2 px-3 text-[12px] text-text-secondary active:text-text-primary"
+            >
+              К аккаунтам →
+            </button>
+          }
+        >
+          <div className="rounded-2xl border border-dashed border-strong bg-surface-1 p-4 text-[13px] text-text-secondary">
+            Прайминг использует профили аккаунтов как есть — их bio, аватар и
+            закреплённые каналы уже настраиваются в блоке «Аккаунты».
+          </div>
+        </Section>
+
+        {/* §5.5 Темп и лимиты */}
+        <Section title="Темп и лимиты">
+          <div className="mb-4">
+            <div className="mb-2 text-[13px] font-medium text-text-secondary">
+              Профиль прогрева
+            </div>
+            <PillGroup
+              value={warmup}
+              options={WARMUP_OPTIONS}
+              onChange={applyWarmup}
+              fullWidth
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 rounded-2xl bg-surface-2 p-4 sm:grid-cols-2">
+            <Stepper
+              label="Дневной лимит на аккаунт"
+              value={dailyLimit}
+              onChange={setDailyLimit}
+              min={1}
+              max={500}
+            />
+            <Stepper
+              label="Минимальная задержка"
+              value={delayMin}
+              onChange={setDelayMin}
+              min={0}
+              max={delayMax}
+              step={10}
+              unit="с"
+            />
+            <Stepper
+              label="Максимальная задержка"
+              value={delayMax}
+              onChange={setDelayMax}
+              min={delayMin}
+              max={3600}
+              step={10}
+              unit="с"
+            />
+          </div>
+        </Section>
+
+        {/* §5.5c A/B split */}
+        <Section
+          icon={<Hash className="h-4 w-4 text-text-secondary" strokeWidth={2.2} aria-hidden />}
+          title="A/B тест"
+          description="Разбить аккаунты кампании на две группы и сравнить, какое оформление профиля конвертит лучше."
+        >
+          <div className="mb-3 rounded-xl border border-hairline bg-surface-1 p-3 text-[12px] leading-relaxed text-text-secondary">
+            <p>
+              <span className="text-text-primary">Как это работает.</span>{" "}
+              При включённом split каждый прикреплённый аккаунт
+              детерминированно попадает в bucket <b>A</b> или <b>B</b>
+              (хеш пары <code>campaign_id × account_id</code>). Повторный
+              attach даёт тот же bucket — группы не «перетасовываются».
+            </p>
+            <p className="mt-2">
+              <span className="text-text-primary">Что сравниваем.</span>{" "}
+              Пресеты профилей задаются в разделе «Аккаунты» — здесь
+              кампания только хранит сам факт split'а и долю; метрика
+              <b> primed per bucket</b> появится на экране «Ход».
+            </p>
+            <p className="mt-2 text-text-tertiary">
+              Используй, если хочешь понять: тот же push «секретный чат» +
+              новое bio даёт больше ответов, чем старое? Запусти 50/50 и
+              смотри цифры по bucket'ам.
+            </p>
+          </div>
+
+          <Checkbox
+            checked={abSplit}
+            onChange={setAbSplit}
+            label="Включить A/B split"
+            description="Иначе bucket не назначается, метрика A/B на «Ходе» скрыта."
+          />
+          {abSplit && (
+            <div className="mt-3 rounded-xl bg-surface-2 p-3">
+              <div className="mb-2 flex items-center justify-between text-[13px] text-text-secondary">
+                <span>Доля bucket A</span>
+                <span className="tabular-nums text-text-primary">
+                  {Math.round(abRatio * 100)}% / {100 - Math.round(abRatio * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={10}
+                max={90}
+                step={5}
+                value={Math.round(abRatio * 100)}
+                onChange={(e) => setAbRatio(Number(e.target.value) / 100)}
+                className="w-full accent-text-primary"
+              />
+              <p className="mt-2 text-[12px] text-text-tertiary">
+                50/50 — классика; 70/30 — если один вариант уже выглядит
+                сильнее и большую часть выборки хочется отдать ему.
+              </p>
+            </div>
+          )}
+        </Section>
+
+        {/* §5.5b Тихие часы */}
+        <Section
+          icon={<Moon className="h-4 w-4 text-text-secondary" strokeWidth={2.2} aria-hidden />}
+          title="Тихие часы цели"
+          description="Не будим цель ночью в её часовом поясе. Нужны и часы, и IANA-timezone — иначе правило не срабатывает (гео неизвестно)."
+        >
+          <Checkbox
+            checked={quietHours}
+            onChange={setQuietHours}
+            label="Включить тихие часы"
+            description="Executor пишет outcome=skipped_quiet без обращения к Telethon — pool-квота не тратится."
+          />
+          {quietHours && (
+            <div className="mt-3 grid gap-3 rounded-xl bg-surface-2 p-3 sm:grid-cols-2">
+              <label className="text-[13px] font-medium text-text-secondary">
+                <div className="mb-2 flex items-center gap-2">
+                  <Globe
+                    className="h-3.5 w-3.5 text-text-tertiary"
+                    strokeWidth={2}
+                    aria-hidden
+                  />
+                  Часовой пояс (IANA)
+                </div>
+                <input
+                  type="text"
+                  value={quietTz}
+                  onChange={(e) => setQuietTz(e.target.value)}
+                  placeholder="например: Europe/Moscow"
+                  className="w-full rounded-xl border border-hairline bg-surface-1 p-3 font-mono text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
+                />
+              </label>
+              <div className="text-[13px] font-medium text-text-secondary">
+                <div className="mb-2">Окно, часы (локальное время цели)</div>
+                <div className="flex items-center gap-2">
+                  <HourInput
+                    value={quietStart}
+                    onChange={setQuietStart}
+                    aria-label="С часа"
+                  />
+                  <span className="text-text-tertiary">—</span>
+                  <HourInput
+                    value={quietEnd}
+                    onChange={setQuietEnd}
+                    aria-label="До часа"
+                  />
+                </div>
+              </div>
+              <p className="col-span-full text-[12px] text-text-tertiary">
+                Пример: TZ <code>Europe/Moscow</code>, окно 0–7 → в
+                03:00 по Москве цель получит skipped_quiet, в 10:00 —
+                обычный прайм. Если TZ пустая, окно игнорируется.
+              </p>
+            </div>
+          )}
+        </Section>
+
+        {/* §5.6 Humanizer */}
+        <Section
+          title="Humanizer"
+          description="Фоновая имитация активности в паузах между праймами."
+        >
+          <PillGroup
+            value={humanizer}
+            options={HUMANIZER_OPTIONS}
+            onChange={setHumanizer}
+            fullWidth
+          />
+        </Section>
+
+        {/* dry-run toggle */}
+        <Section
+          title="Тестовый прогон"
+          description="Симуляция outcome по распределению без реальных Push. Полезно для UI/E2E."
+        >
+          <Checkbox
+            checked={dryRun}
+            onChange={setDryRun}
+            label="Включить dry-run"
+            description="78/12/8/2 — распределение по спеке; execution_log пишется с флагом dry_run=true."
+          />
+        </Section>
+
+        {/* §5.7 Sticky-футер — внутри потока блоков, не фиксированный */}
+        <div
+          className="sticky bottom-0 z-10 -mx-4 border-t border-hairline bg-bg-elevated/95 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded-2xl sm:border"
+          style={{
+            paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)",
+          }}
+        >
+          {problems.length > 0 && (
+            <div className="mb-2 flex items-start gap-2 rounded-xl border-l-[4px] border-status-warning bg-surface-1 p-3">
+              <AlertCircle
+                className="mt-0.5 h-4 w-4 shrink-0 text-status-warning"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <ul className="text-[13px] text-text-secondary">
+                {problems.map((p, i) => (
+                  <li key={i}>{p}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {submit.isError && (
+            <p className="mb-2 text-[13px] text-status-critical">
+              Не удалось запустить кампанию. Проверьте лимиты и повторите.
+            </p>
+          )}
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-[13px] text-text-secondary">
+              <span className="tabular-nums text-text-primary">
+                {pickedAccounts.size}
+              </span>{" "}
+              акк ·{" "}
+              <span className="tabular-nums text-text-primary">
+                {targets.length}
+              </span>{" "}
+              целей
+            </div>
+            <button
+              type="button"
+              disabled={!canSubmit}
+              onClick={() => submit.mutate()}
+              className={[
+                "inline-flex h-11 min-w-[220px] items-center justify-center gap-2 rounded-pill px-5 text-[15px] font-semibold transition-opacity",
+                canSubmit
+                  ? "bg-accent text-accent-on active:opacity-80"
+                  : "bg-surface-2 text-text-tertiary",
+              ].join(" ")}
+            >
+              {submit.isPending ? (
+                "Запуск…"
+              ) : (
+                <>
+                  <Check className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+                  Проверить и запустить
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
+function HourInput({
+  value,
+  onChange,
+  "aria-label": ariaLabel,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  "aria-label": string;
+}) {
+  return (
+    <input
+      type="number"
+      min={0}
+      max={23}
+      value={value}
+      onChange={(e) => {
+        const v = parseInt(e.target.value || "0", 10);
+        if (Number.isFinite(v)) onChange(Math.max(0, Math.min(23, v)));
+      }}
+      aria-label={ariaLabel}
+      className="w-16 rounded-xl border border-hairline bg-surface-1 p-2.5 text-center text-[15px] tabular-nums text-text-primary focus:border-strong focus:outline-none"
+    />
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+
+function AccountRow({
+  account,
+  selected,
+  onToggle,
+}: {
+  account: Account;
+  selected: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={[
+        "flex items-center justify-between gap-3 rounded-xl border p-3 text-left transition-colors",
+        selected
+          ? "border-strong bg-surface-2"
+          : "border-hairline bg-surface-1 active:bg-surface-2",
+      ].join(" ")}
+    >
+      <div className="min-w-0">
+        <div className="truncate text-[14px] font-medium text-text-primary">
+          {account.username ? `@${account.username}` : account.phone}
+        </div>
+        <div className="mt-0.5 truncate text-[12px] text-text-tertiary">
+          {account.first_name || "—"}
+          {account.last_name ? ` ${account.last_name}` : ""}
+        </div>
+      </div>
+      <span
+        className={[
+          "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border",
+          selected ? "border-text-primary bg-text-primary" : "border-strong",
+        ].join(" ")}
+        aria-hidden
+      >
+        {selected && <Check className="h-3.5 w-3.5 text-accent-on" strokeWidth={2.5} />}
+      </span>
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+
+function ParsingListPicker({
+  lists,
+  isLoading,
+  pickedId,
+  onPick,
+}: {
+  lists: ParsedList[];
+  isLoading: boolean;
+  pickedId: number | null;
+  onPick: (id: number) => void;
+}) {
+  if (isLoading) {
+    return <div className="h-16 animate-pulse rounded-2xl bg-surface-2" />;
+  }
+  if (lists.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-strong bg-surface-1 p-4 text-[13px] text-text-secondary">
+        Пока нет собранных списков. Нажмите «Запустить парсинг» справа.
+      </div>
+    );
+  }
+  return (
+    <div className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
+      {lists.map((l) => {
+        const active = l.id === pickedId;
+        return (
+          <button
+            type="button"
+            key={l.id}
+            onClick={() => onPick(l.id)}
+            className={[
+              "flex items-center justify-between rounded-xl border p-3 text-left transition-colors",
+              active
+                ? "border-strong bg-surface-2"
+                : "border-hairline bg-surface-1 active:bg-surface-2",
+            ].join(" ")}
+          >
+            <div className="min-w-0">
+              <div className="truncate text-[14px] font-medium text-text-primary">
+                {l.name}
+              </div>
+              <div className="mt-0.5 truncate text-[12px] text-text-tertiary">
+                {l.source_kind} · {l.chat_ref || "—"}
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <div className="text-[16px] font-bold tabular-nums text-text-primary">
+                {l.after_filters_count}
+              </div>
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary">
+                целей
+              </div>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function parseManualList(text: string): {
+  tg_user_id?: number;
+  username?: string;
+  phone?: string;
+}[] {
+  const out: { tg_user_id?: number; username?: string; phone?: string }[] = [];
+  const seen = new Set<string>();
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    let row: { tg_user_id?: number; username?: string; phone?: string };
+    if (line.startsWith("@")) {
+      row = { username: line.slice(1) };
+    } else if (line.startsWith("+")) {
+      row = { phone: line.replace(/\s+/g, "") };
+    } else if (/^\d+$/.test(line)) {
+      row = { tg_user_id: Number(line) };
+    } else {
+      row = { username: line };
+    }
+    const key = JSON.stringify(row);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+async function parseCsvFile(file: File): Promise<
+  { tg_user_id?: number; username?: string; phone?: string }[]
+> {
+  const text = await file.text();
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length === 0) return [];
+  const header = lines[0].split(",").map((s) => s.trim().toLowerCase());
+  const rows: { tg_user_id?: number; username?: string; phone?: string }[] = [];
+  for (const line of lines.slice(1)) {
+    const cells = line.split(",");
+    const record: Record<string, string> = {};
+    header.forEach((h, i) => {
+      record[h] = (cells[i] ?? "").trim();
+    });
+    const row: { tg_user_id?: number; username?: string; phone?: string } = {};
+    if (record.tg_user_id) {
+      const n = Number(record.tg_user_id);
+      if (Number.isFinite(n) && n > 0) row.tg_user_id = n;
+    }
+    if (record.username) row.username = record.username.replace(/^@/, "");
+    if (record.phone) row.phone = record.phone.replace(/\s+/g, "");
+    if (row.tg_user_id || row.username || row.phone) rows.push(row);
+  }
+  return rows;
+}

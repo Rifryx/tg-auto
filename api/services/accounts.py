@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.crypto import encrypt_session
@@ -24,6 +25,14 @@ from worker.fingerprint import FingerprintGenerator
 
 class ProxyNotFoundError(Exception):
     """Указанный proxy_id не существует — аккаунт без прокси создавать нельзя."""
+
+
+class PhoneAlreadyExistsError(Exception):
+    """Телефон уже привязан к существующему аккаунту (uq_accounts_phone)."""
+
+    def __init__(self, phone: str) -> None:
+        super().__init__(f"phone {phone} already exists")
+        self.phone = phone
 
 
 def list_accounts(
@@ -58,25 +67,40 @@ def create_account(
         raise ProxyNotFoundError(f"proxy {proxy_id} not found")
 
     accounts = AccountRepository(session)
+    if accounts.get_by_phone(phone) is not None:
+        raise PhoneAlreadyExistsError(phone)
     fingerprint = FingerprintGenerator(accounts).generate(proxy.geo)
 
-    account = accounts.create(
-        AccountCreate(
-            phone=phone,
-            # Пустая StringSession: заполнится логин-флоу после ввода кода.
-            session_enc=encrypt_session(b""),
-            proxy_id=proxy_id,
-            persona_id=persona_id,
-            warming_profile=warming_profile,
-            device_model=fingerprint.device_model,
-            system_version=fingerprint.system_version,
-            app_version=fingerprint.app_version,
-            lang_code=fingerprint.lang_code,
-            system_lang_code=fingerprint.system_lang_code,
+    try:
+        account = accounts.create(
+            AccountCreate(
+                phone=phone,
+                # Пустая StringSession: заполнится логин-флоу после ввода кода.
+                session_enc=encrypt_session(b""),
+                proxy_id=proxy_id,
+                persona_id=persona_id,
+                warming_profile=warming_profile,
+                device_model=fingerprint.device_model,
+                system_version=fingerprint.system_version,
+                app_version=fingerprint.app_version,
+                lang_code=fingerprint.lang_code,
+                system_lang_code=fingerprint.system_lang_code,
+            )
         )
-    )
-    session.commit()
+        session.commit()
+    except IntegrityError as exc:
+        # Гонка: pre-check прошёл, но между get_by_phone и flush появился
+        # дубликат (параллельный запрос). Откатываем, маппим в доменную ошибку.
+        session.rollback()
+        if _is_phone_unique_violation(exc):
+            raise PhoneAlreadyExistsError(phone) from exc
+        raise
     return account
+
+
+def _is_phone_unique_violation(exc: IntegrityError) -> bool:
+    text = str(exc.orig).lower() if exc.orig is not None else str(exc).lower()
+    return "uq_accounts_phone" in text or "accounts_phone_key" in text
 
 
 def update_account(session: Session, account_id: int, data: AccountUpdate) -> Optional[Account]:
@@ -129,24 +153,32 @@ def import_account_from_session(
         raise ProxyNotFoundError(f"proxy {proxy_id} not found")
 
     accounts = AccountRepository(session)
+    if accounts.get_by_phone(phone) is not None:
+        raise PhoneAlreadyExistsError(phone)
     fingerprint = FingerprintGenerator(accounts).generate(proxy.geo)
-    account = accounts.create(
-        AccountCreate(
-            phone=phone,
-            session_enc=encrypt_session(session_string.encode()),
-            proxy_id=proxy_id,
-            persona_id=persona_id,
-            warming_profile=warming_profile,
-            device_model=fingerprint.device_model,
-            system_version=fingerprint.system_version,
-            app_version=fingerprint.app_version,
-            lang_code=fingerprint.lang_code,
-            system_lang_code=fingerprint.system_lang_code,
+    try:
+        account = accounts.create(
+            AccountCreate(
+                phone=phone,
+                session_enc=encrypt_session(session_string.encode()),
+                proxy_id=proxy_id,
+                persona_id=persona_id,
+                warming_profile=warming_profile,
+                device_model=fingerprint.device_model,
+                system_version=fingerprint.system_version,
+                app_version=fingerprint.app_version,
+                lang_code=fingerprint.lang_code,
+                system_lang_code=fingerprint.system_lang_code,
+            )
         )
-    )
-    # Импортированная сессия уже авторизована → начальный статус «в пуле».
-    account.status = AccountStatus.POOL.value
-    session.commit()
+        # Импортированная сессия уже авторизована → начальный статус «в пуле».
+        account.status = AccountStatus.POOL.value
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        if _is_phone_unique_violation(exc):
+            raise PhoneAlreadyExistsError(phone) from exc
+        raise
     return account
 
 

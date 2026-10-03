@@ -256,6 +256,23 @@ Governor: глобальные и на-аккаунт лимиты действ�
 
 ---
 
+## Этап 7b. Модуль Priming
+
+Мягкие MTProto-события (TTL, Secret chat, Add contact и т.п.) триггерят у цели родное push-уведомление, но не оставляют артефактов в чате. Профиль-аватар-Bio — точка конверсии. Полный спецификатив — [docs/priming-spec.md](priming-spec.md); визуальный язык — [docs/priming-ui.md](priming-ui.md); реестр R&D-триггеров — [docs/priming-triggers.md](priming-triggers.md); дорожная карта реализации (промпты 1.1–7.8) — [docs/priming-prompts.md](priming-prompts.md).
+
+Ключевое:
+
+- Отдельная PG-схема `priming.*` (campaigns, campaign_accounts, campaign_targets, execution_log, flood_incidents, blacklist, target_source, anchor_channels).
+- Executor + Orchestrator (arq); Rate-governor bucket `priming` (15/h, 60/day) отдельно от `warming`.
+- Warmup-профили cold/warm/hot с линейной рампой day1→day7.
+- Autopause по `privacy_rate` и `flood_rate` (окно 200 попыток) с событием в `priming.alert` каналу (MonitoringEventHub).
+- A/B split на bucket'ы через blake2b(campaign_id, account_id).
+- Cross-module blacklist через VIEW `core.blacklist_all` (пока UNION только от `priming.blacklist`; будущие модули добавляются в тот же view).
+- Тихие часы цели (`quiet_hours_target` + `quiet_hours_tz`); executor даёт `SKIPPED_QUIET` без обращения к MTProto.
+- Live-экран «Ход» со sparkline 24ч, мини-KPI, A/B breakdown и per-account 7-дневным health sparkline.
+- Логи с фильтрами и streaming CSV export.
+- Пейволл через `FeatureKey.priming_enabled` (free=False, pro=True); `require_feature` возвращает 402 на write-роутах.
+
 ## Этап 8. Прод
 
 - docker-compose: api, worker, frontend, postgres, redis; healthchecks; миграции при старте api.
