@@ -29,26 +29,30 @@ const API_PREFIXES = [
 // даёт только один домен) — фронт и API оказываются на одном origin, и
 // публично наружу торчит только порт 5173. VITE_API_BASE в этом режиме
 // нужно оставить пустым (относительные пути), см. frontend/.env.local.
-// Vite с server.host:true по умолчанию принимает Host только из localhost/
-// LAN-адресов (защита от DNS rebinding) — публичный ngrok-домен иначе режется
-// ошибкой "Blocked request. This host is not allowed". Разрешаем явно через
-// ENV (VITE_ALLOWED_HOST, напр. из frontend/.env.local) + wildcard на все
-// *.ngrok-free.app/.dev и *.ngrok.io, чтобы не редактировать конфиг при
-// каждом новом случайном поддомене ngrok.
-const allowedHosts = [
-  ...(process.env.VITE_ALLOWED_HOST ? [process.env.VITE_ALLOWED_HOST] : []),
-  ".ngrok-free.app",
-  ".ngrok-free.dev",
-  ".ngrok.io",
-  ".ngrok.app",
-];
+//
+// Vite 5.4+ блокирует запросы с нелокальным Host-заголовком (защита от
+// DNS rebinding) — публичный ngrok-домен иначе режется "Blocked request".
+// VITE_ALLOWED_HOST=all (или 1/true) → разрешаем все хосты (удобно для
+// ngrok с меняющимся поддоменом). Явный хост в VITE_ALLOWED_HOST →
+// разрешаем только его.
+// Wildcard-синтаксис типа ".ngrok-free.dev" поддерживается только в Vite
+// 6+, поэтому в 5.x — только exact match или blanket true.
+const allowedHostsEnv = process.env.VITE_ALLOWED_HOST ?? "";
+const allowedHosts =
+  allowedHostsEnv.toLowerCase() === "all"
+    || allowedHostsEnv === "1"
+    || allowedHostsEnv.toLowerCase() === "true"
+    ? true
+    : allowedHostsEnv
+      ? allowedHostsEnv.split(",").map((s) => s.trim()).filter(Boolean)
+      : undefined;
 
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
     host: true,
-    allowedHosts,
+    ...(allowedHosts !== undefined ? { allowedHosts } : {}),
     proxy: Object.fromEntries(
       API_PREFIXES.map((p) => [
         p,
