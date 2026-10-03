@@ -77,18 +77,25 @@ export function AlertCard({ alert, count = 1 }: { alert: Alert; count?: number }
   );
 }
 
-/* KPI-карточка стадии: крупный count, status-dot цвета стадии. */
+/* KPI-карточка стадии: крупный count, status-dot цвета стадии.
+   Мобилка — компактная плитка (счётчик слева, лейбл с точкой справа),
+   чтобы 7 стадий влезали в grid 2 колонки без горизонтального скролла.
+   Десктоп — исходная вертикальная карточка. */
 export function StageCard({ status, count }: { status: AccountStatus; count: number }) {
   return (
     <Link
       to={`/accounts?status=${status}`}
-      className="card flex w-[128px] shrink-0 flex-col justify-between p-4 active:bg-surface-2 lg:w-auto"
+      className="card flex items-center justify-between gap-2 p-3 active:bg-surface-2 lg:flex-col lg:items-stretch lg:p-4"
     >
-      <div className="mb-4 flex items-center gap-2">
-        <span className={`h-2 w-2 rounded-full ${statusDotClass(status)}`} aria-hidden />
-        <span className="text-[13px] text-text-secondary">{STATUS_LABEL[status]}</span>
+      <div className="min-w-0 lg:order-1 lg:mb-4 flex items-center gap-1.5">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass(status)}`} aria-hidden />
+        <span className="truncate text-[12px] text-text-secondary lg:text-[13px]">
+          {STATUS_LABEL[status]}
+        </span>
       </div>
-      <span className="nums text-[30px] font-bold leading-none text-text-primary">{count}</span>
+      <span className="nums shrink-0 text-[22px] font-bold leading-none text-text-primary lg:order-2 lg:text-[30px]">
+        {count}
+      </span>
     </Link>
   );
 }

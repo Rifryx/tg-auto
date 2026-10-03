@@ -262,7 +262,16 @@ function StickyLaunchPanel({
     ? [readiness.accounts, readiness.scenario, readiness.targets]
     : [];
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-hairline bg-bg-elevated px-4 pb-safe-b pt-3">
+    <div
+      /* На мобилке BottomNav (плавающая капсула, z-40) живёт у нижнего
+         края. Поднимаем readiness-bar выше неё, чтобы не перекрывались.
+         На десктопе BottomNav скрыт (lg:hidden в AppLayout), bar
+         прижимается к низу обычным bottom-0. */
+      className="fixed inset-x-0 z-30 border-t border-hairline bg-bg-elevated px-4 pt-3 lg:pb-safe-b"
+      style={{
+        bottom: "calc(env(safe-area-inset-bottom) + 88px)",
+      }}
+    >
       <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
         <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1">
           {checks.map((chk, i) => (

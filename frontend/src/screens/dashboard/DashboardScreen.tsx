@@ -85,8 +85,9 @@ export function DashboardScreen() {
 
           <section className="mb-8 lg:col-span-2">
             <SectionTitle>Аккаунты по стадиям</SectionTitle>
-            {/* Телефон: скролл. Десктоп: сетка без переполнения. */}
-            <div className="-mx-5 flex gap-3 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:mx-0 lg:grid lg:grid-cols-7 lg:overflow-visible lg:px-0">
+            {/* Телефон: grid 2 колонки (все 7 стадий видны без скролла).
+                Десктоп: ряд из 7 карточек. */}
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-7 lg:gap-3">
               {STAGES.map((s) => (
                 <StageCard key={s} status={s} count={data.accounts_summary[s]} />
               ))}
@@ -137,9 +138,9 @@ function DashboardSkeleton() {
   // «card» (hairline-обводка), чтобы скелетон был виден, а не сливался.
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex gap-3">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="card h-24 w-[128px] shrink-0 animate-pulse" />
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-7">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="card h-16 animate-pulse lg:h-24" />
         ))}
       </div>
       <div className="card h-28 animate-pulse" />
