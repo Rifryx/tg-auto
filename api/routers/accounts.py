@@ -214,6 +214,48 @@ async def import_session_account(
     return AccountRead.model_validate(account)
 
 
+@router.post(
+    "/import-tdata", response_model=AccountRead, status_code=status.HTTP_201_CREATED
+)
+async def import_tdata_account(
+    phone: str = Form(...),
+    proxy_id: int = Form(...),
+    persona_id: Optional[int] = Form(None),
+    warming_profile: WarmingProfile = Form(WarmingProfile.MEDIUM),
+    tdata_zip: UploadFile = File(..., description="ZIP с папкой tdata"),
+    session: Session = Depends(get_session),
+    _limit: None = Depends(enforce_limit("accounts_max")),
+) -> AccountRead:
+    """Импорт аккаунта из TData (Telegram Desktop): ZIP конвертируется офлайн в
+    StringSession, шифруется и сохраняется. Аккаунт сразу попадает в пул."""
+    try:
+        string = accounts_service.tdata_zip_to_string(await tdata_zip.read())
+    except accounts_service.SessionImportError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    try:
+        account = accounts_service.import_account_from_session(
+            session,
+            phone=phone,
+            proxy_id=proxy_id,
+            persona_id=persona_id,
+            warming_profile=warming_profile,
+            session_string=string,
+        )
+    except accounts_service.ProxyNotFoundError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except accounts_service.PhoneAlreadyExistsError as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "reason": "phone_already_exists",
+                "phone": exc.phone,
+                "message": "Аккаунт с таким номером уже есть в системе.",
+            },
+        ) from exc
+    return AccountRead.model_validate(account)
+
+
 @router.post("/bulk-import")
 async def bulk_import_accounts(
     archive: UploadFile = File(..., description="ZIP с .session-файлами"),

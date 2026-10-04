@@ -61,6 +61,21 @@ export const accountsApi = {
     if (body.session_file) fd.append("session_file", body.session_file);
     return api.postForm<Account>("/accounts/import-session", fd);
   },
+  importTData: (body: {
+    phone: string;
+    proxy_id: number;
+    warming_profile: WarmingProfile;
+    persona_id?: number | null;
+    tdata_zip: File;
+  }) => {
+    const fd = new FormData();
+    fd.append("phone", body.phone);
+    fd.append("proxy_id", String(body.proxy_id));
+    fd.append("warming_profile", body.warming_profile);
+    if (body.persona_id != null) fd.append("persona_id", String(body.persona_id));
+    fd.append("tdata_zip", body.tdata_zip);
+    return api.postForm<Account>("/accounts/import-tdata", fd);
+  },
   bulkImport: (archive: File, mapping: File) => {
     const fd = new FormData();
     fd.append("archive", archive);

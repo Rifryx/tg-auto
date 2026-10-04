@@ -73,7 +73,7 @@ export function BulkImportScreen() {
           className={`rounded-card transition-colors ${dragging ? "ring-2 ring-accent" : ""}`}
         >
           <div className="grid grid-cols-2 gap-3">
-            <TDataDropZone />
+            <TDataDropZone onClick={() => navigate("/accounts/new")} />
             <SessionZipDropZone file={archive} onFile={setArchive} />
           </div>
           <p className="mt-3 px-1 text-center text-[12px] text-text-tertiary">
@@ -218,19 +218,19 @@ function LimitProgress({ used, limit }: { used: number; limit: number }) {
   );
 }
 
-function TDataDropZone() {
+function TDataDropZone({ onClick }: { onClick: () => void }) {
   return (
-    <div
-      className="flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed border-hairline bg-surface-1 p-4 text-center"
-      aria-disabled
+    <button
+      onClick={onClick}
+      className="flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed border-hairline bg-surface-1 p-4 text-center active:border-strong"
     >
       <FolderOpen className="h-8 w-8 text-accent" strokeWidth={1.5} aria-hidden />
       <p className="text-[14px] font-semibold text-text-primary">TData</p>
-      <p className="text-[11px] text-text-tertiary">папка или ZIP-архив</p>
+      <p className="text-[11px] text-text-tertiary">ZIP с папкой tdata</p>
       <span className="mt-1 rounded-pill bg-surface-2 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">
-        скоро
+        по одному
       </span>
-    </div>
+    </button>
   );
 }
 
