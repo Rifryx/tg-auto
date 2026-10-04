@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   Download,
   Globe,
+  Images,
   LogOut,
   ShieldAlert,
   Sparkles,
@@ -13,6 +14,7 @@ import { useState } from "react";
 import { accountsApi, bulkApi } from "../../../shared/accounts";
 import { haptic } from "../../../shared/tg";
 import { showToast } from "../../../shared/toast";
+import { PoolProfileSheet } from "./PoolProfileSheet";
 import { ConfirmDialog } from "./ui";
 
 /* Панель массовых действий (этап 2). Появляется, когда выбран ≥1 аккаунт.
@@ -30,6 +32,7 @@ export function BulkActionBar({
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<null | "retire" | "delete">(null);
+  const [poolOpen, setPoolOpen] = useState(false);
 
   const n = selectedIds.length;
   if (n === 0) return null;
@@ -61,6 +64,20 @@ export function BulkActionBar({
       haptic("light");
     } catch {
       showToast(`Не удалось: ${label}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runPool = async (payload: Record<string, unknown>) => {
+    setBusy(true);
+    try {
+      await bulkApi.create("apply_profile_pool", selectedIds, payload);
+      showToast(`Профиль из пула: задание запущено для ${n}`, "success");
+      haptic("light");
+      setPoolOpen(false);
+    } catch {
+      showToast("Не удалось запустить «Профиль из пула»", "error");
     } finally {
       setBusy(false);
     }
@@ -147,6 +164,12 @@ export function BulkActionBar({
               onClick={() => runJob("generate_and_apply_profile", "Профиль ИИ")}
             />
             <ActionChip
+              icon={<Images className="h-4 w-4" strokeWidth={1.8} />}
+              label="Профиль из пула"
+              disabled={busy}
+              onClick={() => setPoolOpen(true)}
+            />
+            <ActionChip
               icon={<Globe className="h-4 w-4" strokeWidth={1.8} />}
               label="Раздать прокси"
               disabled={busy}
@@ -200,6 +223,14 @@ export function BulkActionBar({
         onConfirm={() => perAccount((id) => accountsApi.remove(id), "Удаление")}
         onCancel={() => setConfirm(null)}
       />
+      {poolOpen && (
+        <PoolProfileSheet
+          count={n}
+          busy={busy}
+          onApply={runPool}
+          onCancel={() => setPoolOpen(false)}
+        />
+      )}
     </>
   );
 }
