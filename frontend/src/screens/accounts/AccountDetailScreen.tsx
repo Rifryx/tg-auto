@@ -18,6 +18,7 @@ import { ProjectRoleTagsSection } from "./components/ProjectRoleTagsSection";
 import { SubscriptionsSection } from "./components/SubscriptionsSection";
 import { TwoFactorPasswordCard } from "./components/TwoFactorPasswordCard";
 import { TwoFactorSection } from "./components/TwoFactorSection";
+import { WarmingScenarioSection } from "./components/WarmingScenarioSection";
 import { CapsuleButton, ConfirmDialog, Section, SegmentedControl, StatusBadge } from "./components/ui";
 
 const PROFILE_OPTIONS: { value: WarmingProfile; label: string }[] = [
@@ -373,6 +374,9 @@ export function AccountDetailScreen() {
           disabled={setProfile.isPending}
         />
       </Section>
+
+      {/* 6b. Конструктор сценариев прогрева — кастом поверх пресета. */}
+      <WarmingScenarioSection accountId={accountId} profile={acc.warming_profile} />
 
       {/* 7. Активность прогрева */}
       <Section title="Активность">

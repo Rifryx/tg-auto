@@ -16,6 +16,7 @@ import type {
   StatusHistoryRecord,
   WarmingActivity,
   WarmingProfile,
+  WarmingScenario,
 } from "./types";
 
 /* Типизированные вызовы accounts-эндпоинтов (api/routers/accounts.py и др.). */
@@ -94,6 +95,13 @@ export const accountsApi = {
   }) => api.post<BulkJobRead>("/accounts/bulk/set-2fa", body),
   setProfile: (id: number, profile: WarmingProfile) =>
     api.patch<Account>(`/accounts/${id}/warming`, { profile }),
+  // Конструктор сценариев прогрева (кастом поверх пресета, хранится в meta).
+  warmingScenario: (id: number) =>
+    api.get<WarmingScenario>(`/accounts/${id}/warming-scenario`),
+  setWarmingScenario: (id: number, body: Partial<WarmingScenario>) =>
+    api.put<WarmingScenario>(`/accounts/${id}/warming-scenario`, body),
+  clearWarmingScenario: (id: number) =>
+    api.del<void>(`/accounts/${id}/warming-scenario`),
   retire: (id: number) => api.post<Account>(`/accounts/${id}/actions/retire`),
   restore: (id: number) => api.post<Account>(`/accounts/${id}/actions/restore`),
   remove: (id: number) => api.del<void>(`/accounts/${id}`),

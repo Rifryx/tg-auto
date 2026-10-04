@@ -239,6 +239,18 @@ export interface ExportedSession {
   session_string: string;
 }
 
+/* Кастомный сценарий прогрева (GET/PUT /accounts/{id}/warming-scenario).
+   Любое поле null → наследуется от пресета интенсивности. */
+export interface WarmingScenario {
+  interval_hours_min: number | null;
+  interval_hours_max: number | null;
+  actions_min: number | null;
+  actions_max: number | null;
+  action_weights: Record<string, number> | null;
+  ready_actions: number | null;
+  ready_days: number | null;
+}
+
 export interface AccountHealth {
   account_id: number;
   health_score: number;

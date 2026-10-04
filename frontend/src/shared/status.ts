@@ -81,6 +81,29 @@ export const PROFILE_LABEL: Record<WarmingProfile, string> = {
   dense: "Плотный",
 };
 
+/** Типы действий прогрева → читаемые метки (для конструктора сценариев). */
+export const WARMING_ACTION_LABEL: Record<string, string> = {
+  read_history: "Читать историю",
+  view_media: "Смотреть медиа",
+  reaction: "Ставить реакции",
+  idle_online: "Быть онлайн",
+  subscribe_channel: "Подписки на каналы",
+  join_group: "Вступать в группы",
+  interact_with_peer: "Общение с аккаунтами",
+  update_profile: "Обновлять профиль",
+};
+
+/** Пороги пресетов прогрева (зеркало worker/warming/presets.py) — для
+    предзаполнения конструктора сценариев. */
+export const PRESET_WARMING_DEFAULTS: Record<
+  WarmingProfile,
+  { interval: [number, number]; actions: [number, number] }
+> = {
+  minimal: { interval: [48, 72], actions: [1, 2] },
+  medium: { interval: [20, 28], actions: [2, 5] },
+  dense: { interval: [6, 10], actions: [5, 10] },
+};
+
 /** Фильтры списка аккаунтов (§ требований промпта 26). */
 export const ACCOUNT_FILTERS: { value: AccountStatus | "all"; label: string }[] = [
   { value: "all", label: "Все" },
