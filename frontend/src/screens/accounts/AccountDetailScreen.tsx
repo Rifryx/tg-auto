@@ -10,8 +10,13 @@ import { PROFILE_LABEL, STATUS_LABEL, statusDotClass } from "../../shared/status
 import { haptic } from "../../shared/tg";
 import type { MonitoredChannel, MonitoredChannelStatus, WarmingProfile } from "../../shared/types";
 import { Field, TextArea, Toggle } from "../../modules/commenting/components/ui";
+import { AccountLogsSection } from "./components/AccountLogsSection";
+import { AiProfileSection } from "./components/AiProfileSection";
 import { BanRiskCard } from "./components/BanRiskCard";
+import { ChannelManagerSection } from "./components/ChannelManagerSection";
 import { ProjectRoleTagsSection } from "./components/ProjectRoleTagsSection";
+import { SubscriptionsSection } from "./components/SubscriptionsSection";
+import { TwoFactorPasswordCard } from "./components/TwoFactorPasswordCard";
 import { TwoFactorSection } from "./components/TwoFactorSection";
 import { CapsuleButton, ConfirmDialog, Section, SegmentedControl, StatusBadge } from "./components/ui";
 
@@ -178,6 +183,9 @@ export function AccountDetailScreen() {
         </TgGroup>
       </Section>
 
+      {/* ИИ-оформление профиля (генерация по персоне + применение к Telegram). */}
+      <AiProfileSection accountId={accountId} hasPersona={acc.persona_id != null} />
+
       {/* 1. Статус + таймлайн переходов */}
       <Section title="Статус">
         {history.data && history.data.length > 0 ? (
@@ -232,7 +240,10 @@ export function AccountDetailScreen() {
         tags={acc.tags ?? []}
       />
 
-      {/* 2d. Управление 2FA — recovery email (этап 7) */}
+      {/* 2d. Двухфакторный пароль — установка/смена/снятие (этап 1). */}
+      <TwoFactorPasswordCard accountId={accountId} />
+
+      {/* 2e. Управление 2FA — recovery email (этап 7) */}
       <TwoFactorSection accountId={accountId} />
       </div>
       <div className="min-w-0">
@@ -344,6 +355,12 @@ export function AccountDetailScreen() {
         </Section>
       )}
 
+      {/* Создание каналов/чатов аккаунтом + управление их постами (этап 1). */}
+      <ChannelManagerSection accountId={accountId} />
+
+      {/* Подписки/отписки по ссылкам и заявки на вступление (этап 1). */}
+      <SubscriptionsSection accountId={accountId} />
+
       {/* Каналы мониторинга — свой список каналов у каждого аккаунта. */}
       <ChannelsSection accountId={accountId} />
 
@@ -381,6 +398,9 @@ export function AccountDetailScreen() {
           <Muted>Пока нет активности.</Muted>
         )}
       </Section>
+
+      {/* Журнал: комментарии аккаунта + ошибки Telegram API (этап 3). */}
+      <AccountLogsSection accountId={accountId} />
 
       {/* Действия — в потоке, не плавающие */}
       <div className="mt-2 flex flex-col gap-2 pb-4">

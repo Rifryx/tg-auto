@@ -32,6 +32,33 @@ export function formatDateTime(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? "—" : DATE_FMT.format(d);
 }
 
+/** Обратный отсчёт до момента в будущем: «2 ч 14 м», «43 м», «скоро».
+    Возвращает null, если момент уже прошёл или дата битая. */
+export function countdown(iso: string | null): string | null {
+  if (!iso) return null;
+  const target = new Date(iso).getTime();
+  if (Number.isNaN(target)) return null;
+  const sec = Math.round((target - Date.now()) / 1000);
+  if (sec <= 0) return null;
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d} д ${h} ч`;
+  if (h > 0) return `${h} ч ${m} м`;
+  if (m > 0) return `${m} м`;
+  return "скоро";
+}
+
+/** Возраст/отлёжка: «3 дн», «5 ч» от даты импорта. */
+export function ageFrom(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "—";
+  const days = Math.floor((Date.now() - then) / 86400000);
+  if (days >= 1) return `${days} дн`;
+  const hrs = Math.floor((Date.now() - then) / 3600000);
+  return `${hrs} ч`;
+}
+
 /** Относительное «N мин/ч/дн назад» для компактных лент. */
 export function timeAgo(iso: string): string {
   const then = new Date(iso).getTime();

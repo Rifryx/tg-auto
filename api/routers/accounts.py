@@ -26,18 +26,22 @@ from core.enums import AccountStatus, Initiator, WarmingProfile
 from core.queue import TaskQueue
 from core.queue.publisher import Publisher
 from core.queue.task_names import TaskName
-from core.crypto import encrypt_password
+from core.crypto import CryptoError, decrypt_session, encrypt_password
 from core.enums import BulkActionType
 from core.repositories.account import AccountRepository
 from core.repositories.account_health import AccountHealthRepository
 from core.repositories.account_status_history import AccountStatusHistoryRepository
 from core.repositories.bulk_job import BulkJobRepository
 from core.repositories.persona import PersonaRepository
+from core.repositories.project_channel import ProjectChannelRepository
 from core.repositories.warming_activity import WarmingActivityRepository
 from core.schemas.bulk import BulkJobRead
 from core.schemas.account import AccountRead, AccountUpdate
 from core.schemas.account_health import AccountHealthRead
 from core.schemas.history import AccountStatusHistoryRead
+from core.schemas.project_channel import ProjectChannelRead
+from modules.commenting.repositories.comment_log import CommentLogRepository
+from modules.commenting.schemas.comment_log import CommentLogRead
 from core.schemas.warming import WarmingActivityRead
 from modules.profiles.generator import (
     GeneratedProfile,
@@ -296,6 +300,85 @@ def list_history(
     _get_account_or_404(session, account_id)
     records = AccountStatusHistoryRepository(session).list_by_account(account_id)
     return [AccountStatusHistoryRead.model_validate(r) for r in records]
+
+
+# --- Созданные каналы аккаунта («Управление аккаунтом», этап 1) ---------------
+
+
+@router.get("/{account_id}/project-channels", response_model=list[ProjectChannelRead])
+def list_project_channels(
+    account_id: int, session: Session = Depends(get_session)
+) -> list[ProjectChannelRead]:
+    """Каналы/супергруппы, созданные этим аккаунтом (``project_channels``).
+
+    Пишутся bulk-action ``create_channel``; UI карточки аккаунта по этому
+    списку рендерит управление постами (``manage_channel_post``)."""
+    _get_account_or_404(session, account_id)
+    rows = ProjectChannelRepository(session).list_for_account(account_id)
+    return [ProjectChannelRead.model_validate(r) for r in rows]
+
+
+# --- Журнал аккаунта («Логи», этап 3) ----------------------------------------
+
+
+@router.get("/{account_id}/comment-logs", response_model=list[CommentLogRead])
+def list_account_comment_logs(
+    account_id: int,
+    limit: int = 50,
+    session: Session = Depends(get_session),
+) -> list[CommentLogRead]:
+    """История комментариев аккаунта: что запостил, где, со статусом/ошибкой.
+
+    В поле ``error`` оседают ответы Telegram API (``FLOOD_WAIT_X`` и т.п.) —
+    UI подсвечивает их во вкладке «Логи»."""
+    _get_account_or_404(session, account_id)
+    rows = CommentLogRepository(session).list_by_account(account_id, limit=limit)
+    return [CommentLogRead.model_validate(r) for r in rows]
+
+
+# --- Экспорт сессий (этап 3) --------------------------------------------------
+
+
+class ExportSessionsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_ids: list[int]
+
+
+class ExportedSession(BaseModel):
+    account_id: int
+    phone: str
+    session_string: str
+
+
+@router.post("/export-sessions", response_model=list[ExportedSession])
+def export_sessions(
+    body: ExportSessionsRequest,
+    session: Session = Depends(get_session),
+) -> list[ExportedSession]:
+    """Экспорт StringSession выбранных аккаунтов (этап 3, bulk-action «Экспорт»).
+
+    Расшифровываем ``session_enc`` и отдаём строкой — для бэкапа/переноса.
+    Битые/нерасшифровываемые сессии пропускаем (best-effort)."""
+    if not body.account_ids:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "account_ids is empty")
+    repo = AccountRepository(session)
+    out: list[ExportedSession] = []
+    for aid in body.account_ids:
+        account = repo.get(aid)
+        if account is None or not account.session_enc:
+            continue
+        try:
+            session_string = decrypt_session(account.session_enc).decode("utf-8")
+        except (CryptoError, ValueError, UnicodeDecodeError):
+            continue
+        if session_string:
+            out.append(
+                ExportedSession(
+                    account_id=aid, phone=account.phone, session_string=session_string
+                )
+            )
+    return out
 
 
 # --- Действия (через state machine) ------------------------------------------

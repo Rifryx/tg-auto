@@ -135,3 +135,101 @@ export interface LoginStateResponse {
   reason: string | null;
   updated_at: string | null;
 }
+
+/* Канал/супергруппа, созданная аккаунтом (project_channels). */
+export interface ProjectChannel {
+  id: number;
+  account_id: number;
+  project_id: number | null;
+  channel_tg_id: number;
+  channel_access_hash: number | null;
+  title: string;
+  username: string | null;
+  is_megagroup: boolean;
+  pinned_message_id: number | null;
+  created_at: string;
+}
+
+/* ИИ-превью профиля (POST /accounts/{id}/profile/generate-preview). */
+export interface ProfilePreview {
+  first_name: string;
+  last_name: string;
+  bio: string;
+  username_candidates: string[];
+}
+
+/* --- Bulk-задания (POST /bulk-jobs) --- */
+export type BulkJobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+export type BulkItemStatus =
+  | "pending"
+  | "running"
+  | "done"
+  | "failed"
+  | "skipped"
+  | "cancelled";
+
+export interface BulkJobRead {
+  id: number;
+  action_type: string;
+  payload: Record<string, unknown>;
+  initiator: string;
+  status: BulkJobStatus;
+  total_count: number;
+  done_count: number;
+  failed_count: number;
+  skipped_count: number;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BulkJobItemRead {
+  id: number;
+  job_id: number;
+  account_id: number;
+  status: BulkItemStatus;
+  error: string | null;
+  result: Record<string, unknown> | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface BulkJobDetail {
+  job: BulkJobRead;
+  items: BulkJobItemRead[];
+}
+
+/* Запись журнала комментариев аккаунта (GET /accounts/{id}/comment-logs). */
+export type CommentStatus = "posted" | "failed" | "flagged";
+export interface CommentLog {
+  id: number;
+  campaign_id: number;
+  account_id: number;
+  post_channel_msg_id: number;
+  posted_message_id: number | null;
+  comment_text: string;
+  in_reply_to_message_id: number | null;
+  status: CommentStatus;
+  error: string | null;
+  created_at: string;
+}
+
+export interface ExportedSession {
+  account_id: number;
+  phone: string;
+  session_string: string;
+}
+
+export interface AccountHealth {
+  account_id: number;
+  health_score: number;
+  session_alive: boolean | null;
+  spam_blocked: boolean | null;
+  spam_until: string | null;
+  has_2fa: boolean | null;
+  has_username: boolean | null;
+  has_avatar: boolean | null;
+  has_bio: boolean | null;
+  age_days: number | null;
+}

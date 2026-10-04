@@ -43,3 +43,4 @@ class BulkActionType(str, Enum):
     APPLY_PROFILE_POOL = "apply_profile_pool"
     SEND_REACTIONS = "send_reactions"
     CREATE_CHANNEL = "create_channel"
+    MANAGE_CHANNEL_POST = "manage_channel_post"

@@ -59,6 +59,22 @@ export function statusBadgeClass(status: AccountStatus): string {
   return TONE_BADGE[STATUS_TONE[status]];
 }
 
+/** Роли аккаунта (воркер/техничка/прогрев/бёрнер) — §6.1 архитектуры. */
+export const ROLE_LABEL: Record<string, string> = {
+  main: "Основной",
+  support: "Поддержка",
+  warmup: "Прогрев",
+  burner: "Бёрнер",
+};
+
+/** Контейнер-задача (к чему привязан аккаунт) → читаемое имя. */
+export const CONTAINER_LABEL: Record<string, string> = {
+  commenting: "Нейрокомментинг",
+  shilling: "НейроШиллинг",
+  priming: "Прайминг",
+  parsing: "Парсинг",
+};
+
 export const PROFILE_LABEL: Record<WarmingProfile, string> = {
   minimal: "Мин.",
   medium: "Средний",

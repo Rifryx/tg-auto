@@ -1,10 +1,17 @@
 import { api } from "./api";
 import type {
   Account,
+  AccountHealth,
   AccountRole,
+  BulkJobDetail,
+  BulkJobRead,
+  CommentLog,
+  ExportedSession,
   LoginStateResponse,
   MonitoredChannel,
   Persona,
+  ProfilePreview,
+  ProjectChannel,
   Proxy,
   StatusHistoryRecord,
   WarmingActivity,
@@ -64,11 +71,38 @@ export const accountsApi = {
   },
   history: (id: number) => api.get<StatusHistoryRecord[]>(`/accounts/${id}/history`),
   warming: (id: number) => api.get<WarmingActivity[]>(`/accounts/${id}/warming`),
+  health: (id: number) => api.get<AccountHealth>(`/accounts/${id}/health`),
+  // Созданные аккаунтом каналы (project_channels).
+  projectChannels: (id: number) =>
+    api.get<ProjectChannel[]>(`/accounts/${id}/project-channels`),
+  // Журнал комментариев аккаунта (что запостил + ошибки TG API).
+  commentLogs: (id: number, limit = 50) =>
+    api.get<CommentLog[]>(`/accounts/${id}/comment-logs?limit=${limit}`),
+  // Экспорт StringSession выбранных аккаунтов (бэкап/перенос).
+  exportSessions: (account_ids: number[]) =>
+    api.post<ExportedSession[]>("/accounts/export-sessions", { account_ids }),
+  // ИИ-превью профиля по персоне (без применения к Telegram).
+  generateProfilePreview: (id: number, llm_provider = "deepseek") =>
+    api.post<ProfilePreview>(`/accounts/${id}/profile/generate-preview`, { llm_provider }),
+  // 2FA-пароль одного/нескольких аккаунтов (plaintext шифруется на сервере).
+  set2fa: (body: {
+    account_ids: number[];
+    mode: "set_or_change" | "remove";
+    password?: string;
+    hint?: string;
+    email?: string;
+  }) => api.post<BulkJobRead>("/accounts/bulk/set-2fa", body),
   setProfile: (id: number, profile: WarmingProfile) =>
     api.patch<Account>(`/accounts/${id}/warming`, { profile }),
   retire: (id: number) => api.post<Account>(`/accounts/${id}/actions/retire`),
   restore: (id: number) => api.post<Account>(`/accounts/${id}/actions/restore`),
   remove: (id: number) => api.del<void>(`/accounts/${id}`),
+  // Массовая проверка валидности/спамблока (ставит задачи в очередь).
+  healthCheckBulk: (account_ids: number[], include_spam = false) =>
+    api.post<{ enqueued: { account_id: number; job_id: string }[]; throttled: number[] }>(
+      "/accounts/health/check-bulk",
+      { account_ids, include_spam },
+    ),
   loginState: (id: number) => api.get<LoginStateResponse>(`/accounts/${id}/login/state`),
   confirmCode: (id: number, code: string) =>
     api.post<LoginStateResponse>(`/accounts/${id}/login/confirm`, { code }),
@@ -106,6 +140,14 @@ export const channelsApi = {
     api.del<void>(
       `/accounts/${accountId}/channels/${channelId}?unsubscribe=${unsubscribe}`,
     ),
+};
+
+/* Bulk-задания (POST /bulk-jobs). Одиночное действие над аккаунтом —
+   это job с account_ids=[id]; прогресс читаем через get(jobId). */
+export const bulkApi = {
+  create: (action_type: string, account_ids: number[], payload: Record<string, unknown> = {}) =>
+    api.post<BulkJobRead>("/bulk-jobs", { action_type, account_ids, payload }),
+  get: (jobId: number) => api.get<BulkJobDetail>(`/bulk-jobs/${jobId}`),
 };
 
 export const catalogApi = {

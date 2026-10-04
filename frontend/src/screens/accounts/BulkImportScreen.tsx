@@ -31,6 +31,21 @@ export function BulkImportScreen() {
   const [archive, setArchive] = useState<File | null>(null);
   const [mapping, setMapping] = useState<File | null>(null);
   const [csvOpen, setCsvOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+
+  // Drag-and-drop: .zip → архив сессий, .csv → mapping (этап 3).
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    for (const file of Array.from(e.dataTransfer.files)) {
+      const name = file.name.toLowerCase();
+      if (name.endsWith(".zip")) setArchive(file);
+      else if (name.endsWith(".csv")) {
+        setMapping(file);
+        setCsvOpen(true);
+      }
+    }
+  };
 
   const submit = useMutation({
     mutationFn: () => accountsApi.bulkImport(archive!, mapping!),
@@ -48,16 +63,30 @@ export function BulkImportScreen() {
       {limit && <LimitProgress used={limit.used} limit={limit.limit} />}
 
       <Section title="Источник">
-        <div className="grid grid-cols-2 gap-3">
-          <TDataDropZone />
-          <SessionZipDropZone
-            file={archive}
-            onFile={setArchive}
-          />
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+          className={`rounded-card transition-colors ${dragging ? "ring-2 ring-accent" : ""}`}
+        >
+          <div className="grid grid-cols-2 gap-3">
+            <TDataDropZone />
+            <SessionZipDropZone file={archive} onFile={setArchive} />
+          </div>
+          <p className="mt-3 px-1 text-center text-[12px] text-text-tertiary">
+            {dragging
+              ? "Отпустите — .zip уйдёт в архив, .csv в mapping"
+              : "Или перетащите .zip / .csv сюда"}
+          </p>
+          {mapping && (
+            <p className="mt-1 px-1 text-center text-[12px] text-text-secondary">
+              CSV: {mapping.name}
+            </p>
+          )}
         </div>
-        <p className="mt-3 px-1 text-center text-[12px] text-text-tertiary">
-          Или перетащите файлы сюда
-        </p>
       </Section>
 
       {/* Свёрнутая CSV-ветка: одиночная сессия + mapping — старый flow. */}
