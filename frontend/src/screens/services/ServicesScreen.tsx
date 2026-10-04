@@ -1,64 +1,14 @@
-import { BellRing, Filter, LayoutGrid, MessagesSquare, Sparkles } from "lucide-react";
+import { BellRing, ChevronRight, Filter, LayoutGrid, MessagesSquare, Sparkles } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
-
-/* Экран «Сервисы» (мобильный таб BottomNav).
-
-   Структура:
-   • «Кампании» — рабочие сервисы, запускающие активность (коммент, шиллинг,
-     прайминг). Прайминг выделен как featured — главная карточка сверху
-     во всю ширину с --accent-полосой слева, т.к. это самый свежий модуль
-     и ключевая конверсионная поверхность.
-   • «Данные» — вспомогательные (парсинг — поставщик целей для остальных).
-
-   Каждая плитка имеет собственный tonal-акцент иконки
-   (fg + подложка на accent/status-* токенах из design brief),
-   чтобы ряд не читался как 4 одинаковых серых прямоугольника. */
-
-type Tone = "accent" | "shilling" | "comment" | "parse";
 
 interface Service {
   to: string;
   icon: LucideIcon;
   label: string;
   hint: string;
-  tone: Tone;
 }
-
-const TONE_STYLES: Record<
-  Tone,
-  { bg: string; fg: string; dot: string }
-> = {
-  accent: {
-    bg: "bg-accent/15",
-    fg: "text-accent",
-    dot: "bg-accent",
-  },
-  shilling: {
-    bg: "bg-status-warning/15",
-    fg: "text-status-warning",
-    dot: "bg-status-warning",
-  },
-  comment: {
-    bg: "bg-status-active/15",
-    fg: "text-status-active",
-    dot: "bg-status-active",
-  },
-  parse: {
-    bg: "bg-status-critical/15",
-    fg: "text-status-critical",
-    dot: "bg-status-critical",
-  },
-};
-
-const FEATURED: Service = {
-  to: "/modules/priming",
-  icon: BellRing,
-  label: "Прайминг",
-  hint: "Push через системные события — без сообщений в чате",
-  tone: "accent",
-};
 
 const CAMPAIGNS: Service[] = [
   {
@@ -66,14 +16,12 @@ const CAMPAIGNS: Service[] = [
     icon: LayoutGrid,
     label: "Нейрокомментинг",
     hint: "Кампании и комментарии",
-    tone: "comment",
   },
   {
     to: "/modules/shilling",
     icon: MessagesSquare,
     label: "НейроШиллинг",
     hint: "Сценарии посевов",
-    tone: "shilling",
   },
 ];
 
@@ -83,7 +31,6 @@ const DATA: Service[] = [
     icon: Filter,
     label: "Парсинг",
     hint: "Готовые списки целей для прайминга и шиллинга",
-    tone: "parse",
   },
 ];
 
@@ -91,99 +38,95 @@ export function ServicesScreen() {
   return (
     <>
       <ScreenHeader title="Сервисы" />
-      <p className="mb-5 px-1 text-[13px] text-text-secondary">
-        Все рабочие модули кампаний. Выберите, что запустить.
-      </p>
 
-      {/* Главная карточка — прайминг во всю ширину, с акцентной полосой */}
-      <FeaturedTile {...FEATURED} />
+      <PrimingHero />
 
       <SectionTitle>Кампании</SectionTitle>
-      <div className="mb-6 grid grid-cols-2 gap-2.5">
-        {CAMPAIGNS.map((s) => (
-          <ServiceTile key={s.to} {...s} />
+      <div className="card mb-8 overflow-hidden p-0">
+        {CAMPAIGNS.map((s, i) => (
+          <div key={s.to} className={i > 0 ? "border-t border-hairline" : ""}>
+            <ServiceRow {...s} />
+          </div>
         ))}
       </div>
 
       <SectionTitle>Данные</SectionTitle>
-      <div className="grid grid-cols-2 gap-2.5">
+      <div className="card mb-8 overflow-hidden p-0">
         {DATA.map((s) => (
-          <ServiceTile key={s.to} {...s} />
+          <ServiceRow key={s.to} {...s} />
         ))}
+      </div>
+
+      <div className="card overflow-hidden p-0">
+        <QuickLink to="/more/audit" label="Аудит активности" />
+        <div className="border-t border-hairline" />
+        <QuickLink to="/more/autopilot" label="Автопилот" />
       </div>
     </>
   );
 }
 
+function PrimingHero() {
+  return (
+    <Link
+      to="/modules/priming"
+      className="card-hero mb-8 flex items-start gap-5 p-6 active:opacity-90"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <span className="text-[20px] font-bold leading-tight text-text-primary">
+            Прайминг
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-pill bg-accent px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-accent-on">
+            <Sparkles className="h-3 w-3" strokeWidth={2} aria-hidden />
+            Новое
+          </span>
+        </div>
+        <p className="text-[14px] leading-relaxed text-text-secondary">
+          Push через системные события — без сообщений в чате
+        </p>
+        <span className="mt-5 inline-flex items-center rounded-pill bg-accent px-5 py-2.5 text-[14px] font-semibold text-accent-on">
+          Попробовать
+        </span>
+      </div>
+      <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-primary">
+        <BellRing className="h-8 w-8" strokeWidth={1.4} aria-hidden />
+      </span>
+    </Link>
+  );
+}
+
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="mb-2.5 mt-6 px-1 text-[12px] font-semibold uppercase tracking-wide text-text-tertiary first:mt-0">
+    <h2
+      className="mb-4 text-[22px] font-bold leading-tight text-text-primary"
+      style={{ letterSpacing: "-0.01em" }}
+    >
       {children}
     </h2>
   );
 }
 
-/* Крупная featured-плитка во всю ширину:
-   — акцентная 3px полоса слева,
-   — иконка в заметно большей подложке,
-   — бейдж «новое / главный модуль». */
-function FeaturedTile({ to, icon: Icon, label, hint, tone }: Service) {
-  const t = TONE_STYLES[tone];
+function ServiceRow({ to, icon: Icon, label, hint }: Service) {
   return (
-    <Link
-      to={to}
-      className="card relative mb-6 flex items-center gap-4 overflow-hidden p-5 active:bg-surface-2"
-    >
-      <span
-        className={`absolute inset-y-0 left-0 w-[3px] ${t.dot}`}
-        aria-hidden
-      />
-      <span
-        className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${t.bg} ${t.fg}`}
-      >
-        <Icon className="h-7 w-7" strokeWidth={1.8} aria-hidden />
+    <Link to={to} className="flex items-center gap-4 px-4 py-4 active:bg-surface-2">
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-primary">
+        <Icon className="h-5 w-5" strokeWidth={1.7} aria-hidden />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-[17px] font-semibold leading-tight text-text-primary">
-            {label}
-          </span>
-          <span
-            className={`inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-[10px] uppercase tracking-wider ${t.bg} ${t.fg}`}
-          >
-            <Sparkles className="h-3 w-3" strokeWidth={2} aria-hidden />
-            Новое
-          </span>
-        </div>
-        <p className="mt-1 text-[12px] leading-snug text-text-tertiary">
-          {hint}
-        </p>
+        <div className="text-[15px] font-semibold leading-tight text-text-primary">{label}</div>
+        <div className="mt-0.5 truncate text-[13px] text-text-tertiary">{hint}</div>
       </div>
+      <ChevronRight className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
     </Link>
   );
 }
 
-/* Обычная плитка — иконка с tonal-подложкой, подпись + подсказка. */
-function ServiceTile({ to, icon: Icon, label, hint, tone }: Service) {
-  const t = TONE_STYLES[tone];
+function QuickLink({ to, label }: { to: string; label: string }) {
   return (
-    <Link
-      to={to}
-      className="card flex min-h-[128px] flex-col justify-between gap-3 p-4 text-left active:bg-surface-2"
-    >
-      <span
-        className={`flex h-10 w-10 items-center justify-center rounded-pill ${t.bg} ${t.fg}`}
-      >
-        <Icon className="h-[20px] w-[20px]" strokeWidth={1.8} aria-hidden />
-      </span>
-      <div className="min-w-0">
-        <div className="text-[15px] font-semibold leading-tight text-text-primary">
-          {label}
-        </div>
-        <div className="mt-1 line-clamp-2 text-[12px] leading-snug text-text-tertiary">
-          {hint}
-        </div>
-      </div>
+    <Link to={to} className="flex items-center gap-3 px-4 py-3.5 active:bg-surface-2">
+      <span className="flex-1 text-[15px] text-text-primary">{label}</span>
+      <ChevronRight className="h-4 w-4 text-text-tertiary" strokeWidth={1.8} aria-hidden />
     </Link>
   );
 }

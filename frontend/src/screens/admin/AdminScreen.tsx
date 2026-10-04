@@ -49,10 +49,10 @@ function StatsSection() {
   const { data } = useQuery({ queryKey: ["admin", "stats"], queryFn: adminApi.stats });
   return (
     <section className="mb-6">
-      <h2 className="mb-2.5 px-1 text-[13px] font-semibold uppercase tracking-wide text-text-tertiary">
+      <h2 className="mb-4 text-[17px] font-bold text-text-primary">
         Статистика
       </h2>
-      <div className="card grid grid-cols-2 gap-3 p-4">
+      <div className="card-hero grid grid-cols-2 gap-4 p-5">
         <Stat label="Пользователей" value={data?.users} />
         <Stat label="Из них Pro" value={data?.pro_users} />
         <Stat label="Аккаунтов" value={data?.accounts} />
@@ -82,7 +82,7 @@ function SubsSection() {
   });
   return (
     <section className="mb-6">
-      <h2 className="mb-2.5 px-1 text-[13px] font-semibold uppercase tracking-wide text-text-tertiary">
+      <h2 className="mb-4 text-[17px] font-bold text-text-primary">
         Последние подписки
       </h2>
       {data && data.length === 0 && (
@@ -108,14 +108,14 @@ function SubsSection() {
               <span
                 className={`nums shrink-0 rounded-pill px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${
                   s.plan_id === "pro"
-                    ? "text-white"
+                    ? "text-text-primary"
                     : "border border-hairline text-text-secondary"
                 }`}
                 style={
                   s.plan_id === "pro"
                     ? {
-                        background:
-                          "linear-gradient(135deg,#7c5cff 0%,#4b2fbf 100%)",
+                        background: "var(--surface-2)",
+                        boxShadow: "0 0 0 1px var(--surface-border-strong) inset",
                       }
                     : undefined
                 }
@@ -148,7 +148,7 @@ function SetPlanForm() {
 
   return (
     <section className="mb-4">
-      <h2 className="mb-2.5 px-1 text-[13px] font-semibold uppercase tracking-wide text-text-tertiary">
+      <h2 className="mb-4 text-[17px] font-bold text-text-primary">
         Выдать/забрать план
       </h2>
       <div className="card flex flex-col gap-3 p-4">

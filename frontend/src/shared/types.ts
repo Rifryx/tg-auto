@@ -215,6 +215,24 @@ export interface CommentLog {
   created_at: string;
 }
 
+/* Ассет пула оформления (profile_assets) — распределяется apply_profile_pool. */
+export type ProfileAssetKind =
+  | "avatar"
+  | "first_name"
+  | "last_name"
+  | "bio"
+  | "username_template";
+export interface ProfileAsset {
+  id: number;
+  kind: ProfileAssetKind;
+  value: string | null;
+  mime: string | null;
+  tags: string[];
+  used_count: number;
+  created_at: string;
+  has_binary: boolean;
+}
+
 export interface ExportedSession {
   account_id: number;
   phone: string;

@@ -15,11 +15,11 @@ export function MoreRow({
   label: string;
 }) {
   return (
-    <Link to={to} className="flex items-center gap-3 px-4 py-3 active:bg-surface-2">
-      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-2 text-text-secondary">
+    <Link to={to} className="flex items-center gap-3.5 px-4 py-3.5 active:bg-surface-2">
+      <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-surface-2 text-text-secondary">
         <Icon className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden />
       </span>
-      <span className="flex-1 text-[15px] text-text-primary">{label}</span>
+      <span className="flex-1 text-[15px] font-medium text-text-primary">{label}</span>
       <ChevronRight className="h-4 w-4 text-text-tertiary" strokeWidth={1.8} aria-hidden />
     </Link>
   );

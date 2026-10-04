@@ -12,6 +12,7 @@ import { MoreScreen } from "./screens/more/MoreScreen";
 import { ServicesScreen } from "./screens/services/ServicesScreen";
 import { PersonasScreen } from "./screens/more/PersonasScreen";
 import { ProjectsScreen } from "./screens/more/ProjectsScreen";
+import { ProfileAssetsScreen } from "./screens/more/ProfileAssetsScreen";
 import { ProxiesScreen } from "./screens/more/ProxiesScreen";
 import { SettingsScreen } from "./screens/more/SettingsScreen";
 import { CampaignDetailScreen } from "./modules/commenting/CampaignDetailScreen";
@@ -59,6 +60,7 @@ export function App() {
         <Route path="/more/personas" element={<PersonasScreen />} />
         <Route path="/more/projects" element={<ProjectsScreen />} />
         <Route path="/more/proxies" element={<ProxiesScreen />} />
+        <Route path="/more/profile-assets" element={<ProfileAssetsScreen />} />
         <Route path="/more/audit" element={<AuditScreen />} />
         <Route path="/more/autopilot" element={<AutopilotScreen />} />
         <Route path="/more/settings" element={<SettingsScreen />} />

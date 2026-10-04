@@ -1,15 +1,10 @@
-import { Menu, Moon, Sun } from "lucide-react";
+import { Bell, Menu, Moon, Sun } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { PlanBadge } from "../../shared/PlanBadge";
 import { hapticSelection } from "../../shared/tg";
 import { useUiStore } from "../../shared/store";
 import { SideDrawer } from "./SideDrawer";
 
-/* Верхняя панель главного экрана:
-   - слева иконка меню (три полосы) — открывает боковой дровер;
-   - по центру пилюля с текущим тарифом (Free/Pro) — кликабельно, ведёт на биллинг;
-   - справа переключатель темы (луна/солнце). */
 export function TopBar() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
@@ -18,8 +13,7 @@ export function TopBar() {
 
   return (
     <>
-      {/* На десктопе меню, тариф и тема живут в боковой панели. */}
-      <div className="mb-3 flex items-center justify-between gap-2 lg:hidden">
+      <div className="mb-2 flex items-center justify-between gap-2 lg:hidden">
         <button
           type="button"
           onClick={() => {
@@ -27,38 +21,40 @@ export function TopBar() {
             setOpen(true);
           }}
           aria-label="Открыть меню"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-pill border border-hairline bg-surface-1 text-text-primary active:bg-surface-2"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-text-primary active:opacity-70"
         >
           <Menu className="h-5 w-5" strokeWidth={1.8} aria-hidden />
         </button>
 
-        <button
-          type="button"
-          onClick={() => {
-            hapticSelection();
-            navigate("/billing");
-          }}
-          aria-label="Ваш тариф"
-          className="rounded-pill transition-transform active:scale-[0.98]"
-        >
-          <PlanBadge size="md" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              hapticSelection();
+              navigate("/more/audit");
+            }}
+            aria-label="Уведомления"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-text-secondary active:opacity-70"
+          >
+            <Bell className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden />
+          </button>
 
-        <button
-          type="button"
-          onClick={() => {
-            hapticSelection();
-            toggleTheme();
-          }}
-          aria-label={theme === "dark" ? "Включить светлую тему" : "Включить тёмную тему"}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-pill border border-hairline bg-surface-1 text-text-primary active:bg-surface-2"
-        >
-          {theme === "dark" ? (
-            <Sun className="h-5 w-5" strokeWidth={1.8} aria-hidden />
-          ) : (
-            <Moon className="h-5 w-5" strokeWidth={1.8} aria-hidden />
-          )}
-        </button>
+          <button
+            type="button"
+            onClick={() => {
+              hapticSelection();
+              toggleTheme();
+            }}
+            aria-label={theme === "dark" ? "Включить светлую тему" : "Включить тёмную тему"}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-text-secondary active:opacity-70"
+          >
+            {theme === "dark" ? (
+              <Sun className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden />
+            ) : (
+              <Moon className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden />
+            )}
+          </button>
+        </div>
       </div>
 
       <SideDrawer open={open} onClose={() => setOpen(false)} />

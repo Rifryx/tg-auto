@@ -1,5 +1,5 @@
 import { api } from "../../shared/api";
-import type { Persona, Proxy } from "../../shared/types";
+import type { Persona, ProfileAsset, ProfileAssetKind, Proxy } from "../../shared/types";
 
 export interface PersonaBody {
   name: string;
@@ -56,4 +56,21 @@ export const proxiesApi = {
   check: (id: number) => api.post<{ job_id?: string }>(`/proxies/${id}/check`),
   // Одна задача проверяет все прокси (backend: POST /proxies/check-all).
   checkAll: () => api.post<{ job_id?: string }>("/proxies/check-all"),
+};
+
+export interface ProfileAssetBody {
+  kind: ProfileAssetKind;
+  value?: string | null;
+  binary_b64?: string | null;
+  mime?: string | null;
+  tags?: string[];
+}
+
+/* Пул оформления профиля (этап 3): имена/фамилии/BIO/шаблоны username (текст)
+   и аватары (binary). Распределяется bulk-action apply_profile_pool. */
+export const profileAssetsApi = {
+  list: (kind?: ProfileAssetKind) =>
+    api.get<ProfileAsset[]>(`/profile-assets${kind ? `?kind=${kind}` : ""}`),
+  create: (body: ProfileAssetBody) => api.post<ProfileAsset>("/profile-assets", body),
+  remove: (id: number) => api.del<void>(`/profile-assets/${id}`),
 };

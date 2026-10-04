@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Filter, Plus } from "lucide-react";
+import { ChevronRight, Filter, Plus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { EmptyState } from "../../components/EmptyState";
@@ -66,31 +66,36 @@ export function ParsingListsScreen() {
         />
       )}
       {data && data.length > 0 && (
-        <div className="flex flex-col gap-3">
-          {data.map((l) => (
-            <div key={l.id} className="card p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h3 className="truncate text-[16px] font-semibold text-text-primary">
-                    {l.name}
-                  </h3>
-                  <p className="mt-0.5 truncate text-[13px] text-text-secondary">
-                    {SOURCE_LABEL[l.source_kind]}
-                    {l.chat_ref ? ` · ${l.chat_ref}` : ""}
-                  </p>
-                  <p className="mt-0.5 text-[12px] text-text-tertiary">
-                    Обновлено {timeAgo(l.parsed_at ?? l.created_at)}
-                  </p>
+        <div className="card overflow-hidden p-0">
+          {data.map((l, i) => (
+            <div
+              key={l.id}
+              className={`flex items-center gap-4 px-4 py-4 ${i > 0 ? "border-t border-hairline" : ""}`}
+            >
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-primary">
+                <Filter className="h-5 w-5" strokeWidth={1.7} aria-hidden />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h3 className="truncate text-[15px] font-semibold leading-tight text-text-primary">
+                  {l.name}
+                </h3>
+                <p className="mt-0.5 truncate text-[13px] text-text-tertiary">
+                  {SOURCE_LABEL[l.source_kind]}
+                  {l.chat_ref ? ` · ${l.chat_ref}` : ""}
+                </p>
+                <p className="mt-0.5 text-[12px] text-text-tertiary">
+                  {timeAgo(l.parsed_at ?? l.created_at)}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="text-[20px] font-bold tabular-nums text-text-primary">
+                  {l.after_filters_count}
                 </div>
-                <div className="shrink-0 text-right">
-                  <div className="text-[20px] font-bold tabular-nums text-text-primary">
-                    {l.after_filters_count}
-                  </div>
-                  <div className="text-[11px] uppercase tracking-wider text-text-tertiary">
-                    целей
-                  </div>
+                <div className="text-[11px] uppercase tracking-wider text-text-tertiary">
+                  целей
                 </div>
               </div>
+              <ChevronRight className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
             </div>
           ))}
         </div>

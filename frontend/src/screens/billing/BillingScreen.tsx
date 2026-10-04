@@ -136,23 +136,14 @@ function ProCard({
 }) {
   return (
     <section
-      className="relative overflow-hidden rounded-card p-6 text-white"
+      className="relative overflow-hidden rounded-card p-6 text-text-primary"
       style={{
         background:
-          "linear-gradient(155deg, #241249 0%, #140a2c 55%, #0b0819 100%)",
+          "linear-gradient(155deg, var(--surface-2) 0%, var(--surface-1) 100%)",
         boxShadow:
-          "0 0 0 1px rgba(139,92,246,0.45) inset, 0 30px 60px -30px rgba(124,92,255,0.35), 0 0 40px -12px rgba(124,92,255,0.25)",
+          "0 0 0 1px var(--surface-border-strong) inset",
       }}
     >
-        {/* декоративный блик в углу */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full opacity-60"
-          style={{
-            background:
-              "radial-gradient(50% 50% at 50% 50%, rgba(178,145,255,0.35) 0%, rgba(178,145,255,0) 70%)",
-          }}
-        />
 
         <div className="mb-1 flex items-center justify-between">
           <h2 className="text-[18px] font-semibold">{plan.name}</h2>
@@ -188,7 +179,7 @@ function ProCard({
             "mt-7 w-full rounded-pill px-4 py-3.5 text-[15px] font-semibold transition-transform",
             active
               ? "cursor-default bg-white/15 text-white/70"
-              : "bg-white text-[#1a0f45] active:scale-[0.99]",
+              : "bg-accent text-accent-on active:scale-[0.99]",
           ].join(" ")}
           style={
             active
@@ -224,9 +215,8 @@ function Bullets({
             style={
               tone === "bright"
                 ? {
-                    background:
-                      "linear-gradient(135deg, #b291ff 0%, #7c5cff 100%)",
-                    boxShadow: "0 0 0 1px rgba(255,255,255,0.15) inset",
+                    background: "var(--accent)",
+                    boxShadow: "0 0 0 1px var(--surface-border-strong) inset",
                   }
                 : {
                     background: "var(--surface-2)",
@@ -238,7 +228,7 @@ function Bullets({
             <Check
               className="h-2.5 w-2.5"
               strokeWidth={3}
-              style={{ color: tone === "bright" ? "#1a0f45" : "var(--text-primary)" }}
+              style={{ color: tone === "bright" ? "var(--accent-on)" : "var(--text-primary)" }}
             />
           </span>
           <span className={tone === "bright" ? "opacity-95" : "text-text-primary"}>

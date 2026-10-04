@@ -15,7 +15,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const chromeless = pathname.endsWith("/new");
   return (
-    <div className="flex min-h-full bg-bg-base">
+    <div className="flex min-h-full overflow-x-clip bg-bg-base">
       <DesktopSidebar />
       <div className="mx-auto flex min-h-full w-full min-w-0 max-w-[440px] flex-col lg:max-w-[1200px] lg:px-10">
         {isBrowserDev && !isTelegram && <DevBar />}
