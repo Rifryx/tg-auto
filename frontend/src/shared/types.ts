@@ -233,6 +233,16 @@ export interface ProfileAsset {
   has_binary: boolean;
 }
 
+/* Медиа-ассет (POST /media-assets) — источник для Stories/аватаров. */
+export interface MediaAsset {
+  id: number;
+  mime: string;
+  size_bytes: number;
+  sha256: string;
+  filename: string | null;
+  created_at: string;
+}
+
 export interface ExportedSession {
   account_id: number;
   phone: string;

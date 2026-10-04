@@ -8,6 +8,7 @@ import type {
   CommentLog,
   ExportedSession,
   LoginStateResponse,
+  MediaAsset,
   MonitoredChannel,
   Persona,
   ProfilePreview,
@@ -148,6 +149,15 @@ export const channelsApi = {
     api.del<void>(
       `/accounts/${accountId}/channels/${channelId}?unsubscribe=${unsubscribe}`,
     ),
+};
+
+/* Медиа-ассеты (POST /media-assets) — источник для Stories. */
+export const mediaApi = {
+  upload: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api.postForm<MediaAsset>("/media-assets", fd);
+  },
 };
 
 /* Bulk-задания (POST /bulk-jobs). Одиночное действие над аккаунтом —
