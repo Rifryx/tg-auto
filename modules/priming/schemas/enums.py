@@ -168,6 +168,10 @@ class ParserSourceKind(StrEnum):
     CHAT_MEMBERS = "chat_members"
     MANUAL_LIST = "manual_list"
     UPLOAD_CSV = "upload_csv"
+    # Extraction+ (этап 1 расширения парсера):
+    CHANNEL_COMMENTERS = "channel_commenters"  # комментаторы из linked-чата канала
+    POST_REACTORS = "post_reactors"            # кто ставил реакции на посты
+    LIST_OP = "list_op"                        # производный список (операции над списками)
 
 
 class BlacklistReason(StrEnum):

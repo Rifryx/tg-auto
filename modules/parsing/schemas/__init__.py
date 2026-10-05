@@ -45,23 +45,58 @@ class ParsedListTargetRead(_ParsingBase):
     created_at: datetime
 
 
-class RunChatMessagesRequest(_ParsingBase):
+class _FilterFields(_ParsingBase):
+    """Общий набор фильтров аудитории (Extraction+, этап 1)."""
+
+    require_username: bool = True
+    premium_only: bool = False
+    require_photo: bool = False
+    verified_only: bool = False
+    exclude_scam_fake: bool = True
+    require_phone_visible: bool = False
+    username_regex: Optional[str] = Field(default=None, max_length=256)
+    name_script: Optional[str] = Field(default=None, pattern="^(cyrillic|latin)$")
+    last_seen_max_days: Optional[int] = Field(default=None, ge=0, le=3650)
+
+
+class RunChatMessagesRequest(_FilterFields):
     name: str = Field(..., min_length=1, max_length=120)
     collector_account_id: int
     chat_ref: str = Field(..., min_length=1)
     days_window: int = Field(default=14, ge=1, le=60)
     min_messages: int = Field(default=1, ge=1)
-    require_username: bool = True
-    premium_only: bool = False
 
 
-class RunChatMembersRequest(_ParsingBase):
+class RunChatMembersRequest(_FilterFields):
     name: str = Field(..., min_length=1, max_length=120)
     collector_account_id: int
     chat_ref: str = Field(..., min_length=1)
     only_recently_seen: bool = True
-    require_username: bool = True
-    premium_only: bool = False
+
+
+class RunChannelCommentersRequest(_FilterFields):
+    name: str = Field(..., min_length=1, max_length=120)
+    collector_account_id: int
+    chat_ref: str = Field(..., min_length=1)
+    days_window: int = Field(default=14, ge=1, le=60)
+    min_messages: int = Field(default=1, ge=1)
+
+
+class RunPostReactorsRequest(_FilterFields):
+    name: str = Field(..., min_length=1, max_length=120)
+    collector_account_id: int
+    chat_ref: str = Field(..., min_length=1)
+    posts_limit: int = Field(default=20, ge=1, le=200)
+    reactions_per_post: int = Field(default=100, ge=1, le=100)
+    min_reactions: int = Field(default=1, ge=1)
+
+
+class ListOpRequest(_ParsingBase):
+    name: str = Field(..., min_length=1, max_length=120)
+    op: str = Field(..., pattern="^(intersect|union|subtract|sample)$")
+    source_list_ids: list[int] = Field(..., min_length=1, max_length=50)
+    min_overlap: Optional[int] = Field(default=None, ge=2)
+    sample_size: Optional[int] = Field(default=None, ge=1)
 
 
 __all__ = [
@@ -69,4 +104,7 @@ __all__ = [
     "ParsedListTargetRead",
     "RunChatMessagesRequest",
     "RunChatMembersRequest",
+    "RunChannelCommentersRequest",
+    "RunPostReactorsRequest",
+    "ListOpRequest",
 ]

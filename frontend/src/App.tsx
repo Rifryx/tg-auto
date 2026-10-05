@@ -27,6 +27,7 @@ import { PrimingDetailScreen } from "./modules/priming/PrimingDetailScreen";
 import { PrimingCampaignRun } from "./modules/priming/PrimingCampaignRun";
 import { PrimingCampaignLogs } from "./modules/priming/PrimingCampaignLogs";
 import { ParsingListsScreen } from "./modules/parsing/ParsingListsScreen";
+import { ListOpsScreen } from "./modules/parsing/ListOpsScreen";
 import { RunParsingScreen } from "./modules/parsing/RunParsingScreen";
 import { AdminScreen } from "./screens/admin/AdminScreen";
 import { BillingScreen } from "./screens/billing/BillingScreen";
@@ -55,6 +56,7 @@ export function App() {
         <Route path="/modules/priming/campaigns/:id/logs" element={<PrimingCampaignLogs />} />
         <Route path="/modules/parsing" element={<ParsingListsScreen />} />
         <Route path="/modules/parsing/run" element={<RunParsingScreen />} />
+        <Route path="/modules/parsing/ops" element={<ListOpsScreen />} />
         <Route path="/services" element={<ServicesScreen />} />
         <Route path="/more" element={<MoreScreen />} />
         <Route path="/more/personas" element={<PersonasScreen />} />

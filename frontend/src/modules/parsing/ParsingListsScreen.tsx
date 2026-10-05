@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Filter, Plus } from "lucide-react";
+import { ChevronRight, Combine, Filter, Plus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { EmptyState } from "../../components/EmptyState";
@@ -16,6 +16,9 @@ const SOURCE_LABEL: Record<ParsedList["source_kind"], string> = {
   chat_members: "Участники чата",
   manual_list: "Ручной список",
   upload_csv: "CSV",
+  channel_commenters: "Комментаторы канала",
+  post_reactors: "Реакторы постов",
+  list_op: "Операция над списками",
 };
 
 export function ParsingListsScreen() {
@@ -31,14 +34,25 @@ export function ParsingListsScreen() {
       <ScreenHeader
         title="Парсинг"
         action={
-          <button
-            type="button"
-            onClick={() => navigate("/modules/parsing/run")}
-            className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-accent px-4 text-[14px] font-medium text-accent-on active:opacity-80"
-          >
-            <Plus className="h-4 w-4" strokeWidth={2.2} aria-hidden />
-            Новый прогон
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate("/modules/parsing/ops")}
+              aria-label="Операции над списками"
+              className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-surface-2 px-3 text-[14px] font-medium text-text-secondary active:text-text-primary"
+            >
+              <Combine className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+              Операции
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/modules/parsing/run")}
+              className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-accent px-4 text-[14px] font-medium text-accent-on active:opacity-80"
+            >
+              <Plus className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+              Новый прогон
+            </button>
+          </div>
         }
       />
       <p className="mb-4 text-[13px] text-text-secondary">

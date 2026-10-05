@@ -5,19 +5,25 @@ import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { accountsApi } from "../../shared/accounts";
 import { parsingApi } from "./api";
+import type { AudienceFilters } from "./types";
 import { Checkbox } from "./components/Checkbox";
 
-/* Экран запуска парсера. Никакого drawer-в-мастере — parsing это
-   отдельный сервис (см. docs/priming-spec §8).
+/* Экран запуска парсера (Extraction+, этап 1): 4 источника аудитории +
+   расширенные фильтры профиля/активности. */
 
-   Визуальный акцент (prompt от пользователя):
-   - card--primary: главный блок (тип + ссылка) выделен тонкой
-     --accent-полосой слева;
-   - card--accent-dim: аккаунт-парсер — лёгкий status-active-фон как
-     вторичный акцент;
-   - sticky-футер прибит к контенту (не fixed), не перекрывает нав-бар. */
+type Kind = "chat_messages" | "chat_members" | "channel_commenters" | "post_reactors";
 
-type Kind = "chat_messages" | "chat_members";
+const KINDS: { value: Kind; label: string }[] = [
+  { value: "chat_messages", label: "Активные в чате" },
+  { value: "chat_members", label: "Все участники" },
+  { value: "channel_commenters", label: "Комментаторы канала" },
+  { value: "post_reactors", label: "Реакторы постов" },
+];
+
+const USES_WINDOW = new Set<Kind>(["chat_messages", "channel_commenters"]);
+
+const inputCls =
+  "mt-1 w-full rounded-xl border border-hairline bg-surface-2 p-2 text-[15px] tabular-nums text-text-primary";
 
 export function RunParsingScreen() {
   const navigate = useNavigate();
@@ -25,11 +31,25 @@ export function RunParsingScreen() {
   const [kind, setKind] = useState<Kind>("chat_messages");
   const [chatRef, setChatRef] = useState("");
   const [collectorId, setCollectorId] = useState<number | null>(null);
+  // messages / commenters
   const [daysWindow, setDaysWindow] = useState(14);
   const [minMessages, setMinMessages] = useState(2);
+  // members
   const [onlyRecentlySeen, setOnlyRecentlySeen] = useState(true);
+  // reactors
+  const [postsLimit, setPostsLimit] = useState(20);
+  const [reactionsPerPost, setReactionsPerPost] = useState(100);
+  const [minReactions, setMinReactions] = useState(1);
+  // filters
   const [requireUsername, setRequireUsername] = useState(true);
   const [premiumOnly, setPremiumOnly] = useState(false);
+  const [requirePhoto, setRequirePhoto] = useState(false);
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
+  const [excludeScamFake, setExcludeScamFake] = useState(true);
+  const [requirePhoneVisible, setRequirePhoneVisible] = useState(false);
+  const [usernameRegex, setUsernameRegex] = useState("");
+  const [nameScript, setNameScript] = useState<"" | "cyrillic" | "latin">("");
+  const [lastSeenMaxDays, setLastSeenMaxDays] = useState("");
 
   const accountsQuery = useQuery({
     queryKey: ["accounts", "pool"],
@@ -43,28 +63,39 @@ export function RunParsingScreen() {
   const submit = useMutation({
     mutationFn: async () => {
       if (!collectorId) throw new Error("no collector");
-      const base = {
-        name: name.trim(),
-        collector_account_id: collectorId,
-        chat_ref: chatRef.trim(),
+      const filters: AudienceFilters = {
         require_username: requireUsername,
         premium_only: premiumOnly,
+        require_photo: requirePhoto,
+        verified_only: verifiedOnly,
+        exclude_scam_fake: excludeScamFake,
+        require_phone_visible: requirePhoneVisible,
+        username_regex: usernameRegex.trim() || null,
+        name_script: nameScript || null,
+        last_seen_max_days: lastSeenMaxDays === "" ? null : Number(lastSeenMaxDays),
       };
-      if (kind === "chat_messages") {
-        return parsingApi.runChatMessages({
-          ...base, days_window: daysWindow, min_messages: minMessages,
+      const base = { name: name.trim(), collector_account_id: collectorId, chat_ref: chatRef.trim(), ...filters };
+      if (kind === "chat_messages")
+        return parsingApi.runChatMessages({ ...base, days_window: daysWindow, min_messages: minMessages });
+      if (kind === "channel_commenters")
+        return parsingApi.runChannelCommenters({ ...base, days_window: daysWindow, min_messages: minMessages });
+      if (kind === "post_reactors")
+        return parsingApi.runPostReactors({
+          ...base, posts_limit: postsLimit, reactions_per_post: reactionsPerPost, min_reactions: minReactions,
         });
-      }
-      return parsingApi.runChatMembers({
-        ...base, only_recently_seen: onlyRecentlySeen,
-      });
+      return parsingApi.runChatMembers({ ...base, only_recently_seen: onlyRecentlySeen });
     },
     onSuccess: () => navigate("/modules/parsing"),
   });
 
   const problems: string[] = [];
   if (!name.trim()) problems.push("Укажите имя списка");
-  if (!chatRef.trim()) problems.push("Укажите @username или ссылку на чат");
+  if (!chatRef.trim())
+    problems.push(
+      kind === "post_reactors" || kind === "channel_commenters"
+        ? "Укажите @username или ссылку на канал"
+        : "Укажите @username или ссылку на чат",
+    );
   if (!collectorId) problems.push("Выберите аккаунт-парсер (collector)");
 
   return (
@@ -84,56 +115,43 @@ export function RunParsingScreen() {
       />
 
       <div className="flex flex-col gap-4">
-        {/* Имя списка — вспомогательное поле */}
         <div className="card p-5">
-          <label className="block text-[13px] font-medium text-text-secondary">
-            Имя списка
-          </label>
+          <label className="block text-[13px] font-medium text-text-secondary">Имя списка</label>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="AI news · участники · 14 дней"
+            placeholder="AI news · комментаторы · 14 дней"
             className="mt-2 w-full rounded-xl border border-hairline bg-surface-2 p-3 text-[15px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
           />
         </div>
 
-        {/* Главный блок: тип + источник. Акцент — левая полоса. */}
         <div className="card relative overflow-hidden p-5">
-          <span
-            className="absolute inset-y-0 left-0 w-[3px] bg-accent"
-            aria-hidden
-          />
+          <span className="absolute inset-y-0 left-0 w-[3px] bg-accent" aria-hidden />
           <div className="mb-3 flex items-center gap-2">
-            <Link2
-              className="h-4 w-4 text-accent"
-              strokeWidth={2.2}
-              aria-hidden
-            />
-            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">
-              Источник
-            </div>
+            <Link2 className="h-4 w-4 text-accent" strokeWidth={2.2} aria-hidden />
+            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">Источник</div>
           </div>
 
-          <div className="flex gap-2">
-            {(["chat_messages", "chat_members"] as Kind[]).map((k) => (
+          <div className="grid grid-cols-2 gap-2">
+            {KINDS.map((k) => (
               <button
-                key={k}
+                key={k.value}
                 type="button"
-                onClick={() => setKind(k)}
+                onClick={() => setKind(k.value)}
                 className={[
-                  "flex-1 rounded-pill px-3.5 py-2 text-[13px] font-medium transition-colors border",
-                  kind === k
+                  "rounded-pill px-3.5 py-2 text-[13px] font-medium transition-colors border",
+                  kind === k.value
                     ? "bg-surface-2 border-strong text-text-primary"
                     : "bg-surface-1 border-hairline text-text-secondary",
                 ].join(" ")}
               >
-                {k === "chat_messages" ? "Активные в чате" : "Все участники"}
+                {k.label}
               </button>
             ))}
           </div>
 
           <label className="mt-4 block text-[13px] font-medium text-text-secondary">
-            Ссылка на чат
+            {kind === "post_reactors" || kind === "channel_commenters" ? "Ссылка на канал" : "Ссылка на чат"}
           </label>
           <input
             value={chatRef}
@@ -142,28 +160,37 @@ export function RunParsingScreen() {
             className="mt-2 w-full rounded-xl border border-hairline bg-surface-2 p-3 text-[15px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
           />
 
-          {kind === "chat_messages" && (
+          {USES_WINDOW.has(kind) && (
             <div className="mt-4 grid grid-cols-2 gap-3">
               <label className="text-[13px] font-medium text-text-secondary">
                 Окно, дней
-                <input
-                  type="number"
-                  min={1}
-                  max={60}
-                  value={daysWindow}
-                  onChange={(e) => setDaysWindow(Number(e.target.value))}
-                  className="mt-1 w-full rounded-xl border border-hairline bg-surface-2 p-2 text-[15px] tabular-nums text-text-primary"
-                />
+                <input type="number" min={1} max={60} value={daysWindow}
+                  onChange={(e) => setDaysWindow(Number(e.target.value))} className={inputCls} />
               </label>
               <label className="text-[13px] font-medium text-text-secondary">
                 Мин. сообщений
-                <input
-                  type="number"
-                  min={1}
-                  value={minMessages}
-                  onChange={(e) => setMinMessages(Number(e.target.value))}
-                  className="mt-1 w-full rounded-xl border border-hairline bg-surface-2 p-2 text-[15px] tabular-nums text-text-primary"
-                />
+                <input type="number" min={1} value={minMessages}
+                  onChange={(e) => setMinMessages(Number(e.target.value))} className={inputCls} />
+              </label>
+            </div>
+          )}
+
+          {kind === "post_reactors" && (
+            <div className="mt-4 grid grid-cols-3 gap-3">
+              <label className="text-[13px] font-medium text-text-secondary">
+                Постов
+                <input type="number" min={1} max={200} value={postsLimit}
+                  onChange={(e) => setPostsLimit(Number(e.target.value))} className={inputCls} />
+              </label>
+              <label className="text-[13px] font-medium text-text-secondary">
+                Реакций/пост
+                <input type="number" min={1} max={100} value={reactionsPerPost}
+                  onChange={(e) => setReactionsPerPost(Number(e.target.value))} className={inputCls} />
+              </label>
+              <label className="text-[13px] font-medium text-text-secondary">
+                Мин. реакций
+                <input type="number" min={1} value={minReactions}
+                  onChange={(e) => setMinReactions(Number(e.target.value))} className={inputCls} />
               </label>
             </div>
           )}
@@ -180,25 +207,14 @@ export function RunParsingScreen() {
           )}
         </div>
 
-        {/* Collector — второй по важности, подсветка status-active */}
         <div className="card relative overflow-hidden p-5">
-          <span
-            className="absolute inset-y-0 left-0 w-[3px] bg-status-active opacity-80"
-            aria-hidden
-          />
+          <span className="absolute inset-y-0 left-0 w-[3px] bg-status-active opacity-80" aria-hidden />
           <div className="mb-2 flex items-center gap-2">
-            <UserCheck
-              className="h-4 w-4 text-status-active"
-              strokeWidth={2.2}
-              aria-hidden
-            />
-            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">
-              Аккаунт-парсер
-            </div>
+            <UserCheck className="h-4 w-4 text-status-active" strokeWidth={2.2} aria-hidden />
+            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">Аккаунт-парсер</div>
           </div>
           <p className="mb-3 text-[12px] text-text-tertiary">
-            Не должен совпадать с прайминг-аккаунтом. Безопасно отделяет
-            чтение от праймов.
+            Отдельный от рабочих аккаунт для чтения.
           </p>
           <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
             {collectors.map((a) => (
@@ -208,9 +224,7 @@ export function RunParsingScreen() {
                 onClick={() => setCollectorId(a.id)}
                 className={[
                   "flex items-center justify-between rounded-xl border p-3 text-left transition-colors",
-                  collectorId === a.id
-                    ? "border-strong bg-surface-2"
-                    : "border-hairline bg-surface-1 active:bg-surface-2",
+                  collectorId === a.id ? "border-strong bg-surface-2" : "border-hairline bg-surface-1 active:bg-surface-2",
                 ].join(" ")}
               >
                 <div className="min-w-0">
@@ -226,55 +240,81 @@ export function RunParsingScreen() {
               </button>
             ))}
             {collectors.length === 0 && (
-              <p className="text-[13px] text-text-tertiary">
-                Нет свободных аккаунтов в пуле.
-              </p>
+              <p className="text-[13px] text-text-tertiary">Нет свободных аккаунтов в пуле.</p>
             )}
           </div>
         </div>
 
-        {/* Фильтры */}
         <div className="card p-5">
-          <div className="mb-2 flex items-center gap-2">
-            <Filter
-              className="h-4 w-4 text-text-secondary"
-              strokeWidth={2}
-              aria-hidden
-            />
-            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">
-              Фильтры
-            </div>
+          <div className="mb-3 flex items-center gap-2">
+            <Filter className="h-4 w-4 text-text-secondary" strokeWidth={2} aria-hidden />
+            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">Фильтры</div>
           </div>
+          <Checkbox checked={requireUsername} onChange={setRequireUsername} label="Только с @username" />
+          <Checkbox checked={premiumOnly} onChange={setPremiumOnly} label="Только Telegram Premium" />
+          <Checkbox checked={requirePhoto} onChange={setRequirePhoto} label="Только с аватаркой" />
+          <Checkbox checked={verifiedOnly} onChange={setVerifiedOnly} label="Только verified" />
           <Checkbox
-            checked={requireUsername}
-            onChange={setRequireUsername}
-            label="Только с @username"
+            checked={excludeScamFake}
+            onChange={setExcludeScamFake}
+            label="Исключать scam/fake"
+            description="Помеченные Telegram как мошеннические/поддельные."
           />
           <Checkbox
-            checked={premiumOnly}
-            onChange={setPremiumOnly}
-            label="Только Telegram Premium"
+            checked={requirePhoneVisible}
+            onChange={setRequirePhoneVisible}
+            label="Только с видимым телефоном"
           />
+
+          <label className="mt-3 block text-[13px] font-medium text-text-secondary">
+            Имя (алфавит)
+          </label>
+          <div className="mt-1 flex gap-2">
+            {([["", "Любой"], ["cyrillic", "Кириллица"], ["latin", "Латиница"]] as const).map(([v, lbl]) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setNameScript(v)}
+                className={[
+                  "flex-1 rounded-pill border px-3 py-1.5 text-[13px] font-medium",
+                  nameScript === v ? "border-strong bg-surface-2 text-text-primary" : "border-hairline bg-surface-1 text-text-secondary",
+                ].join(" ")}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <label className="text-[13px] font-medium text-text-secondary">
+              Онлайн ≤ дней
+              <input
+                type="number" min={0} value={lastSeenMaxDays}
+                onChange={(e) => setLastSeenMaxDays(e.target.value.replace(/\D/g, ""))}
+                placeholder="любой" className={inputCls}
+              />
+            </label>
+            <label className="text-[13px] font-medium text-text-secondary">
+              Username regex
+              <input
+                value={usernameRegex}
+                onChange={(e) => setUsernameRegex(e.target.value)}
+                placeholder="^crypto"
+                className="mt-1 w-full rounded-xl border border-hairline bg-surface-2 p-2 font-mono text-[13px] text-text-primary"
+              />
+            </label>
+          </div>
         </div>
 
-        {/* Sticky action bar — внутри потока блоков, не fixed */}
         <div
           className="sticky bottom-0 z-10 -mx-4 mt-2 border-t border-hairline bg-bg-elevated/95 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded-2xl sm:border"
-          style={{
-            paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)",
-          }}
+          style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
         >
           {problems.length > 0 && (
             <div className="mb-2 flex items-start gap-2 rounded-xl border-l-[4px] border-status-warning bg-surface-1 p-3">
-              <AlertCircle
-                className="mt-0.5 h-4 w-4 shrink-0 text-status-warning"
-                strokeWidth={2}
-                aria-hidden
-              />
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-status-warning" strokeWidth={2} aria-hidden />
               <ul className="text-[13px] text-text-secondary">
-                {problems.map((p, i) => (
-                  <li key={i}>{p}</li>
-                ))}
+                {problems.map((p, i) => <li key={i}>{p}</li>)}
               </ul>
             </div>
           )}
@@ -284,17 +324,10 @@ export function RunParsingScreen() {
             onClick={() => submit.mutate()}
             className={[
               "inline-flex h-11 w-full items-center justify-center gap-2 rounded-pill text-[15px] font-semibold transition-opacity",
-              problems.length === 0
-                ? "bg-accent text-accent-on active:opacity-80"
-                : "bg-surface-2 text-text-tertiary",
+              problems.length === 0 ? "bg-accent text-accent-on active:opacity-80" : "bg-surface-2 text-text-tertiary",
             ].join(" ")}
           >
-            {submit.isPending ? "Запуск…" : (
-              <>
-                <Play className="h-4 w-4" strokeWidth={2.4} aria-hidden />
-                Запустить парсинг
-              </>
-            )}
+            {submit.isPending ? "Запуск…" : (<><Play className="h-4 w-4" strokeWidth={2.4} aria-hidden />Запустить парсинг</>)}
           </button>
         </div>
       </div>

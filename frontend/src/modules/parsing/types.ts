@@ -5,7 +5,23 @@ export type ParserSourceKind =
   | "chat_messages"
   | "chat_members"
   | "manual_list"
-  | "upload_csv";
+  | "upload_csv"
+  | "channel_commenters"
+  | "post_reactors"
+  | "list_op";
+
+/* Общие фильтры аудитории (Extraction+, этап 1). */
+export interface AudienceFilters {
+  require_username?: boolean;
+  premium_only?: boolean;
+  require_photo?: boolean;
+  verified_only?: boolean;
+  exclude_scam_fake?: boolean;
+  require_phone_visible?: boolean;
+  username_regex?: string | null;
+  name_script?: "cyrillic" | "latin" | null;
+  last_seen_max_days?: number | null;
+}
 
 export type LastSeenBucket =
   | "recently"
@@ -40,12 +56,36 @@ export interface ParsedListTarget {
   created_at: string;
 }
 
-export interface RunChatMessagesBody {
+export interface RunChatMessagesBody extends AudienceFilters {
   name: string;
   collector_account_id: number;
   chat_ref: string;
   days_window?: number;
   min_messages?: number;
-  require_username?: boolean;
-  premium_only?: boolean;
+}
+
+export interface RunChatMembersBody extends AudienceFilters {
+  name: string;
+  collector_account_id: number;
+  chat_ref: string;
+  only_recently_seen?: boolean;
+}
+
+export interface RunPostReactorsBody extends AudienceFilters {
+  name: string;
+  collector_account_id: number;
+  chat_ref: string;
+  posts_limit?: number;
+  reactions_per_post?: number;
+  min_reactions?: number;
+}
+
+export type ListOp = "intersect" | "union" | "subtract" | "sample";
+
+export interface ListOpBody {
+  name: string;
+  op: ListOp;
+  source_list_ids: number[];
+  min_overlap?: number | null;
+  sample_size?: number | null;
 }

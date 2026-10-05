@@ -15,15 +15,19 @@ from api.deps.db import get_session
 from api.deps.queue import get_task_queue
 from core.queue import TaskQueue
 from core.queue.task_names import TaskName
+from modules.parsing.list_ops import ListOpError, run_list_op
 from modules.parsing.repositories import (
     ParsedListRepository,
     ParsedListTargetRepository,
 )
 from modules.parsing.schemas import (
+    ListOpRequest,
     ParsedListRead,
     ParsedListTargetRead,
+    RunChannelCommentersRequest,
     RunChatMembersRequest,
     RunChatMessagesRequest,
+    RunPostReactorsRequest,
 )
 
 
@@ -39,6 +43,24 @@ def _owner_id(user_id: str) -> int:
         return int(user_id)
     except (TypeError, ValueError):
         return 0
+
+
+# Поля фильтров, общие для всех run-запросов (Extraction+, этап 1).
+_FILTER_KEYS = (
+    "require_username",
+    "premium_only",
+    "require_photo",
+    "verified_only",
+    "exclude_scam_fake",
+    "require_phone_visible",
+    "username_regex",
+    "name_script",
+    "last_seen_max_days",
+)
+
+
+def _filter_payload(body) -> dict:
+    return {k: getattr(body, k) for k in _FILTER_KEYS}
 
 
 @router.get("/lists", response_model=list[ParsedListRead])
@@ -111,8 +133,7 @@ async def run_chat_messages(
             "chat_ref": body.chat_ref,
             "days_window": body.days_window,
             "min_messages": body.min_messages,
-            "require_username": body.require_username,
-            "premium_only": body.premium_only,
+            **_filter_payload(body),
         },
     )
     return {"job_id": job_id}
@@ -133,8 +154,81 @@ async def run_chat_members(
             "collector_account_id": body.collector_account_id,
             "chat_ref": body.chat_ref,
             "only_recently_seen": body.only_recently_seen,
-            "require_username": body.require_username,
-            "premium_only": body.premium_only,
+            **_filter_payload(body),
         },
     )
     return {"job_id": job_id}
+
+
+@router.post("/lists/run/channel-commenters")
+async def run_channel_commenters(
+    body: RunChannelCommentersRequest,
+    task_queue: TaskQueue = Depends(get_task_queue),
+    user_id: str = Depends(require_user),
+):
+    """Комментаторы канала (из его linked discussion chat)."""
+    job_id = await task_queue.enqueue(
+        TaskName.PRIMING_PARSER_RUN,
+        "channel_commenters",
+        {
+            "owner_user_id": _owner_id(user_id),
+            "name": body.name,
+            "collector_account_id": body.collector_account_id,
+            "chat_ref": body.chat_ref,
+            "days_window": body.days_window,
+            "min_messages": body.min_messages,
+            **_filter_payload(body),
+        },
+    )
+    return {"job_id": job_id}
+
+
+@router.post("/lists/run/post-reactors")
+async def run_post_reactors(
+    body: RunPostReactorsRequest,
+    task_queue: TaskQueue = Depends(get_task_queue),
+    user_id: str = Depends(require_user),
+):
+    """Пользователи, ставившие реакции на последние посты канала/чата."""
+    job_id = await task_queue.enqueue(
+        TaskName.PRIMING_PARSER_RUN,
+        "post_reactors",
+        {
+            "owner_user_id": _owner_id(user_id),
+            "name": body.name,
+            "collector_account_id": body.collector_account_id,
+            "chat_ref": body.chat_ref,
+            "posts_limit": body.posts_limit,
+            "reactions_per_post": body.reactions_per_post,
+            "min_reactions": body.min_reactions,
+            **_filter_payload(body),
+        },
+    )
+    return {"job_id": job_id}
+
+
+@router.post("/lists/ops", response_model=ParsedListRead, status_code=status.HTTP_201_CREATED)
+def list_ops(
+    body: ListOpRequest,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+):
+    """Операции над списками (пересечение/объединение/вычитание/сэмпл).
+
+    Синхронно (чистый DB, без Telegram): создаёт новый производный список."""
+    try:
+        result = run_list_op(
+            session,
+            owner_user_id=_owner_id(user_id),
+            name=body.name,
+            op=body.op,
+            source_list_ids=body.source_list_ids,
+            min_overlap=body.min_overlap,
+            sample_size=body.sample_size,
+        )
+    except ListOpError as exc:
+        raise HTTPException(status_code=422, detail={
+            "error": "invalid_list_op", "message": str(exc),
+        }) from exc
+    obj = ParsedListRepository(session).get_by_id(result.list_id)
+    return ParsedListRead.model_validate(obj)
