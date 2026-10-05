@@ -21,7 +21,14 @@ from modules.parsing.repositories import (
     ParsedListRepository,
     ParsedListTargetRepository,
 )
+from modules.parsing.providers import (
+    CatalogProviderError,
+    CatalogQuery,
+    get_provider,
+)
 from modules.parsing.schemas import (
+    CatalogCandidateRead,
+    CatalogSearchRequest,
     ListOpRequest,
     ParsedCommunityItemRead,
     ParsedListRead,
@@ -238,6 +245,48 @@ async def run_communities(
         },
     )
     return {"job_id": job_id}
+
+
+@router.get("/catalog/status")
+async def catalog_status(provider: str = "telemetrio"):
+    """Проверка доступа к внешнему каталогу (ключ/квота) — этап 3."""
+    try:
+        data = await get_provider(provider).check()
+    except CatalogProviderError as exc:
+        raise HTTPException(status_code=503, detail={
+            "error": "catalog_unavailable", "message": str(exc),
+        }) from exc
+    return {"provider": provider, "ok": True, "usage": data}
+
+
+@router.post("/catalog/search", response_model=list[CatalogCandidateRead])
+async def catalog_search(body: CatalogSearchRequest):
+    """Поиск сообществ во внешнем каталоге (Telemetr.io и др.). Отдаёт кандидатов
+    — сохранение/верификация идёт через run/communities по их @username."""
+    try:
+        candidates = await get_provider(body.provider).search(
+            CatalogQuery(
+                term=body.term,
+                category=body.category,
+                language=body.language,
+                country=body.country,
+                min_participants=body.min_participants,
+                max_participants=body.max_participants,
+                kind=body.kind,
+                sort=body.sort,
+                limit=body.limit,
+            )
+        )
+    except CatalogProviderError as exc:
+        raise HTTPException(status_code=503, detail={
+            "error": "catalog_unavailable", "message": str(exc),
+        }) from exc
+    return [
+        CatalogCandidateRead.model_validate(
+            {k: v for k, v in c.__dict__.items() if k != "extra"}
+        )
+        for c in candidates
+    ]
 
 
 @router.get("/lists/{list_id}/communities", response_model=list[ParsedCommunityItemRead])

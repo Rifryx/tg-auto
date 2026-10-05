@@ -130,6 +130,36 @@ class ParsedCommunityItemRead(_ParsingBase):
     created_at: datetime
 
 
+class CatalogSearchRequest(_ParsingBase):
+    """Поиск сообществ во внешнем каталоге (Discovery, этап 3)."""
+
+    provider: str = Field(default="telemetrio", max_length=32)
+    term: Optional[str] = Field(default=None, max_length=128)
+    category: Optional[str] = Field(default=None, max_length=64)
+    language: Optional[str] = Field(default=None, max_length=16)
+    country: Optional[str] = Field(default=None, max_length=16)
+    min_participants: Optional[int] = Field(default=None, ge=0)
+    max_participants: Optional[int] = Field(default=None, ge=0)
+    kind: Optional[str] = Field(default=None, pattern="^(channel|chat)$")
+    sort: Optional[str] = Field(default=None, max_length=32)
+    limit: int = Field(default=50, ge=1, le=100)
+
+
+class CatalogCandidateRead(_ParsingBase):
+    ref: str
+    channel_tg_id: Optional[int] = None
+    title: Optional[str] = None
+    username: Optional[str] = None
+    kind: str
+    participants_count: Optional[int] = None
+    language: Optional[str] = None
+    country: Optional[str] = None
+    category: Optional[str] = None
+    er: Optional[float] = None
+    verified: bool = False
+    provider: str = ""
+
+
 class ListOpRequest(_ParsingBase):
     name: str = Field(..., min_length=1, max_length=120)
     op: str = Field(..., pattern="^(intersect|union|subtract|sample)$")
@@ -147,5 +177,7 @@ __all__ = [
     "RunChannelCommentersRequest",
     "RunPostReactorsRequest",
     "RunCommunitiesRequest",
+    "CatalogSearchRequest",
+    "CatalogCandidateRead",
     "ListOpRequest",
 ]

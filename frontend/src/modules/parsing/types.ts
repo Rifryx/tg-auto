@@ -118,6 +118,35 @@ export interface RunCommunitiesBody {
   username_regex?: string | null;
 }
 
+/* Внешний каталог сообществ (Discovery, этап 3). */
+export interface CatalogCandidate {
+  ref: string;
+  channel_tg_id: number | null;
+  title: string | null;
+  username: string | null;
+  kind: "channel" | "chat";
+  participants_count: number | null;
+  language: string | null;
+  country: string | null;
+  category: string | null;
+  er: number | null;
+  verified: boolean;
+  provider: string;
+}
+
+export interface CatalogSearchBody {
+  provider?: string;
+  term?: string | null;
+  category?: string | null;
+  language?: string | null;
+  country?: string | null;
+  min_participants?: number | null;
+  max_participants?: number | null;
+  kind?: "channel" | "chat" | null;
+  sort?: string | null;
+  limit?: number;
+}
+
 export type ListOp = "intersect" | "union" | "subtract" | "sample";
 
 export interface ListOpBody {

@@ -1,5 +1,7 @@
 import { api } from "../../shared/api";
 import type {
+  CatalogCandidate,
+  CatalogSearchBody,
   CommunityItem,
   ListOpBody,
   ParsedList,
@@ -30,4 +32,10 @@ export const parsingApi = {
   communities: (id: number) =>
     api.get<CommunityItem[]>(`${BASE}/${id}/communities`),
   listOps: (body: ListOpBody) => api.post<ParsedList>(`${BASE}/ops`, body),
+  catalogStatus: (provider = "telemetrio") =>
+    api.get<{ provider: string; ok: boolean; usage: Record<string, unknown> }>(
+      `/modules/parsing/catalog/status?provider=${provider}`,
+    ),
+  catalogSearch: (body: CatalogSearchBody) =>
+    api.post<CatalogCandidate[]>(`/modules/parsing/catalog/search`, body),
 };
