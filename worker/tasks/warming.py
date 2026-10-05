@@ -281,14 +281,17 @@ async def initial_start_impl(ctx: dict, account_id: int) -> int:
     """
     rng = _rng(ctx)
     task_queue = _task_queue(ctx)
-    session_factory = ctx["session_factory"]
     # Размер стартовой пачки: по умолчанию — INITIAL_BATCH_PROFILE (как раньше),
-    # сценарий аккаунта (если задан) переопределяет размер.
+    # сценарий аккаунта (если задан) переопределяет размер. session_factory может
+    # отсутствовать в ctx (initial_start исторически его не требовал) — тогда
+    # сценарий не читаем и работаем на дефолте.
     scenario = None
-    with session_factory() as session:
-        account = AccountRepository(session).get(account_id)
-        if account is not None:
-            scenario = WarmingScenario.from_meta(account.meta)
+    session_factory = ctx.get("session_factory")
+    if session_factory is not None:
+        with session_factory() as session:
+            account = AccountRepository(session).get(account_id)
+            if account is not None:
+                scenario = WarmingScenario.from_meta(account.meta)
     count = batch_action_count(INITIAL_BATCH_PROFILE, rng, scenario=scenario)
     for _ in range(count):
         await task_queue.enqueue(TaskName.WARMING_TICK, account_id)
