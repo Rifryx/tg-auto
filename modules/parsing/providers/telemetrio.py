@@ -72,10 +72,10 @@ class TelemetrioProvider:
             resp = await client.get(
                 f"{self._base_url}{path}", params=params, headers=self._headers()
             )
-            if resp.status_code == 401:
-                raise CatalogProviderError("telemetrio: 401 — неверный/просроченный ключ")
-            if resp.status_code == 429:
-                raise CatalogProviderError("telemetrio: 429 — исчерпана квота")
+            if resp.status_code in (401, 403, 412, 429):
+                raise CatalogProviderError(
+                    f"telemetrio: {resp.status_code} — {_err_msg(resp)}"
+                )
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPError as exc:
@@ -134,6 +134,29 @@ class TelemetrioProvider:
             provider=self.name,
             extra={"internal_id": g("internal_id", "id")},
         )
+
+
+_STATUS_HINT = {
+    401: "неверный/просроченный ключ",
+    403: "каталог недоступен на вашем тарифе (нужен платный план)",
+    412: "подписка не активирована — активируйте тариф в Telemetr.io",
+    429: "исчерпана квота запросов",
+}
+
+
+def _err_msg(resp: httpx.Response) -> str:
+    """Сообщение из тела ответа Telemetr.io + человекочитаемая подсказка."""
+    server = ""
+    try:
+        body = resp.json()
+        if isinstance(body, dict):
+            server = str(body.get("message") or body.get("error") or "")
+    except Exception:  # noqa: BLE001
+        server = (resp.text or "")[:120]
+    hint = _STATUS_HINT.get(resp.status_code, "")
+    if server and hint:
+        return f"{server} ({hint})"
+    return server or hint or "ошибка каталога"
 
 
 def _as_list(data: Any) -> list:

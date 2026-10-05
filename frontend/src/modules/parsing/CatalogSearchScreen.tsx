@@ -32,8 +32,17 @@ export function CatalogSearchScreen() {
     queryFn: () => parsingApi.catalogStatus(),
     retry: false,
   });
-  const keyMissing =
-    status.isError && status.error instanceof ApiError && status.error.status === 503;
+  const catalogError =
+    status.isError && status.error instanceof ApiError && status.error.status === 503
+      ? status.error
+      : null;
+  const catalogReason =
+    catalogError &&
+    catalogError.detail &&
+    typeof catalogError.detail === "object" &&
+    "message" in catalogError.detail
+      ? String((catalogError.detail as { message?: unknown }).message)
+      : null;
 
   const accountsQuery = useQuery({ queryKey: ["accounts", "pool"], queryFn: () => accountsApi.list() });
   const collectors = useMemo(
@@ -95,12 +104,17 @@ export function CatalogSearchScreen() {
         }
       />
 
-      {keyMissing && (
+      {catalogError && (
         <div className="mb-4 rounded-xl border-l-[4px] border-status-warning bg-surface-1 p-4">
-          <p className="text-[14px] font-medium text-text-primary">Каталог не подключён</p>
+          <p className="text-[14px] font-medium text-text-primary">Каталог недоступен</p>
+          {catalogReason && (
+            <p className="mt-1 text-[13px] text-status-warning">{catalogReason}</p>
+          )}
           <p className="mt-1 text-[13px] text-text-secondary">
-            Укажите ключ Telemetr.io в <span className="font-mono">TELEMETRIO_API_KEY</span>.
-            Получить: <b>@telemetrio_api_bot</b> → команда <span className="font-mono">/api_key</span>.
+            Ключ Telemetr.io — в <span className="font-mono">TELEMETRIO_API_KEY</span> (получить:
+            <b> @telemetrio_api_bot</b> → <span className="font-mono">/api_key</span>). Расширенный
+            поиск по теме/подписчикам требует платного тарифа; поиск по ключевому слову работает
+            на активной подписке.
           </p>
         </div>
       )}
