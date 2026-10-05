@@ -13,6 +13,8 @@ import structlog
 from modules.parsing.parser.channel_commenters import parse_channel_commenters
 from modules.parsing.parser.chat_members import parse_chat_members
 from modules.parsing.parser.chat_messages import parse_chat_messages
+from modules.parsing.parser.community_enrich import enrich_communities
+from modules.parsing.parser.community_filters import CommunityFilterOptions
 from modules.parsing.parser.filters import FilterOptions
 from modules.parsing.parser.post_reactors import parse_post_reactors
 
@@ -93,6 +95,26 @@ async def parser_run(
             reactions_per_post=int(payload.get("reactions_per_post", 100)),
             min_reactions=int(payload.get("min_reactions", 1)),
             filter_options=filter_options,
+        )
+    elif kind == "communities":
+        result = await enrich_communities(
+            ctx,
+            owner_user_id=int(payload["owner_user_id"]),
+            name=str(payload["name"]),
+            collector_account_id=int(payload["collector_account_id"]),
+            refs=list(payload.get("refs") or []),
+            filter_options=CommunityFilterOptions(
+                kind=payload.get("kind") or None,
+                min_participants=payload.get("min_participants"),
+                max_participants=payload.get("max_participants"),
+                require_public=bool(payload.get("require_public", False)),
+                require_linked_chat=bool(payload.get("require_linked_chat", False)),
+                last_post_max_days=payload.get("last_post_max_days"),
+                exclude_scam_fake=bool(payload.get("exclude_scam_fake", True)),
+                verified_only=bool(payload.get("verified_only", False)),
+                title_regex=payload.get("title_regex") or None,
+                username_regex=payload.get("username_regex") or None,
+            ),
         )
     else:
         log.warning("parsing.parser_run.unknown_kind", kind=kind)

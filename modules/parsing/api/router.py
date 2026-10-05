@@ -17,16 +17,19 @@ from core.queue import TaskQueue
 from core.queue.task_names import TaskName
 from modules.parsing.list_ops import ListOpError, run_list_op
 from modules.parsing.repositories import (
+    ParsedCommunityItemRepository,
     ParsedListRepository,
     ParsedListTargetRepository,
 )
 from modules.parsing.schemas import (
     ListOpRequest,
+    ParsedCommunityItemRead,
     ParsedListRead,
     ParsedListTargetRead,
     RunChannelCommentersRequest,
     RunChatMembersRequest,
     RunChatMessagesRequest,
+    RunCommunitiesRequest,
     RunPostReactorsRequest,
 )
 
@@ -205,6 +208,53 @@ async def run_post_reactors(
         },
     )
     return {"job_id": job_id}
+
+
+@router.post("/lists/run/communities")
+async def run_communities(
+    body: RunCommunitiesRequest,
+    task_queue: TaskQueue = Depends(get_task_queue),
+    user_id: str = Depends(require_user),
+):
+    """Discovery сообществ: обогащение переданных ссылок (каналы/чаты) + фильтры."""
+    job_id = await task_queue.enqueue(
+        TaskName.PRIMING_PARSER_RUN,
+        "communities",
+        {
+            "owner_user_id": _owner_id(user_id),
+            "name": body.name,
+            "collector_account_id": body.collector_account_id,
+            "refs": body.refs,
+            "kind": body.kind,
+            "min_participants": body.min_participants,
+            "max_participants": body.max_participants,
+            "require_public": body.require_public,
+            "require_linked_chat": body.require_linked_chat,
+            "last_post_max_days": body.last_post_max_days,
+            "exclude_scam_fake": body.exclude_scam_fake,
+            "verified_only": body.verified_only,
+            "title_regex": body.title_regex,
+            "username_regex": body.username_regex,
+        },
+    )
+    return {"job_id": job_id}
+
+
+@router.get("/lists/{list_id}/communities", response_model=list[ParsedCommunityItemRead])
+def list_communities(
+    list_id: int,
+    session: Session = Depends(get_session),
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+):
+    if ParsedListRepository(session).get_by_id(list_id) is None:
+        raise HTTPException(status_code=404, detail={
+            "error": "not_found", "message": f"parsed list {list_id} not found",
+        })
+    rows = ParsedCommunityItemRepository(session).list_by_list(
+        list_id, limit=limit, offset=offset,
+    )
+    return [ParsedCommunityItemRead.model_validate(r) for r in rows]
 
 
 @router.post("/lists/ops", response_model=ParsedListRead, status_code=status.HTTP_201_CREATED)

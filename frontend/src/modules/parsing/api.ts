@@ -1,10 +1,12 @@
 import { api } from "../../shared/api";
 import type {
+  CommunityItem,
   ListOpBody,
   ParsedList,
   ParsedListTarget,
   RunChatMembersBody,
   RunChatMessagesBody,
+  RunCommunitiesBody,
   RunPostReactorsBody,
 } from "./types";
 
@@ -23,5 +25,9 @@ export const parsingApi = {
     api.post<{ job_id: string }>(`${BASE}/run/channel-commenters`, body),
   runPostReactors: (body: RunPostReactorsBody) =>
     api.post<{ job_id: string }>(`${BASE}/run/post-reactors`, body),
+  runCommunities: (body: RunCommunitiesBody) =>
+    api.post<{ job_id: string }>(`${BASE}/run/communities`, body),
+  communities: (id: number) =>
+    api.get<CommunityItem[]>(`${BASE}/${id}/communities`),
   listOps: (body: ListOpBody) => api.post<ParsedList>(`${BASE}/ops`, body),
 };

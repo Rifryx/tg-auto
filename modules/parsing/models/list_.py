@@ -14,7 +14,7 @@ from core.models.base import PARSING_SCHEMA, Base, CreatedAtMixin
 
 _SOURCE_KINDS_SQL = (
     "source_kind IN ('chat_messages', 'chat_members', 'manual_list', 'upload_csv', "
-    "'channel_commenters', 'post_reactors', 'list_op')"
+    "'channel_commenters', 'post_reactors', 'list_op', 'community_enrich')"
 )
 
 

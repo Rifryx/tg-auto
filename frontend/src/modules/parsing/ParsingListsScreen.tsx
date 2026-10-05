@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Combine, Filter, Plus } from "lucide-react";
+import { ChevronRight, Combine, Filter, Plus, Radio } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { EmptyState } from "../../components/EmptyState";
@@ -19,6 +19,7 @@ const SOURCE_LABEL: Record<ParsedList["source_kind"], string> = {
   channel_commenters: "Комментаторы канала",
   post_reactors: "Реакторы постов",
   list_op: "Операция над списками",
+  community_enrich: "Сообщества (каналы/чаты)",
 };
 
 export function ParsingListsScreen() {
@@ -35,6 +36,15 @@ export function ParsingListsScreen() {
         title="Парсинг"
         action={
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate("/modules/parsing/communities")}
+              aria-label="Поиск сообществ"
+              className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-surface-2 px-3 text-[14px] font-medium text-text-secondary active:text-text-primary"
+            >
+              <Radio className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+              Сообщества
+            </button>
             <button
               type="button"
               onClick={() => navigate("/modules/parsing/ops")}
@@ -84,7 +94,14 @@ export function ParsingListsScreen() {
           {data.map((l, i) => (
             <div
               key={l.id}
-              className={`flex items-center gap-4 px-4 py-4 ${i > 0 ? "border-t border-hairline" : ""}`}
+              onClick={
+                l.source_kind === "community_enrich"
+                  ? () => navigate(`/modules/parsing/lists/${l.id}/communities`)
+                  : undefined
+              }
+              className={`flex items-center gap-4 px-4 py-4 ${i > 0 ? "border-t border-hairline" : ""} ${
+                l.source_kind === "community_enrich" ? "cursor-pointer active:bg-surface-2" : ""
+              }`}
             >
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-primary">
                 <Filter className="h-5 w-5" strokeWidth={1.7} aria-hidden />
@@ -106,7 +123,7 @@ export function ParsingListsScreen() {
                   {l.after_filters_count}
                 </div>
                 <div className="text-[11px] uppercase tracking-wider text-text-tertiary">
-                  целей
+                  {l.source_kind === "community_enrich" ? "сообществ" : "целей"}
                 </div>
               </div>
               <ChevronRight className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />

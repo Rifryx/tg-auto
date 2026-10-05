@@ -8,7 +8,8 @@ export type ParserSourceKind =
   | "upload_csv"
   | "channel_commenters"
   | "post_reactors"
-  | "list_op";
+  | "list_op"
+  | "community_enrich";
 
 /* Общие фильтры аудитории (Extraction+, этап 1). */
 export interface AudienceFilters {
@@ -78,6 +79,43 @@ export interface RunPostReactorsBody extends AudienceFilters {
   posts_limit?: number;
   reactions_per_post?: number;
   min_reactions?: number;
+}
+
+/* Discovery сообществ (этап 2). */
+export interface CommunityItem {
+  id: number;
+  list_id: number;
+  input_ref: string;
+  channel_tg_id: number | null;
+  title: string | null;
+  username: string | null;
+  is_public: boolean;
+  kind: "channel" | "chat";
+  participants_count: number | null;
+  has_linked_chat: boolean;
+  last_post_at: string | null;
+  is_verified: boolean;
+  is_scam: boolean;
+  is_fake: boolean;
+  slowmode_seconds: number | null;
+  about: string | null;
+  created_at: string;
+}
+
+export interface RunCommunitiesBody {
+  name: string;
+  collector_account_id: number;
+  refs: string[];
+  kind?: "channel" | "chat" | null;
+  min_participants?: number | null;
+  max_participants?: number | null;
+  require_public?: boolean;
+  require_linked_chat?: boolean;
+  last_post_max_days?: number | null;
+  exclude_scam_fake?: boolean;
+  verified_only?: boolean;
+  title_regex?: string | null;
+  username_regex?: string | null;
 }
 
 export type ListOp = "intersect" | "union" | "subtract" | "sample";

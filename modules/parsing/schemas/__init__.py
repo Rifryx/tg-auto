@@ -91,6 +91,45 @@ class RunPostReactorsRequest(_FilterFields):
     min_reactions: int = Field(default=1, ge=1)
 
 
+class RunCommunitiesRequest(_ParsingBase):
+    """Discovery сообществ (этап 2): обогащение переданных ссылок + фильтры."""
+
+    name: str = Field(..., min_length=1, max_length=120)
+    collector_account_id: int
+    refs: list[str] = Field(..., min_length=1, max_length=500)
+    # community-фильтры (None = не фильтровать по этому критерию)
+    kind: Optional[str] = Field(default=None, pattern="^(channel|chat)$")
+    min_participants: Optional[int] = Field(default=None, ge=0)
+    max_participants: Optional[int] = Field(default=None, ge=0)
+    require_public: bool = False
+    require_linked_chat: bool = False
+    last_post_max_days: Optional[int] = Field(default=None, ge=0, le=3650)
+    exclude_scam_fake: bool = True
+    verified_only: bool = False
+    title_regex: Optional[str] = Field(default=None, max_length=256)
+    username_regex: Optional[str] = Field(default=None, max_length=256)
+
+
+class ParsedCommunityItemRead(_ParsingBase):
+    id: int
+    list_id: int
+    input_ref: str
+    channel_tg_id: Optional[int] = None
+    title: Optional[str] = None
+    username: Optional[str] = None
+    is_public: bool
+    kind: str
+    participants_count: Optional[int] = None
+    has_linked_chat: bool
+    last_post_at: Optional[datetime] = None
+    is_verified: bool
+    is_scam: bool
+    is_fake: bool
+    slowmode_seconds: Optional[int] = None
+    about: Optional[str] = None
+    created_at: datetime
+
+
 class ListOpRequest(_ParsingBase):
     name: str = Field(..., min_length=1, max_length=120)
     op: str = Field(..., pattern="^(intersect|union|subtract|sample)$")
@@ -102,9 +141,11 @@ class ListOpRequest(_ParsingBase):
 __all__ = [
     "ParsedListRead",
     "ParsedListTargetRead",
+    "ParsedCommunityItemRead",
     "RunChatMessagesRequest",
     "RunChatMembersRequest",
     "RunChannelCommentersRequest",
     "RunPostReactorsRequest",
+    "RunCommunitiesRequest",
     "ListOpRequest",
 ]
