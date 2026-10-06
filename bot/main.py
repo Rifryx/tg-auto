@@ -26,13 +26,24 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import func, select
 
 from api.deps.db import _session_factory  # тестируемый и уже настроенный фабрик
+from bot.chat_actions import (
+    CB_PREFIX,
+    cmd_billing,
+    cmd_campaigns,
+    cmd_pause,
+    cmd_quarantine,
+    cmd_repeat,
+    cmd_resume,
+    cmd_stop,
+    cmd_unquarantine,
+    on_control_callback,
+)
 from bot.notifier import run_notifier
 from bot.user_commands import cmd_help, cmd_start, cmd_status
 from core.audit import admin_action
 from core.config import get_settings
 from core.models.account import Account
 from core.models.subscription import Subscription
-from core.repositories.subscription import SubscriptionRepository
 
 logger = logging.getLogger("bot")
 ADMIN_MENU_CB = "admin_menu"
@@ -148,6 +159,21 @@ async def _amain() -> None:
     dp.message.register(cmd_start, Command("start"))
     dp.message.register(cmd_help, Command("help"))
     dp.message.register(cmd_status, Command("status"))
+
+    # Интерактивные команды с проверкой владения (bot/chat_actions.py):
+    # управление праймингом, карантин аккаунтов, биллинг.
+    dp.message.register(cmd_campaigns, Command("campaigns"))
+    dp.message.register(cmd_pause, Command("pause"))
+    dp.message.register(cmd_resume, Command("resume"))
+    dp.message.register(cmd_stop, Command("stop"))
+    dp.message.register(cmd_repeat, Command("repeat"))
+    dp.message.register(cmd_quarantine, Command("quarantine"))
+    dp.message.register(cmd_unquarantine, Command("unquarantine"))
+    dp.message.register(cmd_billing, Command("billing"))
+    # Inline-кнопки под карточками кампаний и push-алертами (pc:*).
+    dp.callback_query.register(
+        on_control_callback, F.data.startswith(CB_PREFIX + ":")
+    )
 
     logger.info("bot starting (long-polling + notifier)…")
     # notifier — фоновая корутина: слушает Redis pub/sub и шлёт админам пуши

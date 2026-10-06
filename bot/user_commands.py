@@ -12,7 +12,6 @@
 """
 from __future__ import annotations
 
-from typing import Optional
 
 from aiogram.types import Message
 from sqlalchemy import func, select
@@ -30,8 +29,9 @@ async def cmd_start(message: Message) -> None:
         "👋 Привет! Я служебный бот для управления Telegram-аккаунтами.\n\n"
         "Доступные команды:\n"
         "• /status — сводка по парку\n"
+        "• /campaigns — ваши прайминг-кампании\n"
         "• /help — все команды\n\n"
-        "Полное управление — в Mini App.",
+        "Многое теперь можно делать прямо здесь, не открывая Mini App.",
     )
 
 
@@ -39,8 +39,18 @@ async def cmd_help(message: Message) -> None:
     await message.answer(
         "<b>Команды</b>\n"
         "• /start — начать работу\n"
-        "• /status — сводка парка\n"
-        "• /help — эта справка\n",
+        "• /status — сводка парка\n\n"
+        "<b>Прайминг-кампании</b>\n"
+        "• /campaigns — список ваших кампаний (с кнопками)\n"
+        "• /pause &lt;id&gt; — пауза кампании\n"
+        "• /resume &lt;id&gt; — возобновить кампанию\n"
+        "• /stop &lt;id&gt; — остановить кампанию\n"
+        "• /repeat [id] — повторить кампанию (последнюю или по id)\n\n"
+        "<b>Аккаунты</b>\n"
+        "• /quarantine &lt;id&gt; — вывести аккаунт из работы\n"
+        "• /unquarantine &lt;id&gt; — вернуть аккаунт в пул\n\n"
+        "<b>Тариф</b>\n"
+        "• /billing — ваш тариф, срок и лимиты\n",
         parse_mode="HTML",
     )
 

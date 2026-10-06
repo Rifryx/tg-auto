@@ -51,6 +51,17 @@ router = APIRouter(
 )
 
 
+def _as_owner_id(user_id: str) -> Optional[int]:
+    """Telegram user_id (из initData) → int для accounts.owner_user_id.
+
+    В DEV_MODE require_user возвращает нечисловой 'dev-user' — тогда
+    владельца не ставим (None = общий пул)."""
+    try:
+        return int(user_id)
+    except (TypeError, ValueError):
+        return None
+
+
 # --- request-модели API (не доменные; фингерпринт/статус недопустимы) ---------
 
 
@@ -127,6 +138,7 @@ async def create_account(
     body: AccountCreateRequest,
     session: Session = Depends(get_session),
     task_queue: TaskQueue = Depends(get_task_queue),
+    user_id: str = Depends(require_user),
     _limit: None = Depends(enforce_limit("accounts_max")),
 ) -> AccountRead:
     try:
@@ -136,6 +148,7 @@ async def create_account(
             proxy_id=body.proxy_id,
             persona_id=body.persona_id,
             warming_profile=body.warming_profile,
+            owner_user_id=_as_owner_id(user_id),
         )
     except accounts_service.ProxyNotFoundError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
@@ -164,6 +177,7 @@ async def import_session_account(
     session_string: Optional[str] = Form(None),
     session_file: Optional[UploadFile] = File(None),
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
     _limit: None = Depends(enforce_limit("accounts_max")),
 ) -> AccountRead:
     """Импорт аккаунта из готовой сессии: StringSession-строкой или .session-файлом.
@@ -195,6 +209,7 @@ async def import_session_account(
             persona_id=persona_id,
             warming_profile=warming_profile,
             session_string=string,
+            owner_user_id=_as_owner_id(user_id),
         )
     except accounts_service.ProxyNotFoundError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc

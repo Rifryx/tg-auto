@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from bot.notifier import _fmt_account_status, _fmt_autopilot, _fmt_ban_risk
+from bot.notifier import (
+    _fmt_account_status,
+    _fmt_autopilot,
+    _fmt_ban_risk,
+    _fmt_priming_alert,
+)
 
 
 # ── account_status ──────────────────────────────────────────────────────────
@@ -130,3 +135,71 @@ def test_autopilot_with_actions_notified():
     })
     assert text is not None
     assert "2 действий" in text
+
+
+# ── priming.alert (этап: чат-команды, инциденты прайминга) ────────────────────
+
+
+def test_priming_autopause_privacy_notified():
+    text = _fmt_priming_alert({
+        "event": "autopause_privacy",
+        "campaign_id": 12,
+        "rate": 0.42,
+    })
+    assert text is not None
+    assert "#12" in text
+    assert "автопауз" in text.lower()
+
+
+def test_priming_autopause_flood_notified():
+    text = _fmt_priming_alert({
+        "event": "autopause_flood",
+        "campaign_id": 5,
+        "rate": 0.3,
+    })
+    assert text is not None
+    assert "#5" in text
+
+
+def test_priming_autopause_without_rate_still_notified():
+    """rate может отсутствовать — алерт всё равно формируется, без процента."""
+    text = _fmt_priming_alert({"event": "autopause_flood", "campaign_id": 8})
+    assert text is not None
+    assert "#8" in text
+
+
+def test_priming_quarantined_notified():
+    text = _fmt_priming_alert({
+        "event": "quarantined",
+        "campaign_id": 5,
+        "account_id": 77,
+        "consecutive": 3,
+    })
+    assert text is not None
+    assert "#77" in text
+    assert "карантин" in text.lower()
+
+
+def test_priming_unknown_event_ignored():
+    assert _fmt_priming_alert({"event": "whatever", "campaign_id": 1}) is None
+
+
+def test_priming_alert_keyboard_paused_has_resume():
+    """Клавиатура под алертом автопаузы: есть Возобновить/Остановить/Открыть."""
+    from bot.chat_actions import CB_PREFIX, alert_keyboard
+
+    kb = alert_keyboard(9, paused=True)
+    flat = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert f"{CB_PREFIX}:resume:9" in flat
+    assert f"{CB_PREFIX}:stop:9" in flat
+    assert f"{CB_PREFIX}:open:9" in flat
+
+
+def test_priming_alert_keyboard_running_has_no_resume():
+    """Для не-приостановленного инцидента (карантин) кнопки Возобновить нет."""
+    from bot.chat_actions import CB_PREFIX, alert_keyboard
+
+    kb = alert_keyboard(9, paused=False)
+    flat = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert f"{CB_PREFIX}:resume:9" not in flat
+    assert f"{CB_PREFIX}:stop:9" in flat

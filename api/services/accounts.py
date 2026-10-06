@@ -60,6 +60,7 @@ def create_account(
     proxy_id: int,
     persona_id: Optional[int],
     warming_profile: WarmingProfile,
+    owner_user_id: Optional[int] = None,
 ) -> Account:
     """Создаёт аккаунт (created) со сгенерированным фингерпринтом и прокси."""
     proxy = ProxyRepository(session).get(proxy_id)
@@ -75,6 +76,7 @@ def create_account(
         account = accounts.create(
             AccountCreate(
                 phone=phone,
+                owner_user_id=owner_user_id,
                 # Пустая StringSession: заполнится логин-флоу после ввода кода.
                 session_enc=encrypt_session(b""),
                 proxy_id=proxy_id,
@@ -143,6 +145,7 @@ def import_account_from_session(
     persona_id: Optional[int],
     warming_profile: WarmingProfile,
     session_string: str,
+    owner_user_id: Optional[int] = None,
 ) -> Account:
     """Создаёт аккаунт из готовой (авторизованной) StringSession.
 
@@ -160,6 +163,7 @@ def import_account_from_session(
         account = accounts.create(
             AccountCreate(
                 phone=phone,
+                owner_user_id=owner_user_id,
                 session_enc=encrypt_session(session_string.encode()),
                 proxy_id=proxy_id,
                 persona_id=persona_id,

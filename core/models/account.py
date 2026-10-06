@@ -48,6 +48,7 @@ class Account(Base, TimestampMixin):
             name="previous_status_allowed",
         ),
         Index("ix_accounts_status", "status"),
+        Index("ix_accounts_owner_user_id", "owner_user_id"),
         Index("ix_accounts_project_id", "project_id"),
         Index("ix_accounts_role", "role"),
         Index("ix_accounts_tags_gin", "tags", postgresql_using="gin"),
@@ -72,6 +73,13 @@ class Account(Base, TimestampMixin):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+
+    # Владелец аккаунта — Telegram user_id создателя (из initData). NULL —
+    # «ничей»/общий пул (legacy до введения владения). Используется для
+    # per-user изоляции действий из чат-бота: один пользователь не может
+    # триггерить аккаунты другого. Mini App-API пока работает в
+    # single-tenant режиме и владение не фильтрует (это задел).
+    owner_user_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
 
     phone: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     first_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)

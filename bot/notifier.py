@@ -9,6 +9,9 @@
 * ``account_status`` — переходы состояния (retire, ban, cooldown).
 * ``health.ban_risk_updated`` — рост риска бана.
 * ``autopilot.events`` — сводка тика автопилота (что он сделал).
+* ``priming.alert`` — инциденты прайминга (автопауза, карантин аккаунта).
+  Эти алерты адресные: кроме админов уходят владельцу кампании
+  (``PrimingCampaign.created_by``) и несут inline-кнопки быстрых действий.
 
 Фильтрация: не слать всё подряд, только важное:
 * Ban / retire — всегда.
@@ -18,7 +21,6 @@
 """
 from __future__ import annotations
 
-import asyncio
 import html
 import json
 import logging
@@ -35,6 +37,7 @@ _ACCOUNT_STATUS_CHANNEL = "account_status"
 _BAN_RISK_CHANNEL = "health.ban_risk_updated"
 _AUTOPILOT_CHANNEL = "autopilot.events"
 _COMMENTING_ALERTS_CHANNEL = "commenting.alerts"
+_PRIMING_ALERT_CHANNEL = "priming.alert"
 
 
 def _fmt_account_status(payload: dict[str, Any]) -> Optional[str]:
@@ -134,19 +137,99 @@ def _fmt_commenting_alert(payload: dict[str, Any]) -> Optional[str]:
     return "\n".join(lines)
 
 
+def _fmt_priming_alert(payload: dict[str, Any]) -> Optional[str]:
+    """Инцидент прайминга → текст. None — если событие неизвестно."""
+    event = payload.get("event")
+    campaign_id = payload.get("campaign_id")
+    if event == "autopause_privacy":
+        rate = payload.get("rate")
+        return (
+            f"⏸ <b>Кампания #{campaign_id} на автопаузе</b>\n"
+            f"Причина: много приватных аккаунтов среди целей"
+            + (f" (доля {round(float(rate) * 100)}%)" if rate is not None else "")
+            + ".\nПроверьте список целей и возобновите, когда будете готовы."
+        )
+    if event == "autopause_flood":
+        rate = payload.get("rate")
+        return (
+            f"⏸ <b>Кампания #{campaign_id} на автопаузе</b>\n"
+            f"Причина: Telegram часто отвечает FloodWait"
+            + (f" (доля {round(float(rate) * 100)}%)" if rate is not None else "")
+            + ".\nДайте аккаунтам отдохнуть и возобновите позже."
+        )
+    if event == "quarantined":
+        account_id = payload.get("account_id")
+        consecutive = payload.get("consecutive")
+        return (
+            f"🚧 <b>Аккаунт #{account_id} отправлен в карантин</b>\n"
+            f"Кампания: <code>#{campaign_id}</code>\n"
+            f"Причина: подряд FloodWait"
+            + (f" ×{consecutive}" if consecutive is not None else "")
+            + ".\nАккаунт выведен из работы кампании автоматически."
+        )
+    return None
+
+
+# Какие события несут кнопки паузы/возобновления (т.е. относятся к статусу
+# кампании, а не к одному аккаунту).
+_PRIMING_PAUSE_EVENTS = {"autopause_privacy", "autopause_flood"}
+
+
+def _resolve_campaign_owner(campaign_id: Optional[int]) -> Optional[str]:
+    """Telegram user_id владельца кампании (created_by) как строка, или None."""
+    if campaign_id is None:
+        return None
+    try:
+        from sqlalchemy import select
+
+        from api.deps.db import _session_factory
+        from modules.priming.models import PrimingCampaign
+
+        with _session_factory()() as session:
+            created_by = session.execute(
+                select(PrimingCampaign.created_by).where(
+                    PrimingCampaign.id == campaign_id
+                )
+            ).scalar_one_or_none()
+        return str(created_by) if created_by is not None else None
+    except Exception as exc:  # noqa: BLE001 — не рушим пуш из-за БД
+        logger.warning("bot.notifier.owner_lookup_failed cid=%s: %r", campaign_id, exc)
+        return None
+
+
+def _priming_keyboard(payload: dict[str, Any]):
+    """Inline-клавиатура под алертом прайминга (или None, если нет campaign_id)."""
+    campaign_id = payload.get("campaign_id")
+    if campaign_id is None:
+        return None
+    try:
+        from bot.chat_actions import alert_keyboard
+
+        paused = payload.get("event") in _PRIMING_PAUSE_EVENTS
+        return alert_keyboard(int(campaign_id), paused=paused)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("bot.notifier.keyboard_failed: %r", exc)
+        return None
+
+
 _HANDLERS = {
     _ACCOUNT_STATUS_CHANNEL: _fmt_account_status,
     _BAN_RISK_CHANNEL: _fmt_ban_risk,
     _AUTOPILOT_CHANNEL: _fmt_autopilot,
     _COMMENTING_ALERTS_CHANNEL: _fmt_commenting_alert,
+    _PRIMING_ALERT_CHANNEL: _fmt_priming_alert,
 }
 
 
-async def _send_to_all(bot: Bot, chat_ids: list[str], text: str) -> None:
+async def _send_to_all(
+    bot: Bot, chat_ids: list[str], text: str, *, reply_markup: Any = None
+) -> None:
     """Разослать сообщение всем указанным chat_id. Ошибки не роняют цикл."""
     for chat_id in chat_ids:
         try:
-            await bot.send_message(int(chat_id), text, parse_mode="HTML")
+            await bot.send_message(
+                int(chat_id), text, parse_mode="HTML", reply_markup=reply_markup
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "bot.notifier.send_failed chat_id=%s: %r", chat_id, exc
@@ -157,12 +240,13 @@ async def run_notifier(bot: Bot) -> None:
     """Фоновая задача-слушатель. Пришедшие события форматирует и рассылает."""
     settings = get_settings()
     if not settings.admin_ids:
+        # Раньше тут был ранний выход. Теперь priming.alert адресуется ещё и
+        # владельцу кампании (created_by), поэтому слушаем даже без админов —
+        # владельцы всё равно должны получать инциденты своих кампаний.
         logger.warning(
-            "bot.notifier: ADMIN_USER_IDS пуст — пуши слать некому, тихо стою"
+            "bot.notifier: ADMIN_USER_IDS пуст — общие пуши слать некому, "
+            "но адресные алерты прайминга пойдут владельцам кампаний"
         )
-        # Всё равно подписываемся: чтобы включение ADMIN_USER_IDS без рестарта
-        # не работало — но и не тратим коннекты впустую.
-        return
 
     redis = aioredis.from_url(settings.redis_url)
     pubsub = redis.pubsub()
@@ -193,7 +277,19 @@ async def run_notifier(bot: Bot) -> None:
             text = handler(payload)
             if not text:
                 continue
-            await _send_to_all(bot, list(settings.admin_ids), text)
+
+            if channel == _PRIMING_ALERT_CHANNEL:
+                # Адресный алерт: владелец кампании + админы, с кнопками.
+                recipients = list(settings.admin_ids)
+                owner = _resolve_campaign_owner(payload.get("campaign_id"))
+                if owner is not None and owner not in recipients:
+                    recipients.append(owner)
+                await _send_to_all(
+                    bot, recipients, text,
+                    reply_markup=_priming_keyboard(payload),
+                )
+            else:
+                await _send_to_all(bot, list(settings.admin_ids), text)
     finally:
         try:
             await pubsub.aclose()
