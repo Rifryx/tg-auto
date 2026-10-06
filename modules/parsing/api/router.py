@@ -21,14 +21,7 @@ from modules.parsing.repositories import (
     ParsedListRepository,
     ParsedListTargetRepository,
 )
-from modules.parsing.providers import (
-    CatalogProviderError,
-    CatalogQuery,
-    get_provider,
-)
 from modules.parsing.schemas import (
-    CatalogCandidateRead,
-    CatalogSearchRequest,
     ListOpRequest,
     ParsedCommunityItemRead,
     ParsedListRead,
@@ -37,6 +30,7 @@ from modules.parsing.schemas import (
     RunChatMembersRequest,
     RunChatMessagesRequest,
     RunCommunitiesRequest,
+    RunDiscoverRequest,
     RunPostReactorsRequest,
 )
 
@@ -247,46 +241,43 @@ async def run_communities(
     return {"job_id": job_id}
 
 
-@router.get("/catalog/status")
-async def catalog_status(provider: str = "telemetrio"):
-    """Проверка доступа к внешнему каталогу (ключ/квота) — этап 3."""
-    try:
-        data = await get_provider(provider).check()
-    except CatalogProviderError as exc:
-        raise HTTPException(status_code=503, detail={
-            "error": "catalog_unavailable", "message": str(exc),
-        }) from exc
-    return {"provider": provider, "ok": True, "usage": data}
-
-
-@router.post("/catalog/search", response_model=list[CatalogCandidateRead])
-async def catalog_search(body: CatalogSearchRequest):
-    """Поиск сообществ во внешнем каталоге (Telemetr.io и др.). Отдаёт кандидатов
-    — сохранение/верификация идёт через run/communities по их @username."""
-    try:
-        candidates = await get_provider(body.provider).search(
-            CatalogQuery(
-                term=body.term,
-                category=body.category,
-                language=body.language,
-                country=body.country,
-                min_participants=body.min_participants,
-                max_participants=body.max_participants,
-                kind=body.kind,
-                sort=body.sort,
-                limit=body.limit,
-            )
-        )
-    except CatalogProviderError as exc:
-        raise HTTPException(status_code=503, detail={
-            "error": "catalog_unavailable", "message": str(exc),
-        }) from exc
-    return [
-        CatalogCandidateRead.model_validate(
-            {k: v for k, v in c.__dict__.items() if k != "extra"}
-        )
-        for c in candidates
-    ]
+@router.post("/lists/run/discover")
+async def run_discover(
+    body: RunDiscoverRequest,
+    task_queue: TaskQueue = Depends(get_task_queue),
+    user_id: str = Depends(require_user),
+):
+    """Бесплатный нативный discovery сообществ: глобальный поиск + «похожие
+    каналы» Telegram + snowball (рекомендации/форварды/упоминания) → обогащение
+    и фильтрация. Без внешних сервисов."""
+    job_id = await task_queue.enqueue(
+        TaskName.PRIMING_PARSER_RUN,
+        "discover_communities",
+        {
+            "owner_user_id": _owner_id(user_id),
+            "name": body.name,
+            "collector_account_id": body.collector_account_id,
+            "seeds": body.seeds,
+            "term": body.term,
+            "use_search": body.use_search,
+            "use_recommendations": body.use_recommendations,
+            "use_forwards": body.use_forwards,
+            "use_mentions": body.use_mentions,
+            "depth": body.depth,
+            "max_results": body.max_results,
+            "kind": body.kind,
+            "min_participants": body.min_participants,
+            "max_participants": body.max_participants,
+            "require_public": body.require_public,
+            "require_linked_chat": body.require_linked_chat,
+            "last_post_max_days": body.last_post_max_days,
+            "exclude_scam_fake": body.exclude_scam_fake,
+            "verified_only": body.verified_only,
+            "title_regex": body.title_regex,
+            "username_regex": body.username_regex,
+        },
+    )
+    return {"job_id": job_id}
 
 
 @router.get("/lists/{list_id}/communities", response_model=list[ParsedCommunityItemRead])

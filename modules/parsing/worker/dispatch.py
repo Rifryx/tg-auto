@@ -13,6 +13,7 @@ import structlog
 from modules.parsing.parser.channel_commenters import parse_channel_commenters
 from modules.parsing.parser.chat_members import parse_chat_members
 from modules.parsing.parser.chat_messages import parse_chat_messages
+from modules.parsing.parser.community_discover import discover_communities
 from modules.parsing.parser.community_enrich import enrich_communities
 from modules.parsing.parser.community_filters import CommunityFilterOptions
 from modules.parsing.parser.filters import FilterOptions
@@ -103,6 +104,33 @@ async def parser_run(
             name=str(payload["name"]),
             collector_account_id=int(payload["collector_account_id"]),
             refs=list(payload.get("refs") or []),
+            filter_options=CommunityFilterOptions(
+                kind=payload.get("kind") or None,
+                min_participants=payload.get("min_participants"),
+                max_participants=payload.get("max_participants"),
+                require_public=bool(payload.get("require_public", False)),
+                require_linked_chat=bool(payload.get("require_linked_chat", False)),
+                last_post_max_days=payload.get("last_post_max_days"),
+                exclude_scam_fake=bool(payload.get("exclude_scam_fake", True)),
+                verified_only=bool(payload.get("verified_only", False)),
+                title_regex=payload.get("title_regex") or None,
+                username_regex=payload.get("username_regex") or None,
+            ),
+        )
+    elif kind == "discover_communities":
+        result = await discover_communities(
+            ctx,
+            owner_user_id=int(payload["owner_user_id"]),
+            name=str(payload["name"]),
+            collector_account_id=int(payload["collector_account_id"]),
+            seeds=list(payload.get("seeds") or []),
+            term=payload.get("term") or None,
+            use_search=bool(payload.get("use_search", True)),
+            use_recommendations=bool(payload.get("use_recommendations", True)),
+            use_forwards=bool(payload.get("use_forwards", False)),
+            use_mentions=bool(payload.get("use_mentions", False)),
+            depth=int(payload.get("depth", 2)),
+            max_results=int(payload.get("max_results", 200)),
             filter_options=CommunityFilterOptions(
                 kind=payload.get("kind") or None,
                 min_participants=payload.get("min_participants"),

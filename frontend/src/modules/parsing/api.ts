@@ -1,7 +1,5 @@
 import { api } from "../../shared/api";
 import type {
-  CatalogCandidate,
-  CatalogSearchBody,
   CommunityItem,
   ListOpBody,
   ParsedList,
@@ -9,6 +7,7 @@ import type {
   RunChatMembersBody,
   RunChatMessagesBody,
   RunCommunitiesBody,
+  RunDiscoverBody,
   RunPostReactorsBody,
 } from "./types";
 
@@ -29,13 +28,9 @@ export const parsingApi = {
     api.post<{ job_id: string }>(`${BASE}/run/post-reactors`, body),
   runCommunities: (body: RunCommunitiesBody) =>
     api.post<{ job_id: string }>(`${BASE}/run/communities`, body),
+  runDiscover: (body: RunDiscoverBody) =>
+    api.post<{ job_id: string }>(`${BASE}/run/discover`, body),
   communities: (id: number) =>
     api.get<CommunityItem[]>(`${BASE}/${id}/communities`),
   listOps: (body: ListOpBody) => api.post<ParsedList>(`${BASE}/ops`, body),
-  catalogStatus: (provider = "telemetrio") =>
-    api.get<{ provider: string; ok: boolean; usage: Record<string, unknown> }>(
-      `/modules/parsing/catalog/status?provider=${provider}`,
-    ),
-  catalogSearch: (body: CatalogSearchBody) =>
-    api.post<CatalogCandidate[]>(`/modules/parsing/catalog/search`, body),
 };

@@ -130,34 +130,34 @@ class ParsedCommunityItemRead(_ParsingBase):
     created_at: datetime
 
 
-class CatalogSearchRequest(_ParsingBase):
-    """Поиск сообществ во внешнем каталоге (Discovery, этап 3)."""
+class _CommunityFilterFields(_ParsingBase):
+    """Community-фильтры (общие для enrich и discover)."""
 
-    provider: str = Field(default="telemetrio", max_length=32)
-    term: Optional[str] = Field(default=None, max_length=128)
-    category: Optional[str] = Field(default=None, max_length=64)
-    language: Optional[str] = Field(default=None, max_length=16)
-    country: Optional[str] = Field(default=None, max_length=16)
+    kind: Optional[str] = Field(default=None, pattern="^(channel|chat)$")
     min_participants: Optional[int] = Field(default=None, ge=0)
     max_participants: Optional[int] = Field(default=None, ge=0)
-    kind: Optional[str] = Field(default=None, pattern="^(channel|chat)$")
-    sort: Optional[str] = Field(default=None, max_length=32)
-    limit: int = Field(default=50, ge=1, le=100)
+    require_public: bool = False
+    require_linked_chat: bool = False
+    last_post_max_days: Optional[int] = Field(default=None, ge=0, le=3650)
+    exclude_scam_fake: bool = True
+    verified_only: bool = False
+    title_regex: Optional[str] = Field(default=None, max_length=256)
+    username_regex: Optional[str] = Field(default=None, max_length=256)
 
 
-class CatalogCandidateRead(_ParsingBase):
-    ref: str
-    channel_tg_id: Optional[int] = None
-    title: Optional[str] = None
-    username: Optional[str] = None
-    kind: str
-    participants_count: Optional[int] = None
-    language: Optional[str] = None
-    country: Optional[str] = None
-    category: Optional[str] = None
-    er: Optional[float] = None
-    verified: bool = False
-    provider: str = ""
+class RunDiscoverRequest(_CommunityFilterFields):
+    """Бесплатный нативный discovery: сиды/ключевик → поиск + похожие + snowball."""
+
+    name: str = Field(..., min_length=1, max_length=120)
+    collector_account_id: int
+    seeds: list[str] = Field(default_factory=list, max_length=50)
+    term: Optional[str] = Field(default=None, max_length=128)
+    use_search: bool = True
+    use_recommendations: bool = True
+    use_forwards: bool = False
+    use_mentions: bool = False
+    depth: int = Field(default=2, ge=1, le=3)
+    max_results: int = Field(default=200, ge=1, le=1000)
 
 
 class ListOpRequest(_ParsingBase):
@@ -177,7 +177,6 @@ __all__ = [
     "RunChannelCommentersRequest",
     "RunPostReactorsRequest",
     "RunCommunitiesRequest",
-    "CatalogSearchRequest",
-    "CatalogCandidateRead",
+    "RunDiscoverRequest",
     "ListOpRequest",
 ]

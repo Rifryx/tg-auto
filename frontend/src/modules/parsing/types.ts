@@ -118,33 +118,28 @@ export interface RunCommunitiesBody {
   username_regex?: string | null;
 }
 
-/* Внешний каталог сообществ (Discovery, этап 3). */
-export interface CatalogCandidate {
-  ref: string;
-  channel_tg_id: number | null;
-  title: string | null;
-  username: string | null;
-  kind: "channel" | "chat";
-  participants_count: number | null;
-  language: string | null;
-  country: string | null;
-  category: string | null;
-  er: number | null;
-  verified: boolean;
-  provider: string;
-}
-
-export interface CatalogSearchBody {
-  provider?: string;
+/* Бесплатный нативный discovery сообществ (поиск + похожие + snowball). */
+export interface RunDiscoverBody {
+  name: string;
+  collector_account_id: number;
+  seeds: string[];
   term?: string | null;
-  category?: string | null;
-  language?: string | null;
-  country?: string | null;
+  use_search?: boolean;
+  use_recommendations?: boolean;
+  use_forwards?: boolean;
+  use_mentions?: boolean;
+  depth?: number;
+  max_results?: number;
+  kind?: "channel" | "chat" | null;
   min_participants?: number | null;
   max_participants?: number | null;
-  kind?: "channel" | "chat" | null;
-  sort?: string | null;
-  limit?: number;
+  require_public?: boolean;
+  require_linked_chat?: boolean;
+  last_post_max_days?: number | null;
+  exclude_scam_fake?: boolean;
+  verified_only?: boolean;
+  title_regex?: string | null;
+  username_regex?: string | null;
 }
 
 export type ListOp = "intersect" | "union" | "subtract" | "sample";

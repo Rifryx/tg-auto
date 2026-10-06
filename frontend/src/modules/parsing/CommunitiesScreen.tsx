@@ -108,8 +108,8 @@ export function CommunitiesScreen() {
             className="w-full rounded-xl border border-hairline bg-surface-2 p-3 text-[14px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
           />
           <p className="mt-2 text-[12px] text-text-tertiary">
-            Нативный TG не ищет каналы по теме — вставьте известные ссылки, а фильтры
-            отсеют неподходящие. Массовый поиск по теме/подписчикам — этап с TGStat/Telemetr.
+            Здесь обогащаются известные ссылки. Чтобы НАЙТИ новые каналы ниши
+            (похожие + поиск + snowball) — экран «Найти каналы».
           </p>
         </div>
 

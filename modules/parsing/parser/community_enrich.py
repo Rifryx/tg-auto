@@ -134,6 +134,16 @@ async def enrich_communities(
 
 async def _snapshot_public(client, raw: str, now: datetime) -> Optional[dict]:
     entity = await client.get_entity(public_ref(raw))
+    return await snapshot_from_entity(client, entity, now, input_ref=raw)
+
+
+async def snapshot_from_entity(
+    client, entity, now: datetime, *, input_ref: str
+) -> Optional[dict]:
+    """Строит community-снапшот из уже резолвленной сущности (канал/чат).
+
+    Переиспользуется discovery-движком (у него сущности уже на руках после
+    поиска/рекомендаций — не нужно повторно резолвить по ссылке)."""
     is_megagroup = bool(getattr(entity, "megagroup", False))
     kind = "chat" if is_megagroup else "channel"
     username = getattr(entity, "username", None)
@@ -165,7 +175,7 @@ async def _snapshot_public(client, raw: str, now: datetime) -> Optional[dict]:
         pass
 
     return {
-        "input_ref": raw,
+        "input_ref": input_ref,
         "channel_tg_id": getattr(entity, "id", None),
         "access_hash": getattr(entity, "access_hash", None),
         "title": getattr(entity, "title", None),

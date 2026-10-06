@@ -45,9 +45,6 @@ class Settings(BaseSettings):
     deepseek_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
 
-    # --- Каталоги сообществ (Discovery, этап 3; optional) ---
-    telemetrio_api_key: Optional[str] = None
-
     # --- Режим ---
     dev_mode: bool = False
 
