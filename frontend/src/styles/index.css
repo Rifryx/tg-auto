@@ -71,3 +71,57 @@
     letter-spacing: -0.02em;
   }
 }
+
+@layer components {
+  /* --- Акции (promo): характерный дизайн PRO-иконки и шторки --- */
+
+  /* Градиенты по варианту акции — переиспользуются бейджем, шторкой и карточкой. */
+  .promo-badge,
+  .promo-curtain--gold,
+  .pro-card--promo {
+    --promo-grad: linear-gradient(135deg, #f7b733 0%, #fc4a1a 100%);
+  }
+  .promo-curtain--fire {
+    --promo-grad: linear-gradient(135deg, #ff512f 0%, #dd2476 100%);
+  }
+  .promo-curtain--neon {
+    --promo-grad: linear-gradient(135deg, #7b2ff7 0%, #00d2ff 100%);
+  }
+
+  /* PRO-бейдж во время акции: градиент + мягкое свечение. */
+  .promo-badge {
+    color: #fff;
+    background: var(--promo-grad);
+    box-shadow: 0 2px 10px -2px rgba(252, 74, 26, 0.6);
+  }
+
+  /* Pro-карточка на экране тарифов во время акции. */
+  .pro-card--promo {
+    color: #fff;
+    background: var(--promo-grad);
+    box-shadow: 0 10px 34px -16px rgba(252, 74, 26, 0.7);
+  }
+
+  /* Шторка-уведомление: фон по варианту + лёгкое свечение над остальным UI. */
+  .promo-curtain {
+    background: var(--promo-grad, linear-gradient(135deg, #f7b733 0%, #fc4a1a 100%));
+    box-shadow: 0 12px 40px -12px rgba(0, 0, 0, 0.55);
+  }
+
+  /* Точка-маркер варианта акции в списке админки. */
+  .promo-dot {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    border-radius: 9999px;
+  }
+  .promo-dot--gold {
+    background: linear-gradient(135deg, #f7b733, #fc4a1a);
+  }
+  .promo-dot--fire {
+    background: linear-gradient(135deg, #ff512f, #dd2476);
+  }
+  .promo-dot--neon {
+    background: linear-gradient(135deg, #7b2ff7, #00d2ff);
+  }
+}

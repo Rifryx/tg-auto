@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { create } from "zustand";
-import { billingApi } from "./billing";
+import { billingApi, type PricingInfo } from "./billing";
 import { getPlan, type Plan, type PlanId } from "./plans";
 
 /* Глобальный UI-state (zustand): тема, готовность инициализации,
@@ -123,4 +123,20 @@ export function useCurrentPlan(): Plan {
     retry: 1,
   });
   return getPlan(local);
+}
+
+/* Актуальные цены (с учётом акции) из серверного снапшота. Пока грузится —
+   возвращаем null, экраны показывают скелет/дефолт. */
+export function usePricing(): PricingInfo | null {
+  const q = useQuery({
+    queryKey: ["billing", "plan"],
+    queryFn: () => billingApi.getPlan(),
+    staleTime: 60_000,
+  });
+  return q.data?.pricing ?? null;
+}
+
+/* Есть ли прямо сейчас активная акция (для промо-дизайна PRO-бейджа). */
+export function useHasActivePromo(): boolean {
+  return usePricing()?.has_promo ?? false;
 }

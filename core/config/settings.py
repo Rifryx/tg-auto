@@ -48,8 +48,17 @@ class Settings(BaseSettings):
     # --- Режим ---
     dev_mode: bool = False
 
-    # --- Telegram Bot (Mini App auth + чат-бот) ---
+    # --- Telegram Bot (Mini App auth + чат-бот + Stars-инвойсы) ---
     telegram_bot_token: Optional[str] = None
+
+    # --- Crypto Bot (Crypto Pay API, @CryptoBot / @CryptoTestnetBot) ---
+    # Токен приложения из @CryptoBot → Crypto Pay → Create App. Без него
+    # крипто-оплата недоступна (в DEV_MODE работает stub-режим без токена).
+    cryptobot_api_token: Optional[str] = None
+    # Сеть: mainnet (pay.crypt.bot) или testnet (testnet-pay.crypt.bot).
+    cryptobot_network: str = "mainnet"
+    # Актив для инвойсов (USDT/TON/BTC/…); цена price_usdt трактуется в нём.
+    cryptobot_asset: str = "USDT"
 
     # --- Админы: CSV числовых Telegram user_id владельца/сотрудников.
     # НИКОГДА не хранится в БД; только в ENV — чтобы SQL-инъекция или получение
@@ -92,6 +101,13 @@ class Settings(BaseSettings):
     @property
     def has_llm(self) -> bool:
         return bool(self.deepseek_api_key or self.gemini_api_key)
+
+    @property
+    def cryptobot_base_url(self) -> str:
+        """Базовый URL Crypto Pay API по выбранной сети."""
+        if self.cryptobot_network.strip().lower() == "testnet":
+            return "https://testnet-pay.crypt.bot/api"
+        return "https://pay.crypt.bot/api"
 
     @model_validator(mode="after")
     def _validate_mode(self) -> "Settings":

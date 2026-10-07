@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { isBrowserDev, isTelegram } from "../../shared/tg";
 import { Toaster } from "../../shared/toast";
+import { PromoCurtain } from "../PromoCurtain";
 import { BottomNav } from "./BottomNav";
 import { DesktopSidebar } from "./DesktopSidebar";
 
@@ -32,6 +33,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <BottomNav />
         </div>
       )}
+      <PromoCurtain />
       <Toaster />
     </div>
   );

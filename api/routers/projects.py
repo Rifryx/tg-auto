@@ -79,7 +79,7 @@ def update_project(
     return updated
 
 
-@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 def delete_project(
     project_id: int,
     user_id: str = Depends(require_user),

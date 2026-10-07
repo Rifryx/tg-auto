@@ -1,33 +1,41 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Bitcoin, Star, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { billingApi } from "../../shared/billing";
-import { hapticSelection } from "../../shared/tg";
+import { usePricing } from "../../shared/store";
+import { hapticSelection, openExternal, openInvoice } from "../../shared/tg";
 import { PAYMENT_METHODS, type PaymentMethodId, type Plan } from "../../shared/plans";
 
 interface PaymentSheetProps {
   plan: Plan;
   onClose: () => void;
-  /* Заглушка успешной оплаты — активируется после подтверждения от провайдера. */
+  /* Вызывается после подтверждённой провайдером оплаты. */
   onPaid: () => void;
 }
 
-/* Bottom-sheet выбора способа оплаты для Pro-подписки.
-   Пока это витрина: реальные интеграции (createInvoiceLink для Stars,
-   createInvoice для CryptoBot) подключаются на бэкенде и триггерят onPaid
-   через webhook. Сейчас кнопка «Оплатить» имитирует успех. */
+type Phase = "idle" | "awaiting" | "done" | "error";
+
+const POLL_INTERVAL_MS = 2500;
+const POLL_TIMEOUT_MS = 150_000;
+
+/* Bottom-sheet оплаты Pro.
+   Реальный поток: создаём инвойс на бэкенде → открываем оплату (Stars через
+   WebApp.openInvoice, Crypto — внешняя ссылка @CryptoBot) → поллим статус
+   платежа до подтверждения. Применение подписки идемпотентно на сервере. */
 export function PaymentSheet({ plan, onClose, onPaid }: PaymentSheetProps) {
   const [method, setMethod] = useState<PaymentMethodId>("stars");
+  const [phase, setPhase] = useState<Phase>("idle");
+  const pricing = usePricing();
   const qc = useQueryClient();
-  const pay = useMutation({
-    // TODO: заменить на реальный createInvoice → провайдер → вебхук ставит план.
-    // Пока сразу дёргаем /billing/plan — сервер помечает подписку активной.
-    mutationFn: () => billingApi.setPlan(plan.id, method),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["billing", "plan"] });
-      onPaid();
-    },
-  });
+  const pollTimer = useRef<number | null>(null);
+  const deadline = useRef<number>(0);
+
+  const stopPolling = () => {
+    if (pollTimer.current !== null) {
+      window.clearTimeout(pollTimer.current);
+      pollTimer.current = null;
+    }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -39,15 +47,78 @@ export function PaymentSheet({ plan, onClose, onPaid }: PaymentSheetProps) {
     return () => {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
+      stopPolling();
     };
   }, [onClose]);
 
+  const settle = async () => {
+    await qc.invalidateQueries({ queryKey: ["billing", "plan"] });
+    setPhase("done");
+    onPaid();
+  };
+
+  const pollOnce = async (paymentId: number) => {
+    try {
+      const res = await billingApi.checkPayment(paymentId);
+      if (res.status === "paid" || res.plan === "pro") {
+        stopPolling();
+        await settle();
+        return;
+      }
+      if (res.status === "expired" || res.status === "failed") {
+        stopPolling();
+        setPhase("error");
+        return;
+      }
+    } catch {
+      /* сеть — продолжаем поллинг до таймаута */
+    }
+    if (Date.now() >= deadline.current) {
+      stopPolling();
+      // Таймаут: платёж мог ещё не подтвердиться (крипто-сеть / бот).
+      setPhase("error");
+      return;
+    }
+    pollTimer.current = window.setTimeout(() => pollOnce(paymentId), POLL_INTERVAL_MS);
+  };
+
+  const startPolling = (paymentId: number) => {
+    deadline.current = Date.now() + POLL_TIMEOUT_MS;
+    pollTimer.current = window.setTimeout(() => pollOnce(paymentId), POLL_INTERVAL_MS);
+  };
+
+  const pay = async () => {
+    setPhase("awaiting");
+    try {
+      const invoice = await billingApi.createInvoice(method);
+      if (method === "stars") {
+        openInvoice(invoice.url, (status) => {
+          if (status === "cancelled" || status === "failed") {
+            setPhase("idle");
+            return;
+          }
+          // paid / pending → подтверждение придёт через бота, поллим статус.
+          startPolling(invoice.payment_id);
+        });
+      } else {
+        openExternal(invoice.url);
+        startPolling(invoice.payment_id);
+      }
+    } catch {
+      setPhase("error");
+    }
+  };
+
+  const priceUsdt = pricing?.price_usdt ?? plan.priceMonth;
+  const priceStars = pricing?.price_stars ?? plan.priceStars ?? 0;
+  const hasPromo = pricing?.has_promo ?? false;
+  const basePriceUsdt = pricing?.base_price_usdt ?? plan.priceMonth;
+
+  const busy = phase === "awaiting";
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center lg:items-center lg:p-8">
-      <div
-        onClick={onClose}
-        className="absolute inset-0 bg-black/60"
-      />
+      <div onClick={onClose} className="absolute inset-0 bg-black/60" />
       <div
         role="dialog"
         aria-modal="true"
@@ -60,8 +131,13 @@ export function PaymentSheet({ plan, onClose, onPaid }: PaymentSheetProps) {
             <div className="text-[13px] uppercase tracking-wide text-text-tertiary">
               Оплата
             </div>
-            <div className="mt-1 text-[20px] font-bold text-text-primary">
-              {plan.name} · ${plan.priceMonth}/мес
+            <div className="mt-1 flex items-baseline gap-2 text-[20px] font-bold text-text-primary">
+              <span>{plan.name} · ${priceUsdt}/мес</span>
+              {hasPromo && basePriceUsdt > priceUsdt && (
+                <span className="text-[14px] font-medium text-text-tertiary line-through">
+                  ${basePriceUsdt}
+                </span>
+              )}
             </div>
           </div>
           <button
@@ -74,19 +150,26 @@ export function PaymentSheet({ plan, onClose, onPaid }: PaymentSheetProps) {
           </button>
         </div>
 
-        <div className="mt-5 flex flex-col gap-2 px-4">
+        {hasPromo && (
+          <div className="mx-4 mt-3 rounded-card border border-hairline bg-surface-1 px-4 py-2 text-[12px] text-accent">
+            🔥 Действует акция — цена снижена
+          </div>
+        )}
+
+        <div className="mt-4 flex flex-col gap-2 px-4">
           {PAYMENT_METHODS.map((m) => {
             const selected = m.id === method;
             return (
               <button
                 key={m.id}
                 type="button"
+                disabled={busy}
                 onClick={() => {
                   hapticSelection();
                   setMethod(m.id);
                 }}
                 className={[
-                  "flex items-center gap-3 rounded-card border px-4 py-3.5 text-left transition-colors",
+                  "flex items-center gap-3 rounded-card border px-4 py-3.5 text-left transition-colors disabled:opacity-60",
                   selected
                     ? "border-strong bg-surface-2"
                     : "border-hairline bg-surface-1 active:bg-surface-2",
@@ -112,9 +195,7 @@ export function PaymentSheet({ plan, onClose, onPaid }: PaymentSheetProps) {
                   aria-hidden
                   className={[
                     "ml-auto h-5 w-5 rounded-full border-2 transition-colors",
-                    selected
-                      ? "border-text-primary bg-text-primary"
-                      : "border-hairline",
+                    selected ? "border-text-primary bg-text-primary" : "border-hairline",
                   ].join(" ")}
                 />
               </button>
@@ -122,28 +203,34 @@ export function PaymentSheet({ plan, onClose, onPaid }: PaymentSheetProps) {
           })}
         </div>
 
-        {method === "stars" && plan.priceStars && (
+        {method === "stars" && priceStars > 0 && (
           <div className="mt-3 px-5 text-[12px] text-text-tertiary">
-            Спишется {plan.priceStars.toLocaleString("ru-RU")} ⭐ (эквивалент $
-            {plan.priceMonth}).
+            Спишется {priceStars.toLocaleString("ru-RU")} ⭐ (эквивалент ${priceUsdt}).
           </div>
         )}
 
         <div className="px-4 pb-2 pt-5">
           <button
             type="button"
-            disabled={pay.isPending}
+            disabled={busy}
             onClick={() => {
               hapticSelection();
-              pay.mutate();
+              void pay();
             }}
             className="w-full rounded-pill bg-accent px-4 py-3.5 text-[15px] font-semibold text-accent-on active:opacity-90 disabled:opacity-60"
           >
-            {pay.isPending ? "Оплачиваем…" : "Оплатить"}
+            {busy ? "Ожидаем оплату…" : "Оплатить"}
           </button>
-          {pay.isError && (
+          {phase === "awaiting" && (
+            <p className="mt-2 px-1 text-center text-[12px] text-text-tertiary">
+              Подтвердите оплату в открывшемся окне. Подписка активируется
+              автоматически.
+            </p>
+          )}
+          {phase === "error" && (
             <p className="mt-2 px-1 text-center text-[12px] text-status-critical">
-              Не удалось активировать подписку. Попробуйте ещё раз.
+              Оплата ещё не подтверждена. Если вы оплатили — подписка активируется
+              в течение пары минут.
             </p>
           )}
           <p className="mt-3 px-1 text-center text-[11px] leading-relaxed text-text-tertiary">

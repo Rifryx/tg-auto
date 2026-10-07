@@ -2,7 +2,8 @@ import { ArrowLeft, Check, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { hapticSelection } from "../../shared/tg";
-import { useCurrentPlan, useUiStore } from "../../shared/store";
+import { useCurrentPlan, usePricing, useUiStore } from "../../shared/store";
+import type { PricingInfo } from "../../shared/billing";
 import { PLANS, type Plan } from "../../shared/plans";
 import { PaymentSheet } from "./PaymentSheet";
 
@@ -12,6 +13,7 @@ import { PaymentSheet } from "./PaymentSheet";
 export function BillingScreen() {
   const navigate = useNavigate();
   const current = useCurrentPlan();
+  const pricing = usePricing();
   const setPlan = useUiStore((s) => s.setPlan);
   const [payFor, setPayFor] = useState<Plan | null>(null);
 
@@ -43,6 +45,7 @@ export function BillingScreen() {
             <ProCard
               key={plan.id}
               plan={plan}
+              pricing={pricing}
               active={current.id === plan.id}
               onSubscribe={() => {
                 hapticSelection();
@@ -127,22 +130,32 @@ function FreeCard({
    светящийся hairline, пилюля «Популярный», крупная цена. */
 function ProCard({
   plan,
+  pricing,
   active,
   onSubscribe,
 }: {
   plan: Plan;
+  pricing: PricingInfo | null;
   active: boolean;
   onSubscribe: () => void;
 }) {
+  const price = pricing?.price_usdt ?? plan.priceMonth;
+  const basePrice = pricing?.base_price_usdt ?? plan.priceMonth;
+  const hasPromo = (pricing?.has_promo ?? false) && basePrice > price;
   return (
     <section
-      className="relative overflow-hidden rounded-card p-6 text-text-primary"
-      style={{
-        background:
-          "linear-gradient(155deg, var(--surface-2) 0%, var(--surface-1) 100%)",
-        boxShadow:
-          "0 0 0 1px var(--surface-border-strong) inset",
-      }}
+      className={`relative overflow-hidden rounded-card p-6 text-text-primary ${
+        hasPromo ? "pro-card--promo" : ""
+      }`}
+      style={
+        hasPromo
+          ? undefined
+          : {
+              background:
+                "linear-gradient(155deg, var(--surface-2) 0%, var(--surface-1) 100%)",
+              boxShadow: "0 0 0 1px var(--surface-border-strong) inset",
+            }
+      }
     >
 
         <div className="mb-1 flex items-center justify-between">
@@ -155,19 +168,26 @@ function ProCard({
             }}
           >
             <Sparkles className="h-3 w-3" strokeWidth={2} aria-hidden />
-            Популярный
+            {hasPromo ? "Акция" : "Популярный"}
           </span>
         </div>
 
         <div className="mb-4 flex items-baseline gap-1.5">
           <span className="text-[16px] font-medium opacity-70">$</span>
           <span className="nums text-[48px] font-extrabold leading-none tracking-tight">
-            {plan.priceMonth}
+            {price}
           </span>
           <span className="text-[14px] opacity-70">/ мес</span>
+          {hasPromo && (
+            <span className="nums ml-1 text-[18px] font-semibold opacity-60 line-through">
+              ${basePrice}
+            </span>
+          )}
         </div>
 
-        <p className="mb-6 text-[13px] opacity-80">{plan.tagline}</p>
+        <p className="mb-6 text-[13px] opacity-80">
+          {hasPromo && pricing?.promo ? pricing.promo.title : plan.tagline}
+        </p>
 
         <Bullets items={plan.bullets} tone="bright" />
 
