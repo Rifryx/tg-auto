@@ -49,6 +49,10 @@ from core.models.shilling import (
     ShillingTarget,
 )
 from core.models.subscription import Subscription
+from core.models.pricing import PricingConfig
+from core.models.promotion import Promotion
+from core.models.payment import Payment
+from core.models.promo_dismissal import PromoDismissal
 from core.models.warming_activity import WarmingActivity
 
 __all__ = [
@@ -95,5 +99,9 @@ __all__ = [
     "ShillingScenarioStep",
     "ShillingTarget",
     "Subscription",
+    "PricingConfig",
+    "Promotion",
+    "Payment",
+    "PromoDismissal",
     "WarmingActivity",
 ]

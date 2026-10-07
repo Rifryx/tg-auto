@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Callable
 
 from sqlalchemy import func, select
@@ -54,11 +55,18 @@ class LimitExceededError(Exception):
 
 
 def get_user_plan(session: Session, user_id: str) -> PlanId:
-    """План пользователя (Free по умолчанию, если записи нет)."""
+    """План пользователя (Free по умолчанию, если записи нет).
+
+    Pro активен только если он не истёк: ``expires_at IS NULL`` трактуется как
+    бессрочный (ручная выдача админом), иначе сравниваем с ``now``. Так подписка
+    честно деградирует до Free по окончании оплаченного периода — без крона.
+    """
     sub = SubscriptionRepository(session).get(user_id)
-    if sub is None:
+    if sub is None or sub.plan_id != "pro":
         return "free"
-    return "pro" if sub.plan_id == "pro" else "free"
+    if sub.expires_at is None or sub.expires_at > datetime.now(timezone.utc):
+        return "pro"
+    return "free"
 
 
 def set_user_plan(
@@ -125,11 +133,23 @@ def _to_int_limit(v: FeatureValue) -> int:
 
 
 def get_usage_snapshot(session: Session, user_id: str) -> dict[str, object]:
-    """Слепок для ``GET /billing/plan``: план, лимиты, текущее использование."""
+    """Слепок для ``GET /billing/plan``: план, лимиты, использование, цены, срок."""
+    from core.billing.pricing import pricing_snapshot
+
     plan_id = get_user_plan(session, user_id)
     limits: dict[str, FeatureValue] = {k: get_plan_limit(plan_id, k) for k in FEATURE_KEYS}
     usage: dict[str, int] = {k: fn(session) for k, fn in USAGE_COUNTERS.items()}
-    return {"plan_id": plan_id, "limits": limits, "usage": usage}
+    sub = SubscriptionRepository(session).get(user_id)
+    expires_at = (
+        sub.expires_at.isoformat() if sub and sub.expires_at is not None else None
+    )
+    return {
+        "plan_id": plan_id,
+        "limits": limits,
+        "usage": usage,
+        "expires_at": expires_at,
+        "pricing": pricing_snapshot(session),
+    }
 
 
 def _bypass_enabled() -> bool:

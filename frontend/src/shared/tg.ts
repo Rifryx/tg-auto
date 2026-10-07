@@ -28,6 +28,14 @@ interface TelegramWebApp {
     onClick(cb: () => void): void;
     offClick(cb: () => void): void;
   };
+  /** Открыть инвойс (Stars/иной) по ссылке; статус — в колбэке. */
+  openInvoice?(
+    url: string,
+    callback?: (status: "paid" | "cancelled" | "failed" | "pending") => void,
+  ): void;
+  /** Открыть внешнюю ссылку (Crypto Bot pay_url) вне Mini App. */
+  openLink?(url: string, options?: { try_instant_view?: boolean }): void;
+  openTelegramLink?(url: string): void;
 }
 
 declare global {
@@ -89,6 +97,44 @@ export function initTelegram(): void {
     }
   } catch {
     /* окружение без части API — не критично */
+  }
+}
+
+/** Открыть инвойс Stars. Вне Telegram — fallback на window.open. */
+export function openInvoice(
+  url: string,
+  callback?: (status: "paid" | "cancelled" | "failed" | "pending") => void,
+): void {
+  const wa = webApp();
+  if (wa?.openInvoice) {
+    wa.openInvoice(url, callback);
+    return;
+  }
+  // Dev/браузер: открываем ссылку и считаем статус неизвестным (pending) —
+  // поток оплаты в DEV подтверждается через check-эндпоинт.
+  try {
+    window.open(url, "_blank", "noopener");
+  } catch {
+    /* ignore */
+  }
+  callback?.("pending");
+}
+
+/** Открыть внешнюю ссылку (Crypto Bot). Вне Telegram — window.open. */
+export function openExternal(url: string): void {
+  const wa = webApp();
+  if (url.includes("t.me/") && wa?.openTelegramLink) {
+    wa.openTelegramLink(url);
+    return;
+  }
+  if (wa?.openLink) {
+    wa.openLink(url);
+    return;
+  }
+  try {
+    window.open(url, "_blank", "noopener");
+  } catch {
+    /* ignore */
   }
 }
 

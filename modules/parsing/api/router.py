@@ -109,7 +109,7 @@ def list_targets(
 
 
 @router.delete(
-    "/lists/{list_id}", status_code=status.HTTP_204_NO_CONTENT,
+    "/lists/{list_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None,
 )
 def delete_list(list_id: int, session: Session = Depends(get_session)):
     if not ParsedListRepository(session).delete_hard(list_id):

@@ -2,7 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Shield } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { adminApi, useIsAdmin } from "../../shared/admin";
+import {
+  adminApi,
+  useIsAdmin,
+  type AdminPromotion,
+} from "../../shared/admin";
 import { hapticSelection } from "../../shared/tg";
 
 /* Экран владельца. Не пункт меню — попасть только по прямому URL /admin.
@@ -15,7 +19,6 @@ export function AdminScreen() {
     return <p className="p-6 text-[13px] text-text-tertiary">Проверяем…</p>;
   }
   if (!isAdmin) {
-    // Не рисуем сообщение об ошибке — сразу уходим, как будто маршрута нет.
     navigate("/", { replace: true });
     return null;
   }
@@ -38,42 +41,419 @@ export function AdminScreen() {
         <h1 className="screen-title">Админ</h1>
       </header>
 
-      <StatsSection />
+      <AnalyticsSection />
+      <PricingSection />
+      <PromotionsSection />
       <SubsSection />
       <SetPlanForm />
     </div>
   );
 }
 
-function StatsSection() {
-  const { data } = useQuery({ queryKey: ["admin", "stats"], queryFn: adminApi.stats });
+// ------------------------------- аналитика -----------------------------------
+
+function AnalyticsSection() {
+  const { data } = useQuery({
+    queryKey: ["admin", "analytics"],
+    queryFn: adminApi.analytics,
+  });
+  if (!data) {
+    return <p className="mb-6 px-1 text-[13px] text-text-tertiary">Загружаем статистику…</p>;
+  }
+  const u = data.users;
+  const r = data.revenue;
+  const a = data.activity;
+  const l = data.load;
   return (
-    <section className="mb-6">
-      <h2 className="mb-4 text-[17px] font-bold text-text-primary">
-        Статистика
-      </h2>
-      <div className="card-hero grid grid-cols-2 gap-4 p-5">
-        <Stat label="Пользователей" value={data?.users} />
-        <Stat label="Из них Pro" value={data?.pro_users} />
-        <Stat label="Аккаунтов" value={data?.accounts} />
-        <Stat label="Кампаний" value={data?.campaigns} />
-        <Stat label="Персон" value={data?.personas} />
-        <Stat label="Прокси" value={data?.proxies} />
+    <section className="mb-7">
+      <h2 className="mb-4 text-[17px] font-bold text-text-primary">Статистика</h2>
+
+      <Group title="Пользователи">
+        <Stat label="Всего" value={u.total} />
+        <Stat label="Pro активно" value={u.pro_active} />
+        <Stat label="Free" value={u.free} />
+        <Stat label="Новых за 7 дн" value={u.new_7d} />
+        <Stat label="Истекают ≤7 дн" value={u.expiring_7d} />
+        <Stat label="Конверсия" value={`${u.conversion_pct}%`} />
+      </Group>
+
+      <Group title="Выручка">
+        <Stat label="Оплат всего" value={r.paid_total} />
+        <Stat label="Оплат за 30 дн" value={r.paid_30d} />
+        <Stat label="В ожидании" value={r.pending} />
+      </Group>
+      {r.by_currency.length > 0 && (
+        <div className="mb-4 card px-4">
+          {r.by_currency.map((row, i) => (
+            <div
+              key={`${row.provider}-${row.currency}`}
+              className={`flex items-center justify-between py-2.5 text-[13px] ${
+                i > 0 ? "border-t border-hairline" : ""
+              }`}
+            >
+              <span className="text-text-secondary">
+                {row.provider} · {row.currency}
+              </span>
+              <span className="nums font-semibold text-text-primary">
+                {row.total.toLocaleString("ru-RU")} ({row.count})
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Group title="Активность">
+        <Stat label="Коммент. 24ч" value={a.comments_24h} />
+        <Stat label="Коммент. 7 дн" value={a.comments_7d} />
+        <Stat label="Кампании (комм.)" value={a.campaigns.commenting} />
+        <Stat label="Кампании (шилл.)" value={a.campaigns.shilling} />
+        <Stat label="Кампании (прайм)" value={a.campaigns.priming} />
+      </Group>
+
+      <Group title="Нагрузка">
+        <Stat label="Аккаунтов всего" value={l.accounts_total} />
+        <Stat label="В работе" value={l.accounts_working} />
+        <Stat label="Bulk в очереди" value={l.bulk_jobs_queued} />
+        <Stat label="Bulk выполняется" value={l.bulk_jobs_running} />
+        <Stat label="Персон" value={l.personas} />
+        <Stat label="Прокси" value={l.proxies} />
+      </Group>
+    </section>
+  );
+}
+
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-4">
+      <p className="mb-2 px-1 text-[12px] uppercase tracking-wide text-text-tertiary">
+        {title}
+      </p>
+      <div className="card-hero grid grid-cols-3 gap-3 p-4">{children}</div>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value?: number | string }) {
+  return (
+    <div>
+      <p className="nums text-[20px] font-bold leading-tight text-text-primary">
+        {value ?? "—"}
+      </p>
+      <p className="text-[11px] leading-tight text-text-tertiary">{label}</p>
+    </div>
+  );
+}
+
+// --------------------------------- цена ---------------------------------------
+
+function PricingSection() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["admin", "pricing"], queryFn: adminApi.getPricing });
+  const [usdt, setUsdt] = useState("");
+  const [stars, setStars] = useState("");
+  const [days, setDays] = useState("");
+
+  // Префилл при первой загрузке.
+  const usdtVal = usdt || (data ? String(data.price_usdt) : "");
+  const starsVal = stars || (data ? String(data.price_stars) : "");
+  const daysVal = days || (data ? String(data.period_days) : "");
+
+  const mut = useMutation({
+    mutationFn: () =>
+      adminApi.setPricing({
+        price_usdt: usdtVal,
+        price_stars: Number(starsVal),
+        period_days: Number(daysVal),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "pricing"] });
+      qc.invalidateQueries({ queryKey: ["billing", "plan"] });
+    },
+  });
+
+  return (
+    <section className="mb-7">
+      <h2 className="mb-4 text-[17px] font-bold text-text-primary">Цена подписки</h2>
+      <div className="card flex flex-col gap-3 p-4">
+        <Field label="Цена в USDT" value={usdtVal} onChange={setUsdt} mode="decimal" />
+        <Field label="Цена в Stars ⭐" value={starsVal} onChange={setStars} mode="numeric" />
+        <Field label="Период, дней" value={daysVal} onChange={setDays} mode="numeric" />
+        {data?.effective.has_promo && (
+          <p className="text-[12px] text-accent">
+            Сейчас действует акция: эффективная цена ${data.effective.price_usdt} /{" "}
+            {data.effective.price_stars}⭐
+          </p>
+        )}
+        <button
+          type="button"
+          disabled={mut.isPending}
+          onClick={() => mut.mutate()}
+          className="mt-1 rounded-pill bg-accent px-4 py-3 text-[14px] font-semibold text-accent-on disabled:opacity-50"
+        >
+          {mut.isPending ? "Сохраняем…" : "Сохранить цену"}
+        </button>
+        {mut.isSuccess && <p className="text-[12px] text-status-active">Цена обновлена.</p>}
+        {mut.isError && (
+          <p className="text-[12px] text-status-critical">
+            Не удалось: {(mut.error as Error).message}
+          </p>
+        )}
       </div>
     </section>
   );
 }
 
-function Stat({ label, value }: { label: string; value?: number }) {
+function Field({
+  label,
+  value,
+  onChange,
+  mode,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  mode: "numeric" | "decimal";
+}) {
   return (
-    <div>
-      <p className="nums text-[22px] font-bold leading-tight text-text-primary">
-        {value ?? "—"}
-      </p>
-      <p className="text-[12px] text-text-tertiary">{label}</p>
+    <label className="flex flex-col gap-1">
+      <span className="text-[12px] text-text-tertiary">{label}</span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        inputMode={mode}
+        className="nums min-h-[44px] rounded-chip border border-hairline bg-surface-2 px-3 text-[15px] text-text-primary outline-none focus:border-strong"
+      />
+    </label>
+  );
+}
+
+// --------------------------------- акции --------------------------------------
+
+function PromotionsSection() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["admin", "promotions"], queryFn: adminApi.listPromotions });
+  const [open, setOpen] = useState(false);
+
+  const del = useMutation({
+    mutationFn: (id: number) => adminApi.deletePromotion(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "promotions"] });
+      qc.invalidateQueries({ queryKey: ["billing", "plan"] });
+    },
+  });
+  const toggle = useMutation({
+    mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
+      adminApi.patchPromotion(id, { enabled }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "promotions"] });
+      qc.invalidateQueries({ queryKey: ["billing", "plan"] });
+    },
+  });
+
+  return (
+    <section className="mb-7">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-[17px] font-bold text-text-primary">Акции</h2>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="rounded-pill border border-hairline bg-surface-1 px-3 py-1.5 text-[13px] font-semibold text-text-primary active:bg-surface-2"
+        >
+          {open ? "Отмена" : "+ Новая"}
+        </button>
+      </div>
+
+      {open && <NewPromotionForm onDone={() => setOpen(false)} />}
+
+      {data && data.length === 0 && !open && (
+        <p className="px-1 text-[13px] text-text-tertiary">Акций пока нет.</p>
+      )}
+      {data && data.length > 0 && (
+        <div className="flex flex-col gap-2">
+          {data.map((p) => (
+            <PromoRow
+              key={p.id}
+              promo={p}
+              onToggle={() => toggle.mutate({ id: p.id, enabled: !p.enabled })}
+              onDelete={() => del.mutate(p.id)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PromoRow({
+  promo,
+  onToggle,
+  onDelete,
+}: {
+  promo: AdminPromotion;
+  onToggle: () => void;
+  onDelete: () => void;
+}) {
+  const now = Date.now();
+  const active =
+    promo.enabled &&
+    new Date(promo.starts_at).getTime() <= now &&
+    new Date(promo.ends_at).getTime() > now;
+  const value =
+    promo.kind === "percent"
+      ? `−${promo.percent_off}%`
+      : `$${promo.promo_price_usdt} / ${promo.promo_price_stars}⭐`;
+  return (
+    <div className="card flex items-center gap-3 p-3.5">
+      <span className={`promo-dot promo-dot--${promo.badge_variant}`} aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[14px] font-semibold text-text-primary">
+          {promo.title} · {value}
+        </p>
+        <p className="text-[11px] text-text-tertiary">
+          {new Date(promo.starts_at).toLocaleDateString("ru-RU")} —{" "}
+          {new Date(promo.ends_at).toLocaleDateString("ru-RU")}
+          {active ? " · активна" : promo.enabled ? " · запланирована" : " · выкл"}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="rounded-pill border border-hairline px-2.5 py-1 text-[11px] font-semibold text-text-secondary active:bg-surface-2"
+      >
+        {promo.enabled ? "Выкл" : "Вкл"}
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        className="rounded-pill border border-hairline px-2.5 py-1 text-[11px] font-semibold text-status-critical active:bg-surface-2"
+      >
+        Удалить
+      </button>
     </div>
   );
 }
+
+function NewPromotionForm({ onDone }: { onDone: () => void }) {
+  const qc = useQueryClient();
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [kind, setKind] = useState<"percent" | "fixed">("percent");
+  const [percent, setPercent] = useState("50");
+  const [priceUsdt, setPriceUsdt] = useState("");
+  const [priceStars, setPriceStars] = useState("");
+  const [badge, setBadge] = useState<"gold" | "fire" | "neon">("fire");
+  const [starts, setStarts] = useState(toLocalInput(new Date()));
+  const [ends, setEnds] = useState(toLocalInput(new Date(Date.now() + 7 * 864e5)));
+
+  const mut = useMutation({
+    mutationFn: () =>
+      adminApi.createPromotion({
+        title,
+        description: description || null,
+        kind,
+        percent_off: kind === "percent" ? Number(percent) : null,
+        promo_price_usdt: kind === "fixed" ? priceUsdt : null,
+        promo_price_stars: kind === "fixed" ? Number(priceStars) : null,
+        badge_variant: badge,
+        starts_at: new Date(starts).toISOString(),
+        ends_at: new Date(ends).toISOString(),
+        enabled: true,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "promotions"] });
+      qc.invalidateQueries({ queryKey: ["billing", "plan"] });
+      onDone();
+    },
+  });
+
+  return (
+    <div className="mb-3 card flex flex-col gap-3 p-4">
+      <Field label="Заголовок" value={title} onChange={setTitle} mode="numeric" />
+      <label className="flex flex-col gap-1">
+        <span className="text-[12px] text-text-tertiary">Описание (для шторки)</span>
+        <input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          className="min-h-[44px] rounded-chip border border-hairline bg-surface-2 px-3 text-[15px] text-text-primary outline-none focus:border-strong"
+        />
+      </label>
+      <div className="flex gap-2">
+        {(["percent", "fixed"] as const).map((k) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setKind(k)}
+            className={`flex-1 rounded-pill py-2 text-[13px] font-semibold ${
+              kind === k ? "bg-accent text-accent-on" : "border border-hairline bg-surface-1 text-text-secondary"
+            }`}
+          >
+            {k === "percent" ? "Процент" : "Фикс. цена"}
+          </button>
+        ))}
+      </div>
+      {kind === "percent" ? (
+        <Field label="Скидка, %" value={percent} onChange={setPercent} mode="numeric" />
+      ) : (
+        <>
+          <Field label="Цена USDT" value={priceUsdt} onChange={setPriceUsdt} mode="decimal" />
+          <Field label="Цена Stars ⭐" value={priceStars} onChange={setPriceStars} mode="numeric" />
+        </>
+      )}
+      <div className="flex gap-2">
+        {(["gold", "fire", "neon"] as const).map((b) => (
+          <button
+            key={b}
+            type="button"
+            onClick={() => setBadge(b)}
+            className={`flex-1 rounded-pill py-2 text-[12px] font-semibold capitalize ${
+              badge === b ? "bg-surface-2 text-text-primary" : "border border-hairline text-text-secondary"
+            }`}
+          >
+            {b}
+          </button>
+        ))}
+      </div>
+      <label className="flex flex-col gap-1">
+        <span className="text-[12px] text-text-tertiary">Начало</span>
+        <input
+          type="datetime-local"
+          value={starts}
+          onChange={(e) => setStarts(e.target.value)}
+          className="min-h-[44px] rounded-chip border border-hairline bg-surface-2 px-3 text-[14px] text-text-primary outline-none focus:border-strong"
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="text-[12px] text-text-tertiary">Конец</span>
+        <input
+          type="datetime-local"
+          value={ends}
+          onChange={(e) => setEnds(e.target.value)}
+          className="min-h-[44px] rounded-chip border border-hairline bg-surface-2 px-3 text-[14px] text-text-primary outline-none focus:border-strong"
+        />
+      </label>
+      <button
+        type="button"
+        disabled={!title.trim() || mut.isPending}
+        onClick={() => mut.mutate()}
+        className="mt-1 rounded-pill bg-accent px-4 py-3 text-[14px] font-semibold text-accent-on disabled:opacity-50"
+      >
+        {mut.isPending ? "Создаём…" : "Создать акцию"}
+      </button>
+      {mut.isError && (
+        <p className="text-[12px] text-status-critical">
+          Не удалось: {(mut.error as Error).message}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function toLocalInput(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// ------------------------------ подписки -------------------------------------
 
 function SubsSection() {
   const { data } = useQuery({
@@ -98,12 +478,8 @@ function SubsSection() {
               }`}
             >
               <div className="min-w-0">
-                <p className="nums truncate text-[14px] text-text-primary">
-                  {s.user_id}
-                </p>
-                <p className="text-[11px] text-text-tertiary">
-                  {s.payment_method ?? "—"}
-                </p>
+                <p className="nums truncate text-[14px] text-text-primary">{s.user_id}</p>
+                <p className="text-[11px] text-text-tertiary">{s.payment_method ?? "—"}</p>
               </div>
               <span
                 className={`nums shrink-0 rounded-pill px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${
@@ -200,9 +576,7 @@ function SetPlanForm() {
             Не удалось: {(mut.error as Error).message}
           </p>
         )}
-        {mut.isSuccess && (
-          <p className="text-[12px] text-status-active">Обновлено.</p>
-        )}
+        {mut.isSuccess && <p className="text-[12px] text-status-active">Обновлено.</p>}
       </div>
     </section>
   );

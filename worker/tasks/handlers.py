@@ -38,6 +38,7 @@ from worker.tasks.commenting import (
     verify_comment_impl,
     sync_campaign_channels_impl,
 )
+from worker.tasks.billing import reconcile_payments_impl
 from worker.tasks.bulk import dispatch_impl as bulk_dispatch_impl, item_impl as bulk_item_impl
 from modules.shilling.worker.dry_run import dry_run as shilling_dry_run_impl
 from modules.shilling.worker.executor import execute_step as shilling_execute_step_impl
@@ -364,6 +365,15 @@ CRON_JOBS = [
         autopilot_tick,
         name=TaskName.AUTOPILOT_TICK.value,
         minute=set(range(0, 60, 10)),
+        run_at_startup=False,
+        max_tries=1,
+    ),
+    # Биллинг: сверка pending крипто-платежей каждые 2 минуты (страховка к
+    # on-demand-проверке). Идемпотентно — повторы безопасны.
+    cron(
+        reconcile_payments_impl,
+        name=TaskName.BILLING_RECONCILE_PAYMENTS.value,
+        minute=set(range(0, 60, 2)),
         run_at_startup=False,
         max_tries=1,
     ),

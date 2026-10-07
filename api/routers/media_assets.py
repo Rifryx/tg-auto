@@ -103,7 +103,7 @@ def get_media_blob(
     return Response(content=obj.bytes, media_type=obj.mime, headers=headers)
 
 
-@router.delete("/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{asset_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 def delete_media(
     asset_id: int,
     user_id: str = Depends(require_user),

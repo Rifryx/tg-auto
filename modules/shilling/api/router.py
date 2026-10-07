@@ -434,7 +434,7 @@ def delete_step_endpoint(
 
 
 @router.post(
-    "/scenarios/{scenario_id}/steps/reorder", status_code=status.HTTP_204_NO_CONTENT
+    "/scenarios/{scenario_id}/steps/reorder", status_code=status.HTTP_204_NO_CONTENT, response_model=None
 )
 def reorder_steps_endpoint(
     scenario_id: int,

@@ -30,6 +30,8 @@ class TaskName(str, Enum):
     SECURITY_CONFIRM_RECOVERY_EMAIL = "security.confirm_recovery_email"
     BULK_DISPATCH = "bulk.dispatch"
     BULK_ITEM = "bulk.item"
+    # Биллинг: периодическая сверка pending крипто-платежей с Crypto Pay API.
+    BILLING_RECONCILE_PAYMENTS = "billing.reconcile_payments"
     ACCOUNT_RETIRE = "account.retire"
     ACCOUNT_ACKNOWLEDGE_BAN = "account.acknowledge_ban"
 

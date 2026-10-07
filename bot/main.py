@@ -27,6 +27,7 @@ from sqlalchemy import func, select
 
 from api.deps.db import _session_factory  # тестируемый и уже настроенный фабрик
 from bot.notifier import run_notifier
+from bot.payments import on_pre_checkout, on_successful_payment
 from bot.user_commands import cmd_help, cmd_start, cmd_status
 from core.audit import admin_action
 from core.config import get_settings
@@ -148,6 +149,10 @@ async def _amain() -> None:
     dp.message.register(cmd_start, Command("start"))
     dp.message.register(cmd_help, Command("help"))
     dp.message.register(cmd_status, Command("status"))
+
+    # Оплата Telegram Stars: pre-checkout + успешная оплата (идемпотентно).
+    dp.pre_checkout_query.register(on_pre_checkout)
+    dp.message.register(on_successful_payment, F.successful_payment)
 
     logger.info("bot starting (long-polling + notifier)…")
     # notifier — фоновая корутина: слушает Redis pub/sub и шлёт админам пуши
