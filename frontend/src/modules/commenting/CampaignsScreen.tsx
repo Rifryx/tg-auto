@@ -25,9 +25,9 @@ export function CampaignsScreen() {
       <LimitBanner feature="campaigns_active_max" />
 
       {isLoading && (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="card overflow-hidden">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="card aspect-square animate-pulse bg-surface-2" />
+            <div key={i} className={`h-[72px] animate-pulse bg-surface-2 ${i > 0 ? "border-t border-hairline" : ""}`} />
           ))}
         </div>
       )}
@@ -35,9 +35,11 @@ export function CampaignsScreen() {
       {isError && <p className="px-1 text-[14px] text-status-critical">Не удалось загрузить.</p>}
 
       {data && data.length > 0 && (
-        <div className="grid grid-cols-2 gap-3">
-          {data.map((c) => (
-            <CampaignCard key={c.id} campaign={c} />
+        <div className="card overflow-hidden p-0">
+          {data.map((c, i) => (
+            <div key={c.id} className={i > 0 ? "border-t border-hairline" : ""}>
+              <CampaignCard campaign={c} />
+            </div>
           ))}
         </div>
       )}

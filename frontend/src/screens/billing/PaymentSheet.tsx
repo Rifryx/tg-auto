@@ -93,14 +93,7 @@ export function PaymentSheet({ plan, onClose, onPaid }: PaymentSheetProps) {
                 ].join(" ")}
               >
                 <span
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-pill"
-                  style={{
-                    background:
-                      m.id === "stars"
-                        ? "linear-gradient(135deg,#ffd76a,#ff8a00)"
-                        : "linear-gradient(135deg,#4fc3f7,#1976d2)",
-                    color: "#1a0f45",
-                  }}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-surface-2 text-text-secondary"
                   aria-hidden
                 >
                   {m.id === "stars" ? (

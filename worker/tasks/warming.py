@@ -37,13 +37,18 @@ from worker.client_pool import ClientPool
 from worker.health import Governor
 from worker.tasks.logging import get_logger
 from worker.warming.actions import execute_action
-from worker.warming.planner import choose_action, due_interval, is_within_active_window
+from worker.warming.planner import (
+    batch_action_count,
+    choose_action,
+    due_interval,
+    is_within_active_window,
+)
 from worker.warming.presets import (
     INITIAL_BATCH_PROFILE,
-    PRESET_ACTION_COUNT,
     WARMING_READY_ACTIONS,
     WARMING_READY_DAYS,
 )
+from worker.warming.scenario import WarmingScenario
 
 _ACTIVE_WARMING_STATUSES = (AccountStatus.WARMING.value, AccountStatus.POOL.value)
 
@@ -98,20 +103,32 @@ def _unresolved_incidents(session, account_id: int) -> int:
 def _maybe_complete_warming(session, publisher, account_id: int, now: datetime) -> bool:
     """Если аккаунт готов (§3): warming → pool через state machine.
 
-    Критерий: (>= WARMING_READY_ACTIONS успешных initial-действий) ИЛИ (>=
-    WARMING_READY_DAYS в прогреве) И отсутствие неразрешённых health-инцидентов.
+    Критерий: (>= ready_actions успешных initial-действий) ИЛИ (>= ready_days
+    в прогреве) И отсутствие неразрешённых health-инцидентов. Пороги берутся
+    из сценария аккаунта (если задан), иначе — дефолтные константы.
     """
     if _unresolved_incidents(session, account_id) > 0:
         return False
     account = AccountRepository(session).get(account_id)
     if account is None or account.status != AccountStatus.WARMING.value:
         return False
+    scenario = WarmingScenario.from_meta(account.meta)
+    ready_actions = (
+        scenario.ready_actions
+        if scenario is not None and scenario.ready_actions is not None
+        else WARMING_READY_ACTIONS
+    )
+    ready_days = (
+        scenario.ready_days
+        if scenario is not None and scenario.ready_days is not None
+        else WARMING_READY_DAYS
+    )
     done = _successful_initial_actions(session, account_id)
     age_ok = (
         account.warming_started_at is not None
-        and (now - account.warming_started_at) >= timedelta(days=WARMING_READY_DAYS)
+        and (now - account.warming_started_at) >= timedelta(days=ready_days)
     )
-    if done >= WARMING_READY_ACTIONS or age_ok:
+    if done >= ready_actions or age_ok:
         AccountStateMachine(session, publisher).transition(
             account_id, AccountEvent.WARMING_COMPLETED, Initiator.AUTO
         )
@@ -142,6 +159,7 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
         health_score = health.health_score if health is not None else None
         risk_snapshot = BanRiskRepository(session).get(account_id)
         ban_risk = risk_snapshot.risk_score if risk_snapshot is not None else None
+        scenario = WarmingScenario.from_meta(account.meta)
 
     if status not in _ACTIVE_WARMING_STATUSES:
         log.info("warming.tick.skipped", account_id=account_id, reason="status", status=status)
@@ -166,7 +184,9 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
         if status == AccountStatus.WARMING.value
         else WarmingActivityKind.MAINTENANCE
     )
-    action_type = choose_action(rng, persona, health_score=health_score, ban_risk=ban_risk)
+    action_type = choose_action(
+        rng, persona, health_score=health_score, ban_risk=ban_risk, scenario=scenario
+    )
 
     pool = _pool(ctx)
     client = await pool.get(account_id)
@@ -240,7 +260,10 @@ async def maintenance_scheduler_impl(ctx: dict, *args: Any, **kwargs: Any) -> li
             score = health.health_score if health is not None else None
             risk_snap = BanRiskRepository(session).get(account.id)
             b_risk = risk_snap.risk_score if risk_snap is not None else None
-            interval = due_interval(account.warming_profile, health_score=score, ban_risk=b_risk)
+            scenario = WarmingScenario.from_meta(account.meta)
+            interval = due_interval(
+                account.warming_profile, health_score=score, ban_risk=b_risk, scenario=scenario
+            )
             if last_at is None or (now - last_at) >= interval:
                 due.append(account.id)
 
@@ -258,8 +281,18 @@ async def initial_start_impl(ctx: dict, account_id: int) -> int:
     """
     rng = _rng(ctx)
     task_queue = _task_queue(ctx)
-    low, high = PRESET_ACTION_COUNT[INITIAL_BATCH_PROFILE]
-    count = rng.randint(low, high)
+    # Размер стартовой пачки: по умолчанию — INITIAL_BATCH_PROFILE (как раньше),
+    # сценарий аккаунта (если задан) переопределяет размер. session_factory может
+    # отсутствовать в ctx (initial_start исторически его не требовал) — тогда
+    # сценарий не читаем и работаем на дефолте.
+    scenario = None
+    session_factory = ctx.get("session_factory")
+    if session_factory is not None:
+        with session_factory() as session:
+            account = AccountRepository(session).get(account_id)
+            if account is not None:
+                scenario = WarmingScenario.from_meta(account.meta)
+    count = batch_action_count(INITIAL_BATCH_PROFILE, rng, scenario=scenario)
     for _ in range(count):
         await task_queue.enqueue(TaskName.WARMING_TICK, account_id)
     get_logger().info("warming.initial_start", account_id=account_id, scheduled=count)

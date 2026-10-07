@@ -135,6 +135,66 @@ def session_file_to_string(file_bytes: bytes) -> str:
             sqlite.close()
 
 
+def _find_tdata_dir(root: str) -> Optional[str]:
+    """Ищет внутри распакованного архива папку tdata (по файлу ``key_datas``)."""
+    import os
+
+    for dirpath, _dirnames, filenames in os.walk(root):
+        if any(name.lower() == "key_datas" for name in filenames):
+            return dirpath
+    return None
+
+
+def _tdata_dir_to_string(tdata_dir: str) -> str:
+    """TData-папка → StringSession офлайн (opentele, flag=UseCurrentSession).
+
+    Сеть не нужна: auth_key и DC берутся прямо из tdata. PyQt5 (транзитивная
+    зависимость opentele для разбора Qt-сериализации) импортируется лениво."""
+    import asyncio
+
+    from opentele.api import UseCurrentSession
+    from opentele.td import TDesktop
+    from telethon.sessions import StringSession
+
+    tdesk = TDesktop(tdata_dir)
+    if not tdesk.isLoaded() or tdesk.accountsCount == 0:
+        raise SessionImportError("tdata не содержит авторизованных аккаунтов")
+
+    async def _convert() -> str:
+        client = await tdesk.ToTelethon(flag=UseCurrentSession)
+        return StringSession.save(client.session)
+
+    return asyncio.run(_convert())
+
+
+def tdata_zip_to_string(zip_bytes: bytes) -> str:
+    """Конвертирует ZIP с папкой TData (Telegram Desktop) в StringSession.
+
+    Поддерживается только tdata без локального passcode-пароля (у защищённого
+    ``isLoaded()`` вернёт False → понятная ошибка)."""
+    import io
+    import tempfile
+    import zipfile
+
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            try:
+                with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+                    zf.extractall(d)
+            except zipfile.BadZipFile as exc:
+                raise SessionImportError("файл не является ZIP-архивом") from exc
+            tdata_dir = _find_tdata_dir(d)
+            if tdata_dir is None:
+                raise SessionImportError(
+                    "в архиве не найдена папка tdata (нет файла key_datas)"
+                )
+            return _tdata_dir_to_string(tdata_dir)
+    except SessionImportError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — любой сбой парсинга → понятная 422
+        raise SessionImportError(f"не удалось разобрать tdata: {exc}") from exc
+
+
 def import_account_from_session(
     session: Session,
     *,

@@ -79,7 +79,7 @@ export function SideDrawer({ open, onClose }: SideDrawerProps) {
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         <div className="flex items-center justify-between px-5 pt-4">
-          <span className="text-[13px] font-semibold uppercase tracking-wide text-text-tertiary">
+          <span className="text-[15px] font-semibold text-text-secondary">
             Меню
           </span>
           <button

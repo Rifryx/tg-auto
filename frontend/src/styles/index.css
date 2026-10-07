@@ -53,6 +53,18 @@
     @apply rounded-card border border-hairline bg-surface-1;
   }
 
+  /* Hero-карточка с градиентным фоном (Proton Pass style):
+     подсветка в углу + усиленная обводка — выделяет featured-элементы. */
+  .card-hero {
+    @apply rounded-card;
+    background: linear-gradient(
+      145deg,
+      color-mix(in srgb, white 8%, var(--surface-1)),
+      var(--surface-1)
+    );
+    border: 1px solid var(--surface-border-strong);
+  }
+
   /* Заголовок экрана H1 (§3): 28–34px / 700 / плотный трекинг. */
   .screen-title {
     @apply text-[30px] font-bold leading-tight text-text-primary;

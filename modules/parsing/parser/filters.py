@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Optional
 
@@ -38,6 +39,33 @@ REASON_BOT = "bot"
 REASON_DELETED = "deleted"
 REASON_ADMIN = "admin"
 REASON_BLACKLISTED = "blacklisted"
+# Extraction+ (этап 1):
+REASON_NO_PHOTO = "no_photo"
+REASON_NOT_VERIFIED = "not_verified"
+REASON_SCAM_FAKE = "scam_fake"
+REASON_NO_PHONE = "no_phone"
+REASON_USERNAME_REGEX = "username_regex"
+REASON_NAME_SCRIPT = "name_script"
+REASON_LAST_SEEN_OLD = "last_seen_too_old"
+
+
+_CYRILLIC = re.compile(r"[Ѐ-ӿ]")
+_LATIN = re.compile(r"[A-Za-z]")
+
+
+def _full_name(row: dict) -> str:
+    return f"{row.get('first_name') or ''} {row.get('last_name') or ''}".strip()
+
+
+def _matches_script(name: str, script: str) -> bool:
+    """Есть ли в имени символы требуемого алфавита (cyrillic/latin)."""
+    if not name:
+        return False
+    if script == "cyrillic":
+        return bool(_CYRILLIC.search(name))
+    if script == "latin":
+        return bool(_LATIN.search(name))
+    return True
 
 
 @dataclass
@@ -49,6 +77,22 @@ class FilterOptions:
     exclude_admins: bool = True
     check_blacklist: bool = True
     owner_user_id: Optional[int] = None
+    # Extraction+ (этап 1): профиль/активность.
+    require_photo: bool = False
+    verified_only: bool = False
+    exclude_scam_fake: bool = True
+    require_phone_visible: bool = False
+    username_regex: Optional[str] = None
+    name_script: Optional[str] = None  # "cyrillic" | "latin" | None
+    last_seen_max_days: Optional[int] = None
+
+    def compiled_username_regex(self) -> Optional["re.Pattern[str]"]:
+        if not self.username_regex:
+            return None
+        try:
+            return re.compile(self.username_regex, re.IGNORECASE)
+        except re.error:
+            return None
 
 
 @dataclass
@@ -175,8 +219,28 @@ def _first_drop_reason(
         return REASON_DELETED
     if options.exclude_admins and row.get("is_admin"):
         return REASON_ADMIN
+    if options.exclude_scam_fake and (row.get("is_scam") or row.get("is_fake")):
+        return REASON_SCAM_FAKE
     if options.premium_only and row.get("has_premium") is not True:
         return REASON_NOT_PREMIUM
+    if options.require_photo and not row.get("has_photo"):
+        return REASON_NO_PHOTO
+    if options.verified_only and not row.get("is_verified"):
+        return REASON_NOT_VERIFIED
+    if options.require_phone_visible and not row.get("phone"):
+        return REASON_NO_PHONE
+    if options.name_script and not _matches_script(_full_name(row), options.name_script):
+        return REASON_NAME_SCRIPT
+    if options.username_regex:
+        pattern = options.compiled_username_regex()
+        uname = row.get("username") or ""
+        if pattern is not None and not pattern.search(uname):
+            return REASON_USERNAME_REGEX
+    if options.last_seen_max_days is not None:
+        days = row.get("last_seen_days")
+        # None (неизвестно) не отбрасываем — только явно «слишком старых».
+        if days is not None and days > options.last_seen_max_days:
+            return REASON_LAST_SEEN_OLD
     if options.check_blacklist and blacklist_repo is not None:
         hit = blacklist_repo.match(
             owner_user_id=options.owner_user_id,

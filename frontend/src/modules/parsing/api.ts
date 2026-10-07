@@ -1,5 +1,15 @@
 import { api } from "../../shared/api";
-import type { ParsedList, ParsedListTarget, RunChatMessagesBody } from "./types";
+import type {
+  CommunityItem,
+  ListOpBody,
+  ParsedList,
+  ParsedListTarget,
+  RunChatMembersBody,
+  RunChatMessagesBody,
+  RunCommunitiesBody,
+  RunDiscoverBody,
+  RunPostReactorsBody,
+} from "./types";
 
 const BASE = "/modules/parsing/lists";
 
@@ -10,12 +20,17 @@ export const parsingApi = {
   remove: (id: number) => api.del<void>(`${BASE}/${id}`),
   runChatMessages: (body: RunChatMessagesBody) =>
     api.post<{ job_id: string }>(`${BASE}/run/chat-messages`, body),
-  runChatMembers: (body: {
-    name: string;
-    collector_account_id: number;
-    chat_ref: string;
-    only_recently_seen?: boolean;
-    require_username?: boolean;
-    premium_only?: boolean;
-  }) => api.post<{ job_id: string }>(`${BASE}/run/chat-members`, body),
+  runChatMembers: (body: RunChatMembersBody) =>
+    api.post<{ job_id: string }>(`${BASE}/run/chat-members`, body),
+  runChannelCommenters: (body: RunChatMessagesBody) =>
+    api.post<{ job_id: string }>(`${BASE}/run/channel-commenters`, body),
+  runPostReactors: (body: RunPostReactorsBody) =>
+    api.post<{ job_id: string }>(`${BASE}/run/post-reactors`, body),
+  runCommunities: (body: RunCommunitiesBody) =>
+    api.post<{ job_id: string }>(`${BASE}/run/communities`, body),
+  runDiscover: (body: RunDiscoverBody) =>
+    api.post<{ job_id: string }>(`${BASE}/run/discover`, body),
+  communities: (id: number) =>
+    api.get<CommunityItem[]>(`${BASE}/${id}/communities`),
+  listOps: (body: ListOpBody) => api.post<ParsedList>(`${BASE}/ops`, body),
 };

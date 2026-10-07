@@ -18,7 +18,7 @@ import { CapsuleButton, SegmentedControl } from "./components/ui";
    регистрации только на "оживить аккаунт". */
 
 type WizardStep = 1 | 2 | 3 | 4;
-type Method = "code" | "session";
+type Method = "code" | "session" | "tdata";
 
 const STEP_LABELS: Record<WizardStep, string> = {
   1: "Номер телефона",
@@ -47,6 +47,7 @@ export function NewAccountFlow() {
   const [password, setPassword] = useState("");
   const [sessionString, setSessionString] = useState("");
   const [sessionFile, setSessionFile] = useState<File | null>(null);
+  const [tdataZip, setTdataZip] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const accountIdRef = useRef<number | null>(null);
 
@@ -70,6 +71,21 @@ export function NewAccountFlow() {
         warming_profile: profile,
         session_string: sessionString.trim() || undefined,
         session_file: sessionFile ?? undefined,
+      }),
+    onSuccess: (acc) => {
+      accountIdRef.current = acc.id;
+      setStep(4);
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  const importTData = useMutation({
+    mutationFn: () =>
+      accountsApi.importTData({
+        phone: phone.trim(),
+        proxy_id: proxyId!,
+        warming_profile: profile,
+        tdata_zip: tdataZip!,
       }),
     onSuccess: (acc) => {
       accountIdRef.current = acc.id;
@@ -150,7 +166,8 @@ export function NewAccountFlow() {
               onChange={setMethod}
               options={[
                 { value: "code", label: "По коду" },
-                { value: "session", label: "Через .session" },
+                { value: "session", label: ".session" },
+                { value: "tdata", label: "TData" },
               ]}
             />
           </div>
@@ -172,6 +189,10 @@ export function NewAccountFlow() {
               sessionString={sessionString}
               setSessionString={setSessionString}
             />
+          )}
+
+          {method === "tdata" && (
+            <TDataSourceCard tdataZip={tdataZip} setTdataZip={setTdataZip} />
           )}
         </StepFrame>
       )}
@@ -219,7 +240,7 @@ export function NewAccountFlow() {
           </div>
           <p className="text-[17px] font-semibold text-text-primary">Аккаунт подключён</p>
           <p className="mt-1 text-[13px] text-text-secondary">
-            {method === "session" ? "Сессия импортирована, аккаунт в пуле." : "Начался прогрев."}
+            {method === "code" ? "Начался прогрев." : "Сессия импортирована, аккаунт в пуле."}
           </p>
         </div>
       )}
@@ -247,6 +268,19 @@ export function NewAccountFlow() {
             onClick={startSession}
           >
             {importSession.isPending ? "Импортируем…" : "Импортировать сессию"}
+          </CapsuleButton>
+        )}
+        {step === 1 && method === "tdata" && (
+          <CapsuleButton
+            disabled={
+              !phone.trim() || proxyId == null || !tdataZip || importTData.isPending
+            }
+            onClick={() => {
+              setError(null);
+              importTData.mutate();
+            }}
+          >
+            {importTData.isPending ? "Импортируем TData…" : "Импортировать TData"}
           </CapsuleButton>
         )}
         {step === 2 && (
@@ -664,6 +698,37 @@ function SessionSourceCard({
       <InfoNote>
         Сессия шифруется перед записью в базу — в открытом виде не хранится. Аккаунт сразу
         попадёт в пул, код подтверждения не нужен.
+      </InfoNote>
+    </div>
+  );
+}
+
+function TDataSourceCard({
+  tdataZip,
+  setTdataZip,
+}: {
+  tdataZip: File | null;
+  setTdataZip: (f: File | null) => void;
+}) {
+  return (
+    <div className="mb-4 rounded-card border border-hairline bg-surface-1 p-4">
+      <p className="mb-3 text-[13px] font-semibold text-text-primary">Папка TData</p>
+      <Field label="ZIP-архив папки tdata">
+        <label className="flex min-h-[48px] cursor-pointer items-center gap-2 rounded-chip border border-dashed border-hairline bg-surface-1 px-4 text-[14px] text-text-secondary active:border-strong">
+          <Upload className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
+          <span className="truncate">{tdataZip ? tdataZip.name : "Выбрать .zip с tdata"}</span>
+          <input
+            type="file"
+            accept=".zip,application/zip"
+            onChange={(e) => setTdataZip(e.target.files?.[0] ?? null)}
+            className="hidden"
+          />
+        </label>
+      </Field>
+      <InfoNote>
+        Запакуйте папку <b>tdata</b> из Telegram Desktop в ZIP. Конвертация в
+        сессию происходит офлайн; аккаунт сразу попадёт в пул. TData с локальным
+        паролем (passcode) не поддерживается.
       </InfoNote>
     </div>
   );

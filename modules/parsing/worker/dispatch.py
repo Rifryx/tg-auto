@@ -10,11 +10,35 @@ from typing import Any, Optional
 
 import structlog
 
+from modules.parsing.parser.channel_commenters import parse_channel_commenters
 from modules.parsing.parser.chat_members import parse_chat_members
 from modules.parsing.parser.chat_messages import parse_chat_messages
+from modules.parsing.parser.community_discover import discover_communities
+from modules.parsing.parser.community_enrich import enrich_communities
+from modules.parsing.parser.community_filters import CommunityFilterOptions
 from modules.parsing.parser.filters import FilterOptions
+from modules.parsing.parser.post_reactors import parse_post_reactors
 
 get_logger = structlog.get_logger
+
+
+def _filter_options(payload: dict[str, Any]) -> FilterOptions:
+    """Собирает FilterOptions из payload (Extraction+ фильтры)."""
+    return FilterOptions(
+        require_username=bool(payload.get("require_username", True)),
+        premium_only=bool(payload.get("premium_only", False)),
+        require_photo=bool(payload.get("require_photo", False)),
+        verified_only=bool(payload.get("verified_only", False)),
+        exclude_scam_fake=bool(payload.get("exclude_scam_fake", True)),
+        require_phone_visible=bool(payload.get("require_phone_visible", False)),
+        username_regex=payload.get("username_regex") or None,
+        name_script=payload.get("name_script") or None,
+        last_seen_max_days=(
+            int(payload["last_seen_max_days"])
+            if payload.get("last_seen_max_days") is not None
+            else None
+        ),
+    )
 
 
 async def parser_run(
@@ -22,15 +46,12 @@ async def parser_run(
 ) -> Optional[dict]:
     """Точка входа arq для запуска парсинга.
 
-    ``kind`` — ``chat_messages`` | ``chat_members`` (см. API эндпоинты
-    /modules/parsing/lists/run/*). ``payload`` — сериализованный запрос.
+    ``kind`` — chat_messages | chat_members | channel_commenters | post_reactors
+    (см. API /modules/parsing/lists/run/*). ``payload`` — сериализованный запрос.
     """
     log = get_logger()
 
-    filter_options = FilterOptions(
-        require_username=bool(payload.get("require_username", True)),
-        premium_only=bool(payload.get("premium_only", False)),
-    )
+    filter_options = _filter_options(payload)
 
     if kind == "chat_messages":
         result = await parse_chat_messages(
@@ -52,6 +73,76 @@ async def parser_run(
             chat_ref=str(payload["chat_ref"]),
             only_recently_seen=bool(payload.get("only_recently_seen", True)),
             filter_options=filter_options,
+        )
+    elif kind == "channel_commenters":
+        result = await parse_channel_commenters(
+            ctx,
+            owner_user_id=int(payload["owner_user_id"]),
+            name=str(payload["name"]),
+            collector_account_id=int(payload["collector_account_id"]),
+            chat_ref=str(payload["chat_ref"]),
+            days_window=int(payload.get("days_window", 14)),
+            min_messages=int(payload.get("min_messages", 1)),
+            filter_options=filter_options,
+        )
+    elif kind == "post_reactors":
+        result = await parse_post_reactors(
+            ctx,
+            owner_user_id=int(payload["owner_user_id"]),
+            name=str(payload["name"]),
+            collector_account_id=int(payload["collector_account_id"]),
+            chat_ref=str(payload["chat_ref"]),
+            posts_limit=int(payload.get("posts_limit", 20)),
+            reactions_per_post=int(payload.get("reactions_per_post", 100)),
+            min_reactions=int(payload.get("min_reactions", 1)),
+            filter_options=filter_options,
+        )
+    elif kind == "communities":
+        result = await enrich_communities(
+            ctx,
+            owner_user_id=int(payload["owner_user_id"]),
+            name=str(payload["name"]),
+            collector_account_id=int(payload["collector_account_id"]),
+            refs=list(payload.get("refs") or []),
+            filter_options=CommunityFilterOptions(
+                kind=payload.get("kind") or None,
+                min_participants=payload.get("min_participants"),
+                max_participants=payload.get("max_participants"),
+                require_public=bool(payload.get("require_public", False)),
+                require_linked_chat=bool(payload.get("require_linked_chat", False)),
+                last_post_max_days=payload.get("last_post_max_days"),
+                exclude_scam_fake=bool(payload.get("exclude_scam_fake", True)),
+                verified_only=bool(payload.get("verified_only", False)),
+                title_regex=payload.get("title_regex") or None,
+                username_regex=payload.get("username_regex") or None,
+            ),
+        )
+    elif kind == "discover_communities":
+        result = await discover_communities(
+            ctx,
+            owner_user_id=int(payload["owner_user_id"]),
+            name=str(payload["name"]),
+            collector_account_id=int(payload["collector_account_id"]),
+            seeds=list(payload.get("seeds") or []),
+            term=payload.get("term") or None,
+            use_search=bool(payload.get("use_search", True)),
+            use_recommendations=bool(payload.get("use_recommendations", True)),
+            use_forwards=bool(payload.get("use_forwards", False)),
+            use_mentions=bool(payload.get("use_mentions", False)),
+            depth=int(payload.get("depth", 2)),
+            max_results=int(payload.get("max_results", 200)),
+            filter_options=CommunityFilterOptions(
+                kind=payload.get("kind") or None,
+                min_participants=payload.get("min_participants"),
+                max_participants=payload.get("max_participants"),
+                require_public=bool(payload.get("require_public", False)),
+                require_linked_chat=bool(payload.get("require_linked_chat", False)),
+                last_post_max_days=payload.get("last_post_max_days"),
+                exclude_scam_fake=bool(payload.get("exclude_scam_fake", True)),
+                verified_only=bool(payload.get("verified_only", False)),
+                title_regex=payload.get("title_regex") or None,
+                username_regex=payload.get("username_regex") or None,
+            ),
         )
     else:
         log.warning("parsing.parser_run.unknown_kind", kind=kind)

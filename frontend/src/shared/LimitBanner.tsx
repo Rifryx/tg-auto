@@ -31,12 +31,7 @@ export function LimitBanner({ feature }: { feature: FeatureKey }) {
     >
       <span
         aria-hidden
-        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-pill"
-        style={{
-          background:
-            "linear-gradient(135deg, #b291ff 0%, #7c5cff 100%)",
-          color: "#1a0f45",
-        }}
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-secondary"
       >
         <Sparkles className="h-4 w-4" strokeWidth={2} />
       </span>

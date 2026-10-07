@@ -22,22 +22,26 @@ from api.deps.limits import enforce_limit
 from api.deps.queue import get_publisher, get_task_queue
 from worker.health.governor import Governor
 from api.services import accounts as accounts_service
-from core.enums import AccountStatus, Initiator, WarmingProfile
+from core.enums import AccountStatus, Initiator, WarmingActionType, WarmingProfile
 from core.queue import TaskQueue
 from core.queue.publisher import Publisher
 from core.queue.task_names import TaskName
-from core.crypto import encrypt_password
+from core.crypto import CryptoError, decrypt_session, encrypt_password
 from core.enums import BulkActionType
 from core.repositories.account import AccountRepository
 from core.repositories.account_health import AccountHealthRepository
 from core.repositories.account_status_history import AccountStatusHistoryRepository
 from core.repositories.bulk_job import BulkJobRepository
 from core.repositories.persona import PersonaRepository
+from core.repositories.project_channel import ProjectChannelRepository
 from core.repositories.warming_activity import WarmingActivityRepository
 from core.schemas.bulk import BulkJobRead
 from core.schemas.account import AccountRead, AccountUpdate
 from core.schemas.account_health import AccountHealthRead
 from core.schemas.history import AccountStatusHistoryRead
+from core.schemas.project_channel import ProjectChannelRead
+from modules.commenting.repositories.comment_log import CommentLogRepository
+from modules.commenting.schemas.comment_log import CommentLogRead
 from core.schemas.warming import WarmingActivityRead
 from modules.profiles.generator import (
     GeneratedProfile,
@@ -210,6 +214,48 @@ async def import_session_account(
     return AccountRead.model_validate(account)
 
 
+@router.post(
+    "/import-tdata", response_model=AccountRead, status_code=status.HTTP_201_CREATED
+)
+async def import_tdata_account(
+    phone: str = Form(...),
+    proxy_id: int = Form(...),
+    persona_id: Optional[int] = Form(None),
+    warming_profile: WarmingProfile = Form(WarmingProfile.MEDIUM),
+    tdata_zip: UploadFile = File(..., description="ZIP с папкой tdata"),
+    session: Session = Depends(get_session),
+    _limit: None = Depends(enforce_limit("accounts_max")),
+) -> AccountRead:
+    """Импорт аккаунта из TData (Telegram Desktop): ZIP конвертируется офлайн в
+    StringSession, шифруется и сохраняется. Аккаунт сразу попадает в пул."""
+    try:
+        string = accounts_service.tdata_zip_to_string(await tdata_zip.read())
+    except accounts_service.SessionImportError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    try:
+        account = accounts_service.import_account_from_session(
+            session,
+            phone=phone,
+            proxy_id=proxy_id,
+            persona_id=persona_id,
+            warming_profile=warming_profile,
+            session_string=string,
+        )
+    except accounts_service.ProxyNotFoundError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except accounts_service.PhoneAlreadyExistsError as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "reason": "phone_already_exists",
+                "phone": exc.phone,
+                "message": "Аккаунт с таким номером уже есть в системе.",
+            },
+        ) from exc
+    return AccountRead.model_validate(account)
+
+
 @router.post("/bulk-import")
 async def bulk_import_accounts(
     archive: UploadFile = File(..., description="ZIP с .session-файлами"),
@@ -286,6 +332,135 @@ def set_warming_profile(
     return AccountRead.model_validate(account)
 
 
+# --- Конструктор сценариев прогрева (кастом поверх пресета) -------------------
+
+_WARMING_ACTION_VALUES = {a.value for a in WarmingActionType}
+
+
+class WarmingScenarioBody(BaseModel):
+    """Кастомный сценарий прогрева аккаунта. Любое поле опционально —
+    незаданное наследуется от пресета (minimal/medium/dense)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    interval_hours_min: Optional[float] = None
+    interval_hours_max: Optional[float] = None
+    actions_min: Optional[int] = None
+    actions_max: Optional[int] = None
+    # action_value -> вес (>=0); 0 = действие выключено.
+    action_weights: Optional[dict[str, float]] = None
+    ready_actions: Optional[int] = None
+    ready_days: Optional[int] = None
+
+    def _validate(self) -> None:
+        if self.interval_hours_min is not None and self.interval_hours_min <= 0:
+            raise ValueError("interval_hours_min must be > 0")
+        if (
+            self.interval_hours_min is not None
+            and self.interval_hours_max is not None
+            and self.interval_hours_max < self.interval_hours_min
+        ):
+            raise ValueError("interval_hours_max must be >= interval_hours_min")
+        if self.actions_min is not None and self.actions_min < 1:
+            raise ValueError("actions_min must be >= 1")
+        if (
+            self.actions_min is not None
+            and self.actions_max is not None
+            and self.actions_max < self.actions_min
+        ):
+            raise ValueError("actions_max must be >= actions_min")
+        if self.action_weights is not None:
+            for key, val in self.action_weights.items():
+                if key not in _WARMING_ACTION_VALUES:
+                    raise ValueError(f"unknown action: {key}")
+                if val < 0:
+                    raise ValueError(f"weight for {key} must be >= 0")
+        for field_name in ("ready_actions", "ready_days"):
+            v = getattr(self, field_name)
+            if v is not None and v < 1:
+                raise ValueError(f"{field_name} must be >= 1")
+
+    def to_meta(self) -> dict:
+        """В формат ``accounts.meta['warming_scenario']`` (только заданные поля)."""
+        out: dict[str, Any] = {}
+        if self.interval_hours_min is not None and self.interval_hours_max is not None:
+            out["interval_hours"] = [self.interval_hours_min, self.interval_hours_max]
+        if self.actions_min is not None and self.actions_max is not None:
+            out["actions_per_batch"] = [self.actions_min, self.actions_max]
+        if self.action_weights:
+            out["action_weights"] = self.action_weights
+        if self.ready_actions is not None:
+            out["ready_actions"] = self.ready_actions
+        if self.ready_days is not None:
+            out["ready_days"] = self.ready_days
+        return out
+
+
+def _scenario_to_body(meta: dict) -> WarmingScenarioBody:
+    raw = (meta or {}).get("warming_scenario") or {}
+    iv = raw.get("interval_hours") or [None, None]
+    ab = raw.get("actions_per_batch") or [None, None]
+    return WarmingScenarioBody(
+        interval_hours_min=iv[0],
+        interval_hours_max=iv[1],
+        actions_min=ab[0],
+        actions_max=ab[1],
+        action_weights=raw.get("action_weights"),
+        ready_actions=raw.get("ready_actions"),
+        ready_days=raw.get("ready_days"),
+    )
+
+
+@router.get("/{account_id}/warming-scenario", response_model=WarmingScenarioBody)
+def get_warming_scenario(
+    account_id: int, session: Session = Depends(get_session)
+) -> WarmingScenarioBody:
+    """Текущий кастомный сценарий прогрева (пустой = работает пресет)."""
+    account = _get_account_or_404(session, account_id)
+    return _scenario_to_body(account.meta or {})
+
+
+@router.put("/{account_id}/warming-scenario", response_model=WarmingScenarioBody)
+def put_warming_scenario(
+    account_id: int,
+    body: WarmingScenarioBody,
+    session: Session = Depends(get_session),
+) -> WarmingScenarioBody:
+    """Сохранить кастомный сценарий прогрева в ``accounts.meta``."""
+    account = _get_account_or_404(session, account_id)
+    try:
+        body._validate()
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    meta = dict(account.meta or {})
+    scenario = body.to_meta()
+    if scenario:
+        meta["warming_scenario"] = scenario
+    else:
+        meta.pop("warming_scenario", None)
+    account.meta = meta  # reassign → SQLAlchemy зафиксирует изменение JSON
+    session.commit()
+    session.refresh(account)
+    return _scenario_to_body(account.meta or {})
+
+
+@router.delete(
+    "/{account_id}/warming-scenario",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+def delete_warming_scenario(
+    account_id: int, session: Session = Depends(get_session)
+) -> None:
+    """Сбросить сценарий — прогрев вернётся к пресету."""
+    account = _get_account_or_404(session, account_id)
+    if account.meta and "warming_scenario" in account.meta:
+        meta = dict(account.meta)
+        meta.pop("warming_scenario", None)
+        account.meta = meta
+        session.commit()
+
+
 # --- История стадий ----------------------------------------------------------
 
 
@@ -296,6 +471,85 @@ def list_history(
     _get_account_or_404(session, account_id)
     records = AccountStatusHistoryRepository(session).list_by_account(account_id)
     return [AccountStatusHistoryRead.model_validate(r) for r in records]
+
+
+# --- Созданные каналы аккаунта («Управление аккаунтом», этап 1) ---------------
+
+
+@router.get("/{account_id}/project-channels", response_model=list[ProjectChannelRead])
+def list_project_channels(
+    account_id: int, session: Session = Depends(get_session)
+) -> list[ProjectChannelRead]:
+    """Каналы/супергруппы, созданные этим аккаунтом (``project_channels``).
+
+    Пишутся bulk-action ``create_channel``; UI карточки аккаунта по этому
+    списку рендерит управление постами (``manage_channel_post``)."""
+    _get_account_or_404(session, account_id)
+    rows = ProjectChannelRepository(session).list_for_account(account_id)
+    return [ProjectChannelRead.model_validate(r) for r in rows]
+
+
+# --- Журнал аккаунта («Логи», этап 3) ----------------------------------------
+
+
+@router.get("/{account_id}/comment-logs", response_model=list[CommentLogRead])
+def list_account_comment_logs(
+    account_id: int,
+    limit: int = 50,
+    session: Session = Depends(get_session),
+) -> list[CommentLogRead]:
+    """История комментариев аккаунта: что запостил, где, со статусом/ошибкой.
+
+    В поле ``error`` оседают ответы Telegram API (``FLOOD_WAIT_X`` и т.п.) —
+    UI подсвечивает их во вкладке «Логи»."""
+    _get_account_or_404(session, account_id)
+    rows = CommentLogRepository(session).list_by_account(account_id, limit=limit)
+    return [CommentLogRead.model_validate(r) for r in rows]
+
+
+# --- Экспорт сессий (этап 3) --------------------------------------------------
+
+
+class ExportSessionsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_ids: list[int]
+
+
+class ExportedSession(BaseModel):
+    account_id: int
+    phone: str
+    session_string: str
+
+
+@router.post("/export-sessions", response_model=list[ExportedSession])
+def export_sessions(
+    body: ExportSessionsRequest,
+    session: Session = Depends(get_session),
+) -> list[ExportedSession]:
+    """Экспорт StringSession выбранных аккаунтов (этап 3, bulk-action «Экспорт»).
+
+    Расшифровываем ``session_enc`` и отдаём строкой — для бэкапа/переноса.
+    Битые/нерасшифровываемые сессии пропускаем (best-effort)."""
+    if not body.account_ids:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "account_ids is empty")
+    repo = AccountRepository(session)
+    out: list[ExportedSession] = []
+    for aid in body.account_ids:
+        account = repo.get(aid)
+        if account is None or not account.session_enc:
+            continue
+        try:
+            session_string = decrypt_session(account.session_enc).decode("utf-8")
+        except (CryptoError, ValueError, UnicodeDecodeError):
+            continue
+        if session_string:
+            out.append(
+                ExportedSession(
+                    account_id=aid, phone=account.phone, session_string=session_string
+                )
+            )
+    return out
 
 
 # --- Действия (через state machine) ------------------------------------------

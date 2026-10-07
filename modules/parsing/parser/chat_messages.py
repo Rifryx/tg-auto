@@ -107,7 +107,14 @@ async def parse_chat_messages(
             "is_bot": bool(snap.get("bot", False)),
             "is_deleted": bool(snap.get("deleted", False)),
             "is_admin": False,
+            "is_verified": bool(snap.get("verified", False)),
+            "is_scam": bool(snap.get("scam", False)),
+            "is_fake": bool(snap.get("fake", False)),
+            "has_photo": bool(snap.get("has_photo", False)),
+            "first_name": snap.get("first_name"),
+            "last_name": snap.get("last_name"),
             "last_seen_bucket": TargetLastSeen.UNKNOWN.value,
+            "last_seen_days": None,  # из сообщений статус недоступен
         })
 
     options = filter_options or FilterOptions()
@@ -173,4 +180,10 @@ def _sender_snapshot(sender: Any) -> dict[str, Any]:
         "premium": getattr(sender, "premium", None),
         "bot": getattr(sender, "bot", False),
         "deleted": getattr(sender, "deleted", False),
+        "verified": getattr(sender, "verified", False),
+        "scam": getattr(sender, "scam", False),
+        "fake": getattr(sender, "fake", False),
+        "has_photo": getattr(sender, "photo", None) is not None,
+        "first_name": getattr(sender, "first_name", None),
+        "last_name": getattr(sender, "last_name", None),
     }

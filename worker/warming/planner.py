@@ -18,7 +18,12 @@ from zoneinfo import ZoneInfo
 
 from core.config import Settings, get_settings
 from core.enums import WarmingActionType
-from worker.warming.presets import JITTER_FRACTION, PRESET_INTERVAL_HOURS
+from worker.warming.presets import (
+    JITTER_FRACTION,
+    PRESET_ACTION_COUNT,
+    PRESET_INTERVAL_HOURS,
+)
+from worker.warming.scenario import WarmingScenario
 
 _ACTION_TYPES = list(WarmingActionType)
 
@@ -66,20 +71,32 @@ def choose_action(
     *,
     health_score: Optional[int] = None,
     ban_risk: Optional[float] = None,
+    scenario: Optional[WarmingScenario] = None,
 ) -> WarmingActionType:
     """Взвешенный случайный выбор действия по тегам персоны и риску.
 
     Без ``persona`` и ``health_score``/``ban_risk`` — равномерное распределение
-    (обратная совместимость с прежним unif-random выбором).
+    (обратная совместимость с прежним unif-random выбором). ``scenario`` задаёт
+    базовый микс действий (белый список с весами; 0 = выключено), поверх которого
+    всё так же применяются множители персоны и риска.
     """
-    weights = _compute_weights(persona, health_score, ban_risk)
+    weights = _compute_weights(persona, health_score, ban_risk, scenario)
     return rng.choices(_ACTION_TYPES, weights=weights, k=1)[0]
 
 
 def _compute_weights(
-    persona, health_score: Optional[int], ban_risk: Optional[float] = None
+    persona,
+    health_score: Optional[int],
+    ban_risk: Optional[float] = None,
+    scenario: Optional[WarmingScenario] = None,
 ) -> list[float]:
-    weights = {a: 1.0 for a in _ACTION_TYPES}
+    # База: из сценария (явный белый список, unlisted=0) либо все 1.0.
+    if scenario is not None and scenario.action_weights:
+        weights = {a: scenario.action_weights.get(a.value, 0.0) for a in _ACTION_TYPES}
+        if sum(weights.values()) <= 0:  # защита от all-zero → равномерно
+            weights = {a: 1.0 for a in _ACTION_TYPES}
+    else:
+        weights = {a: 1.0 for a in _ACTION_TYPES}
     tags = list(getattr(persona, "personality_tags", None) or []) if persona else []
     for tag in tags:
         multipliers = _TAG_WEIGHTS.get(tag)
@@ -156,19 +173,29 @@ def _risk_multiplier(
     return 1.0
 
 
+def _interval_range(
+    profile: str, scenario: Optional[WarmingScenario]
+) -> tuple[float, float]:
+    """Диапазон интервала: из сценария, иначе из пресета."""
+    if scenario is not None and scenario.interval_hours is not None:
+        return scenario.interval_hours
+    return PRESET_INTERVAL_HOURS[profile]
+
+
 def next_interval(
     profile: str,
     rng: random.Random,
     *,
     health_score: Optional[int] = None,
     ban_risk: Optional[float] = None,
+    scenario: Optional[WarmingScenario] = None,
 ) -> timedelta:
-    """Интервал до следующего действия: диапазон пресета + джиттер ±30%.
+    """Интервал до следующего действия: диапазон пресета/сценария + джиттер ±30%.
 
     ``ban_risk`` (этап 11): плавное замедление пропорционально риску бана.
     Fallback на ``health_score`` < 40 → x2.
     """
-    low, high = PRESET_INTERVAL_HOURS[profile]
+    low, high = _interval_range(profile, scenario)
     base_hours = rng.uniform(low, high)
     factor = rng.uniform(1.0 - JITTER_FRACTION, 1.0 + JITTER_FRACTION)
     multiplier = _risk_multiplier(health_score, ban_risk)
@@ -180,11 +207,26 @@ def due_interval(
     *,
     health_score: Optional[int] = None,
     ban_risk: Optional[float] = None,
+    scenario: Optional[WarmingScenario] = None,
 ) -> timedelta:
-    """Порог «пора действовать» для планировщика — нижняя граница пресета.
+    """Порог «пора действовать» — нижняя граница пресета/сценария.
 
     Аналогично ``next_interval``: ban_risk плавно увеличивает порог.
     """
-    low, _ = PRESET_INTERVAL_HOURS[profile]
+    low, _ = _interval_range(profile, scenario)
     multiplier = _risk_multiplier(health_score, ban_risk)
     return timedelta(hours=low * multiplier)
+
+
+def batch_action_count(
+    profile: str,
+    rng: random.Random,
+    *,
+    scenario: Optional[WarmingScenario] = None,
+) -> int:
+    """Размер пачки действий: из сценария, иначе из пресета."""
+    if scenario is not None and scenario.actions_per_batch is not None:
+        low, high = scenario.actions_per_batch
+    else:
+        low, high = PRESET_ACTION_COUNT[profile]
+    return rng.randint(low, high)

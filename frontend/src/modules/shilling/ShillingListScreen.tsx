@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, MessagesSquare, Pause, Play, Plus } from "lucide-react";
+import { ChevronRight, Megaphone, MessagesSquare, Pause, Play, Plus } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
@@ -138,10 +138,13 @@ function ShillingCard({ campaign: c }: { campaign: Campaign }) {
   const successRate = stats.data?.success_rate_percent ?? 0;
 
   return (
-    <div className="card p-4">
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
+    <div className="card flex items-start gap-4 p-4">
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-primary">
+        <Megaphone className="h-5 w-5" strokeWidth={1.7} aria-hidden />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <span
               className={[
                 "h-2 w-2 shrink-0 rounded-full",
@@ -150,70 +153,71 @@ function ShillingCard({ campaign: c }: { campaign: Campaign }) {
               ].join(" ")}
               aria-hidden
             />
-            <h3 className="truncate text-[16px] font-semibold text-text-primary">{c.name}</h3>
+            <h3 className="truncate text-[15px] font-semibold leading-tight text-text-primary">{c.name}</h3>
           </div>
-          {c.brand_name && (
-            <p className="mt-0.5 truncate text-[13px] text-text-tertiary">
-              Бренд: {c.brand_name}
-            </p>
-          )}
+          <span className="shrink-0 rounded-pill bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-text-secondary">
+            {meta.label}
+          </span>
         </div>
-        <span className="shrink-0 rounded-pill bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-text-secondary">
-          {meta.label}
-        </span>
-      </div>
 
-      {stats.data && stats.data.total > 0 && (
-        <div className="mb-3">
-          <div className="mb-1 flex items-center justify-between text-[12px] text-text-tertiary">
-            <span>
-              Отправлено {stats.data.sent}/{stats.data.total}
-            </span>
-            <span>Успех {successRate}%</span>
-          </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-pill bg-surface-2">
-            <div
-              className="h-full rounded-pill bg-accent transition-all"
-              style={{ width: `${successRate}%` }}
-            />
-          </div>
-        </div>
-      )}
+        {c.brand_name && (
+          <p className="mb-1 truncate text-[13px] text-text-tertiary">
+            Бренд: {c.brand_name}
+          </p>
+        )}
 
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[12px] text-text-tertiary">
-          Обновлено {timeAgo(c.updated_at)}
-        </span>
-        <div className="flex items-center gap-2">
-          {canToggle && (
+        {stats.data && stats.data.total > 0 && (
+          <div className="mb-2">
+            <div className="mb-1 flex items-center justify-between text-[12px] text-text-tertiary">
+              <span>
+                Отправлено {stats.data.sent}/{stats.data.total}
+              </span>
+              <span>Успех {successRate}%</span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-pill bg-surface-2">
+              <div
+                className="h-full rounded-pill bg-accent transition-all"
+                style={{ width: `${successRate}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[12px] text-text-tertiary">
+            {timeAgo(c.updated_at)}
+          </span>
+          <div className="flex items-center gap-2">
+            {canToggle && (
+              <button
+                onClick={() => {
+                  haptic("light");
+                  toggle.mutate();
+                }}
+                disabled={toggle.isPending}
+                className="inline-flex h-8 items-center gap-1 rounded-pill bg-surface-2 px-3 text-[13px] text-text-secondary active:text-text-primary disabled:opacity-50"
+              >
+                {c.status === "running" ? (
+                  <>
+                    <Pause className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+                    Пауза
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+                    Запуск
+                  </>
+                )}
+              </button>
+            )}
             <button
-              onClick={() => {
-                haptic("light");
-                toggle.mutate();
-              }}
-              disabled={toggle.isPending}
-              className="inline-flex h-8 items-center gap-1 rounded-pill bg-surface-2 px-3 text-[13px] text-text-secondary active:text-text-primary disabled:opacity-50"
+              onClick={() => navigate(`/modules/shilling/campaigns/${c.id}`)}
+              className="inline-flex h-8 items-center gap-1 rounded-pill bg-accent px-3 text-[13px] font-medium text-accent-on active:opacity-80"
             >
-              {c.status === "running" ? (
-                <>
-                  <Pause className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
-                  Пауза
-                </>
-              ) : (
-                <>
-                  <Play className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
-                  Запуск
-                </>
-              )}
+              Открыть
+              <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
             </button>
-          )}
-          <button
-            onClick={() => navigate(`/modules/shilling/campaigns/${c.id}`)}
-            className="inline-flex h-8 items-center gap-1 rounded-pill bg-accent px-3 text-[13px] font-medium text-accent-on active:opacity-80"
-          >
-            Открыть
-            <ArrowRight className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
-          </button>
+          </div>
         </div>
       </div>
     </div>

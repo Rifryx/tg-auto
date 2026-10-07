@@ -9,8 +9,10 @@ import { AboutScreen } from "./screens/more/AboutScreen";
 import { AuditScreen } from "./screens/more/AuditScreen";
 import { AutopilotScreen } from "./screens/more/AutopilotScreen";
 import { MoreScreen } from "./screens/more/MoreScreen";
+import { ServicesScreen } from "./screens/services/ServicesScreen";
 import { PersonasScreen } from "./screens/more/PersonasScreen";
 import { ProjectsScreen } from "./screens/more/ProjectsScreen";
+import { ProfileAssetsScreen } from "./screens/more/ProfileAssetsScreen";
 import { ProxiesScreen } from "./screens/more/ProxiesScreen";
 import { SettingsScreen } from "./screens/more/SettingsScreen";
 import { CampaignDetailScreen } from "./modules/commenting/CampaignDetailScreen";
@@ -25,6 +27,10 @@ import { PrimingDetailScreen } from "./modules/priming/PrimingDetailScreen";
 import { PrimingCampaignRun } from "./modules/priming/PrimingCampaignRun";
 import { PrimingCampaignLogs } from "./modules/priming/PrimingCampaignLogs";
 import { ParsingListsScreen } from "./modules/parsing/ParsingListsScreen";
+import { CommunitiesScreen } from "./modules/parsing/CommunitiesScreen";
+import { DiscoverScreen } from "./modules/parsing/DiscoverScreen";
+import { CommunityListScreen } from "./modules/parsing/CommunityListScreen";
+import { ListOpsScreen } from "./modules/parsing/ListOpsScreen";
 import { RunParsingScreen } from "./modules/parsing/RunParsingScreen";
 import { AdminScreen } from "./screens/admin/AdminScreen";
 import { BillingScreen } from "./screens/billing/BillingScreen";
@@ -53,10 +59,16 @@ export function App() {
         <Route path="/modules/priming/campaigns/:id/logs" element={<PrimingCampaignLogs />} />
         <Route path="/modules/parsing" element={<ParsingListsScreen />} />
         <Route path="/modules/parsing/run" element={<RunParsingScreen />} />
+        <Route path="/modules/parsing/ops" element={<ListOpsScreen />} />
+        <Route path="/modules/parsing/communities" element={<CommunitiesScreen />} />
+        <Route path="/modules/parsing/discover" element={<DiscoverScreen />} />
+        <Route path="/modules/parsing/lists/:id/communities" element={<CommunityListScreen />} />
+        <Route path="/services" element={<ServicesScreen />} />
         <Route path="/more" element={<MoreScreen />} />
         <Route path="/more/personas" element={<PersonasScreen />} />
         <Route path="/more/projects" element={<ProjectsScreen />} />
         <Route path="/more/proxies" element={<ProxiesScreen />} />
+        <Route path="/more/profile-assets" element={<ProfileAssetsScreen />} />
         <Route path="/more/audit" element={<AuditScreen />} />
         <Route path="/more/autopilot" element={<AutopilotScreen />} />
         <Route path="/more/settings" element={<SettingsScreen />} />

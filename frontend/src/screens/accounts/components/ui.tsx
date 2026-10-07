@@ -64,8 +64,8 @@ export function Section({
 }) {
   return (
     <section className="mb-7">
-      <div className="mb-2.5 flex items-center justify-between px-1">
-        <h2 className="text-[13px] font-semibold uppercase tracking-wide text-text-tertiary">
+      <div className="mb-3 flex items-center justify-between px-0.5">
+        <h2 className="text-[17px] font-bold text-text-primary">
           {title}
         </h2>
         {action}

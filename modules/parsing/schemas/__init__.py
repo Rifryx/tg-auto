@@ -45,28 +45,138 @@ class ParsedListTargetRead(_ParsingBase):
     created_at: datetime
 
 
-class RunChatMessagesRequest(_ParsingBase):
+class _FilterFields(_ParsingBase):
+    """Общий набор фильтров аудитории (Extraction+, этап 1)."""
+
+    require_username: bool = True
+    premium_only: bool = False
+    require_photo: bool = False
+    verified_only: bool = False
+    exclude_scam_fake: bool = True
+    require_phone_visible: bool = False
+    username_regex: Optional[str] = Field(default=None, max_length=256)
+    name_script: Optional[str] = Field(default=None, pattern="^(cyrillic|latin)$")
+    last_seen_max_days: Optional[int] = Field(default=None, ge=0, le=3650)
+
+
+class RunChatMessagesRequest(_FilterFields):
     name: str = Field(..., min_length=1, max_length=120)
     collector_account_id: int
     chat_ref: str = Field(..., min_length=1)
     days_window: int = Field(default=14, ge=1, le=60)
     min_messages: int = Field(default=1, ge=1)
-    require_username: bool = True
-    premium_only: bool = False
 
 
-class RunChatMembersRequest(_ParsingBase):
+class RunChatMembersRequest(_FilterFields):
     name: str = Field(..., min_length=1, max_length=120)
     collector_account_id: int
     chat_ref: str = Field(..., min_length=1)
     only_recently_seen: bool = True
-    require_username: bool = True
-    premium_only: bool = False
+
+
+class RunChannelCommentersRequest(_FilterFields):
+    name: str = Field(..., min_length=1, max_length=120)
+    collector_account_id: int
+    chat_ref: str = Field(..., min_length=1)
+    days_window: int = Field(default=14, ge=1, le=60)
+    min_messages: int = Field(default=1, ge=1)
+
+
+class RunPostReactorsRequest(_FilterFields):
+    name: str = Field(..., min_length=1, max_length=120)
+    collector_account_id: int
+    chat_ref: str = Field(..., min_length=1)
+    posts_limit: int = Field(default=20, ge=1, le=200)
+    reactions_per_post: int = Field(default=100, ge=1, le=100)
+    min_reactions: int = Field(default=1, ge=1)
+
+
+class RunCommunitiesRequest(_ParsingBase):
+    """Discovery сообществ (этап 2): обогащение переданных ссылок + фильтры."""
+
+    name: str = Field(..., min_length=1, max_length=120)
+    collector_account_id: int
+    refs: list[str] = Field(..., min_length=1, max_length=500)
+    # community-фильтры (None = не фильтровать по этому критерию)
+    kind: Optional[str] = Field(default=None, pattern="^(channel|chat)$")
+    min_participants: Optional[int] = Field(default=None, ge=0)
+    max_participants: Optional[int] = Field(default=None, ge=0)
+    require_public: bool = False
+    require_linked_chat: bool = False
+    last_post_max_days: Optional[int] = Field(default=None, ge=0, le=3650)
+    exclude_scam_fake: bool = True
+    verified_only: bool = False
+    title_regex: Optional[str] = Field(default=None, max_length=256)
+    username_regex: Optional[str] = Field(default=None, max_length=256)
+
+
+class ParsedCommunityItemRead(_ParsingBase):
+    id: int
+    list_id: int
+    input_ref: str
+    channel_tg_id: Optional[int] = None
+    title: Optional[str] = None
+    username: Optional[str] = None
+    is_public: bool
+    kind: str
+    participants_count: Optional[int] = None
+    has_linked_chat: bool
+    last_post_at: Optional[datetime] = None
+    is_verified: bool
+    is_scam: bool
+    is_fake: bool
+    slowmode_seconds: Optional[int] = None
+    about: Optional[str] = None
+    created_at: datetime
+
+
+class _CommunityFilterFields(_ParsingBase):
+    """Community-фильтры (общие для enrich и discover)."""
+
+    kind: Optional[str] = Field(default=None, pattern="^(channel|chat)$")
+    min_participants: Optional[int] = Field(default=None, ge=0)
+    max_participants: Optional[int] = Field(default=None, ge=0)
+    require_public: bool = False
+    require_linked_chat: bool = False
+    last_post_max_days: Optional[int] = Field(default=None, ge=0, le=3650)
+    exclude_scam_fake: bool = True
+    verified_only: bool = False
+    title_regex: Optional[str] = Field(default=None, max_length=256)
+    username_regex: Optional[str] = Field(default=None, max_length=256)
+
+
+class RunDiscoverRequest(_CommunityFilterFields):
+    """Бесплатный нативный discovery: сиды/ключевик → поиск + похожие + snowball."""
+
+    name: str = Field(..., min_length=1, max_length=120)
+    collector_account_id: int
+    seeds: list[str] = Field(default_factory=list, max_length=50)
+    term: Optional[str] = Field(default=None, max_length=128)
+    use_search: bool = True
+    use_recommendations: bool = True
+    use_forwards: bool = False
+    use_mentions: bool = False
+    depth: int = Field(default=2, ge=1, le=3)
+    max_results: int = Field(default=200, ge=1, le=1000)
+
+
+class ListOpRequest(_ParsingBase):
+    name: str = Field(..., min_length=1, max_length=120)
+    op: str = Field(..., pattern="^(intersect|union|subtract|sample)$")
+    source_list_ids: list[int] = Field(..., min_length=1, max_length=50)
+    min_overlap: Optional[int] = Field(default=None, ge=2)
+    sample_size: Optional[int] = Field(default=None, ge=1)
 
 
 __all__ = [
     "ParsedListRead",
     "ParsedListTargetRead",
+    "ParsedCommunityItemRead",
     "RunChatMessagesRequest",
     "RunChatMembersRequest",
+    "RunChannelCommentersRequest",
+    "RunPostReactorsRequest",
+    "RunCommunitiesRequest",
+    "RunDiscoverRequest",
+    "ListOpRequest",
 ]

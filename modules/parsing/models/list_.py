@@ -12,7 +12,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from core.models.base import PARSING_SCHEMA, Base, CreatedAtMixin
 
 
-_SOURCE_KINDS_SQL = "source_kind IN ('chat_messages', 'chat_members', 'manual_list', 'upload_csv')"
+_SOURCE_KINDS_SQL = (
+    "source_kind IN ('chat_messages', 'chat_members', 'manual_list', 'upload_csv', "
+    "'channel_commenters', 'post_reactors', 'list_op', 'community_enrich')"
+)
 
 
 class ParsedList(Base, CreatedAtMixin):

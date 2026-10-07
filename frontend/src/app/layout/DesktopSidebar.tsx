@@ -5,6 +5,7 @@ import {
   Filter,
   FolderKanban,
   Home,
+  Images,
   Info,
   LayoutGrid,
   MessagesSquare,
@@ -48,6 +49,7 @@ const TOOLS: Item[] = [
   { to: "/more/autopilot", label: "Автопилот", icon: Bot },
   { to: "/more/projects", label: "Группы аккаунтов", icon: FolderKanban },
   { to: "/more/personas", label: "Персоны", icon: UserRound },
+  { to: "/more/profile-assets", label: "Пул оформления", icon: Images },
   { to: "/more/proxies", label: "Прокси", icon: Wifi },
   { to: "/more/audit", label: "Аудит", icon: ScrollText },
 ];

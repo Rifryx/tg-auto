@@ -73,6 +73,8 @@ def test_account_state_values() -> None:
 def test_parser_source_kind_values() -> None:
     assert {k.value for k in ParserSourceKind} == {
         "chat_messages", "chat_members", "manual_list", "upload_csv",
+        # Extraction+ (этап 1) и Discovery сообществ (этап 2).
+        "channel_commenters", "post_reactors", "list_op", "community_enrich",
     }
 
 

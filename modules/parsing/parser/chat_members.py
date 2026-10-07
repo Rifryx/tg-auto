@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import structlog
@@ -46,6 +46,7 @@ async def parse_chat_members(
     session_factory = ctx["session_factory"]
     pool = ctx["client_pool"]
     governor = ctx["governor"]
+    now = ctx.get("now") or datetime.now(timezone.utc)
 
     if not await governor.check_and_reserve(
         collector_account_id, PARSER_ACTION_TYPE,
@@ -69,7 +70,7 @@ async def parse_chat_members(
     try:
         entity = await client.get_entity(chat_ref)
         async for participant in client.iter_participants(entity):
-            snap = _snapshot(participant)
+            snap = _snapshot(participant, now)
             if only_recently_seen and snap["last_seen_bucket"] not in {
                 TargetLastSeen.RECENTLY.value,
                 TargetLastSeen.WITHIN_WEEK.value,
@@ -126,7 +127,8 @@ async def parse_chat_members(
     )
 
 
-def _snapshot(user: Any) -> dict[str, Any]:
+def _snapshot(user: Any, now: datetime) -> dict[str, Any]:
+    status = getattr(user, "status", None)
     return {
         "tg_user_id": getattr(user, "id", None),
         "username": getattr(user, "username", None),
@@ -135,8 +137,35 @@ def _snapshot(user: Any) -> dict[str, Any]:
         "is_bot": bool(getattr(user, "bot", False)),
         "is_deleted": bool(getattr(user, "deleted", False)),
         "is_admin": bool(getattr(user, "is_admin", False)),
-        "last_seen_bucket": _last_seen_bucket(getattr(user, "status", None)),
+        "is_verified": bool(getattr(user, "verified", False)),
+        "is_scam": bool(getattr(user, "scam", False)),
+        "is_fake": bool(getattr(user, "fake", False)),
+        "has_photo": getattr(user, "photo", None) is not None,
+        "first_name": getattr(user, "first_name", None),
+        "last_name": getattr(user, "last_name", None),
+        "last_seen_bucket": _last_seen_bucket(status),
+        "last_seen_days": _last_seen_days(status, now),
     }
+
+
+def _last_seen_days(status: Any, now: datetime) -> Optional[int]:
+    """Приблизительное число дней с последнего онлайна (для точного фильтра)."""
+    if status is None:
+        return None
+    name = type(status).__name__
+    if name in {"UserStatusOnline", "UserStatusRecently"}:
+        return 0
+    if name == "UserStatusLastWeek":
+        return 7
+    if name == "UserStatusLastMonth":
+        return 30
+    if name == "UserStatusOffline":
+        was = getattr(status, "was_online", None)
+        if isinstance(was, datetime):
+            delta = now - (was if was.tzinfo else was.replace(tzinfo=timezone.utc))
+            return max(0, delta.days)
+        return None
+    return None
 
 
 def _last_seen_bucket(status: Any) -> str:
