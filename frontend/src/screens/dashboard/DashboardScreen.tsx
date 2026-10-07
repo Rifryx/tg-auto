@@ -104,10 +104,12 @@ function DashboardContent({ data }: { data: Dashboard }) {
         ) : null;
       })()}
 
-      {/* Accounts by stage */}
+      {/* Accounts by stage — авто-сетка: показываем ВСЕ статусы сразу, без
+          горизонтального скролла; число колонок подстраивается под ширину
+          (3–5 на телефоне, все 7 в ряд на ПК). */}
       <section className="mb-10 lg:col-span-2">
         <SectionTitle>Аккаунты</SectionTitle>
-        <div className="-mx-5 flex gap-3 overflow-x-auto px-5 pb-1 lg:mx-0 lg:grid lg:grid-cols-7 lg:gap-3 lg:overflow-visible lg:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(98px,1fr))] lg:grid-cols-7">
           {STAGES.map((s) => (
             <StageCard key={s} status={s} count={data.accounts_summary[s]} />
           ))}
@@ -178,9 +180,9 @@ function DashboardSkeleton() {
       </div>
       <div>
         <div className="mb-4 h-7 w-32 animate-pulse rounded-chip bg-surface-2" />
-        <div className="-mx-5 flex gap-3 overflow-hidden px-5 lg:mx-0 lg:grid lg:grid-cols-7 lg:px-0">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="card h-[110px] w-[140px] shrink-0 animate-pulse lg:h-28 lg:w-auto" />
+        <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(98px,1fr))] lg:grid-cols-7">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="card h-[92px] w-full animate-pulse" />
           ))}
         </div>
       </div>

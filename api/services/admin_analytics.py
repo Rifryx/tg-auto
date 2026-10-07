@@ -149,3 +149,48 @@ def get_analytics(session: Session) -> dict[str, object]:
         "activity": _activity_block(session, now),
         "load": _load_block(session),
     }
+
+
+# ------------------------------ временны́е ряды -------------------------------
+
+
+def _daily_counts(session: Session, col, since: datetime, *where) -> dict[str, int]:
+    """Счётчики по дням для одной колонки-времени (YYYY-MM-DD → count)."""
+    day = func.date_trunc("day", col).label("d")
+    stmt = select(day, func.count()).where(col.is_not(None), col >= since)
+    for cond in where:
+        stmt = stmt.where(cond)
+    stmt = stmt.group_by(day)
+    out: dict[str, int] = {}
+    for bucket, cnt in session.execute(stmt).all():
+        out[bucket.date().isoformat()] = int(cnt)
+    return out
+
+
+def get_timeseries(session: Session, days: int = 14) -> dict[str, object]:
+    """Дневные ряды за последние ``days`` дней для графиков админки.
+
+    Непрерывный ряд (с нулями в пустые дни) — чтобы фронт рисовал ровную ось.
+    """
+    days = max(1, min(days, 90))
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(days=days - 1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    new_users = _daily_counts(session, Subscription.activated_at, since)
+    payments = _daily_counts(session, Payment.paid_at, since, Payment.status == "paid")
+    comments = _daily_counts(
+        session, CommentLog.created_at, since, CommentLog.status == "posted"
+    )
+    series = []
+    for i in range(days):
+        d = (since + timedelta(days=i)).date().isoformat()
+        series.append(
+            {
+                "date": d,
+                "new_users": new_users.get(d, 0),
+                "payments": payments.get(d, 0),
+                "comments": comments.get(d, 0),
+            }
+        )
+    return {"days": days, "series": series}

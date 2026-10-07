@@ -53,15 +53,7 @@ export function BillingScreen() {
               }}
             />
           ) : (
-            <FreeCard
-              key={plan.id}
-              plan={plan}
-              active={current.id === plan.id}
-              onSelect={() => {
-                hapticSelection();
-                setPlan("free");
-              }}
-            />
+            <FreeCard key={plan.id} plan={plan} active={current.id === plan.id} />
           ),
         )}
       </div>
@@ -86,21 +78,22 @@ export function BillingScreen() {
   );
 }
 
-/* Free-карточка: тихая, hairline, монохром. */
-function FreeCard({
-  plan,
-  active,
-  onSelect,
-}: {
-  plan: Plan;
-  active: boolean;
-  onSelect: () => void;
-}) {
+/* Free-карточка: тихая, hairline, монохром. Без кнопки действия — «перейти на
+   Free» как функции нет: план становится Free сам по истечении Pro. Когда Free
+   активен — показываем ненавязчивую отметку, иначе просто описание тарифа. */
+function FreeCard({ plan, active }: { plan: Plan; active: boolean }) {
   return (
     <section className="card p-5">
       <div className="mb-1 flex items-center justify-between">
         <h2 className="text-[18px] font-semibold text-text-primary">{plan.name}</h2>
-        <span className="text-[12px] text-text-tertiary">навсегда</span>
+        {active ? (
+          <span className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-2.5 py-1 text-[11px] font-semibold text-text-secondary">
+            <Check className="h-3 w-3" strokeWidth={3} aria-hidden />
+            Текущий план
+          </span>
+        ) : (
+          <span className="text-[12px] text-text-tertiary">навсегда</span>
+        )}
       </div>
       <div className="mb-4 nums text-[36px] font-bold leading-none text-text-primary">
         $0
@@ -108,20 +101,6 @@ function FreeCard({
       <p className="mb-5 text-[13px] text-text-secondary">{plan.tagline}</p>
 
       <Bullets items={plan.bullets} tone="muted" />
-
-      <button
-        type="button"
-        onClick={onSelect}
-        disabled={active}
-        className={[
-          "mt-6 w-full rounded-pill border border-hairline px-4 py-3 text-[14px] font-semibold transition-colors",
-          active
-            ? "cursor-default bg-surface-2 text-text-secondary"
-            : "bg-surface-1 text-text-primary active:bg-surface-2",
-        ].join(" ")}
-      >
-        {active ? "Текущий план" : "Остаться на Free"}
-      </button>
     </section>
   );
 }
@@ -144,18 +123,9 @@ function ProCard({
   const hasPromo = (pricing?.has_promo ?? false) && basePrice > price;
   return (
     <section
-      className={`relative overflow-hidden rounded-card p-6 text-text-primary ${
-        hasPromo ? "pro-card--promo" : ""
+      className={`relative overflow-hidden rounded-card p-6 ${
+        hasPromo ? "pro-card--promo" : "pro-card"
       }`}
-      style={
-        hasPromo
-          ? undefined
-          : {
-              background:
-                "linear-gradient(155deg, var(--surface-2) 0%, var(--surface-1) 100%)",
-              boxShadow: "0 0 0 1px var(--surface-border-strong) inset",
-            }
-      }
     >
 
         <div className="mb-1 flex items-center justify-between">
@@ -199,12 +169,12 @@ function ProCard({
             "mt-7 w-full rounded-pill px-4 py-3.5 text-[15px] font-semibold transition-transform",
             active
               ? "cursor-default bg-white/15 text-white/70"
-              : "bg-accent text-accent-on active:scale-[0.99]",
+              : "bg-white text-black active:scale-[0.99]",
           ].join(" ")}
           style={
             active
               ? undefined
-              : { boxShadow: "0 8px 24px -12px rgba(255,255,255,0.5)" }
+              : { boxShadow: "0 10px 28px -12px rgba(0,0,0,0.45)" }
           }
         >
           {active ? "Активна" : "Оформить Pro"}
@@ -235,8 +205,8 @@ function Bullets({
             style={
               tone === "bright"
                 ? {
-                    background: "var(--accent)",
-                    boxShadow: "0 0 0 1px var(--surface-border-strong) inset",
+                    background: "rgba(255,255,255,0.9)",
+                    boxShadow: "0 0 0 1px rgba(255,255,255,0.4) inset",
                   }
                 : {
                     background: "var(--surface-2)",
@@ -248,10 +218,10 @@ function Bullets({
             <Check
               className="h-2.5 w-2.5"
               strokeWidth={3}
-              style={{ color: tone === "bright" ? "var(--accent-on)" : "var(--text-primary)" }}
+              style={{ color: tone === "bright" ? "#000" : "var(--text-primary)" }}
             />
           </span>
-          <span className={tone === "bright" ? "opacity-95" : "text-text-primary"}>
+          <span className={tone === "bright" ? "text-white opacity-95" : "text-text-primary"}>
             {t}
           </span>
         </li>

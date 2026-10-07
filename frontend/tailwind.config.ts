@@ -6,6 +6,12 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      // ПК-адаптация включается раньше: desktop-лейаут (боковая панель вместо
+      // нижнего навбара, широкие сетки) появляется уже с 900px, а не с 1024px.
+      // Все утилиты `lg:` по проекту подхватывают это значение автоматически.
+      screens: {
+        lg: "900px",
+      },
       colors: {
         "bg-base": "var(--bg-base)",
         "bg-elevated": "var(--bg-elevated)",

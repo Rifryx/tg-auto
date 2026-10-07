@@ -108,6 +108,17 @@ def test_promotion_crud_and_overlap(session):
     assert all(p["id"] != promo_id for p in r6.json())
 
 
+def test_analytics_timeseries_shape(session):
+    client = TestClient(_admin_app(session))
+    r = client.get("/admin/analytics/timeseries?days=7")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["days"] == 7
+    assert len(body["series"]) == 7
+    for pt in body["series"]:
+        assert {"date", "new_users", "payments", "comments"} <= set(pt)
+
+
 def test_non_admin_gets_404(session):
     app = FastAPI()
     app.include_router(admin_router.router)

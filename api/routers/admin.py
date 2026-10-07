@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from api.deps.admin import require_admin
 from api.deps.db import get_session
-from api.services.admin_analytics import get_analytics
+from api.services.admin_analytics import get_analytics, get_timeseries
 from core.audit import admin_action
 from core.billing import promotions as promotions_service
 from core.billing.plans import PLANS
@@ -124,6 +124,14 @@ def set_subscription(
 def analytics(session: Session = Depends(get_session)) -> dict[str, object]:
     """Сводный дашборд: пользователи, выручка, активность, нагрузка."""
     return get_analytics(session)
+
+
+@router.get("/analytics/timeseries")
+def analytics_timeseries(
+    days: int = 14, session: Session = Depends(get_session)
+) -> dict[str, object]:
+    """Дневные ряды (новые пользователи / оплаты / комментарии) для графиков."""
+    return get_timeseries(session, days)
 
 
 @router.get("/payments")

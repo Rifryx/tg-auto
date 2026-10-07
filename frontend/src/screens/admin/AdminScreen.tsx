@@ -6,8 +6,12 @@ import {
   adminApi,
   useIsAdmin,
   type AdminPromotion,
+  type AdminTimeseriesPoint,
 } from "../../shared/admin";
+import { STATUS_LABEL } from "../../shared/status";
+import type { AccountStatus } from "../../shared/types";
 import { hapticSelection } from "../../shared/tg";
+import { AreaChart, Bars } from "./charts";
 
 /* Экран владельца. Не пункт меню — попасть только по прямому URL /admin.
    Если сервер вернул не-2xx (не админ) — редиректим на главную. */
@@ -42,6 +46,7 @@ export function AdminScreen() {
       </header>
 
       <AnalyticsSection />
+      <ChartsSection />
       <PricingSection />
       <PromotionsSection />
       <SubsSection />
@@ -140,6 +145,116 @@ function Stat({ label, value }: { label: string; value?: number | string }) {
         {value ?? "—"}
       </p>
       <p className="text-[11px] leading-tight text-text-tertiary">{label}</p>
+    </div>
+  );
+}
+
+// -------------------------------- графики ------------------------------------
+
+const STATUS_TONE: Record<AccountStatus, "active" | "warning" | "critical" | "neutral"> = {
+  pool: "active",
+  assigned: "active",
+  warming: "warning",
+  cooldown: "warning",
+  banned: "critical",
+  created: "neutral",
+  retired: "neutral",
+};
+
+const BAR_ORDER: AccountStatus[] = [
+  "pool",
+  "warming",
+  "assigned",
+  "cooldown",
+  "banned",
+  "created",
+  "retired",
+];
+
+function ChartsSection() {
+  const { data: ts } = useQuery({
+    queryKey: ["admin", "timeseries"],
+    queryFn: () => adminApi.timeseries(14),
+  });
+  const { data: an } = useQuery({
+    queryKey: ["admin", "analytics"],
+    queryFn: adminApi.analytics,
+  });
+
+  if (!ts || !an) {
+    return (
+      <section className="mb-7">
+        <h2 className="mb-4 text-[17px] font-bold text-text-primary">Графики</h2>
+        <div className="card h-40 animate-pulse" />
+      </section>
+    );
+  }
+
+  const labels = ts.series.map((p) => p.date);
+  const sum = (sel: (p: AdminTimeseriesPoint) => number) =>
+    ts.series.reduce((a, p) => a + sel(p), 0);
+  const byStatus = an.activity.accounts_by_status ?? {};
+  const barItems = BAR_ORDER.map((s) => ({
+    label: STATUS_LABEL[s],
+    value: byStatus[s] ?? 0,
+    tone: STATUS_TONE[s],
+  }));
+
+  return (
+    <section className="mb-7">
+      <h2 className="mb-4 text-[17px] font-bold text-text-primary">
+        Графики <span className="text-[13px] font-normal text-text-tertiary">· 14 дней</span>
+      </h2>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ChartCard title="Новые пользователи" total={sum((p) => p.new_users)}>
+          <AreaChart
+            data={ts.series.map((p) => p.new_users)}
+            labels={labels}
+            color="var(--accent)"
+          />
+        </ChartCard>
+        <ChartCard title="Оплаты" total={sum((p) => p.payments)}>
+          <AreaChart
+            data={ts.series.map((p) => p.payments)}
+            labels={labels}
+            color="var(--status-active)"
+          />
+        </ChartCard>
+        <ChartCard title="Комментарии" total={sum((p) => p.comments)}>
+          <AreaChart
+            data={ts.series.map((p) => p.comments)}
+            labels={labels}
+            color="var(--status-warning)"
+          />
+        </ChartCard>
+        <ChartCard title="Аккаунты по статусам">
+          <div className="pt-1">
+            <Bars items={barItems} />
+          </div>
+        </ChartCard>
+      </div>
+    </section>
+  );
+}
+
+function ChartCard({
+  title,
+  total,
+  children,
+}: {
+  title: string;
+  total?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="card p-4">
+      <div className="mb-3 flex items-baseline justify-between">
+        <p className="text-[13px] font-semibold text-text-secondary">{title}</p>
+        {total !== undefined && (
+          <p className="nums text-[18px] font-bold text-text-primary">{total}</p>
+        )}
+      </div>
+      {children}
     </div>
   );
 }

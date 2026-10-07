@@ -99,17 +99,17 @@ export function StageCard({ status, count }: { status: AccountStatus; count: num
   return (
     <Link
       to={`/accounts?status=${status}`}
-      className="card relative flex w-[140px] shrink-0 flex-col justify-between overflow-hidden p-4 active:bg-surface-2 lg:w-auto"
-      style={{ minHeight: 110 }}
+      className="card relative flex w-full flex-col justify-between gap-2 overflow-hidden p-3.5 active:bg-surface-2"
+      style={{ minHeight: 92 }}
     >
       <span className={`absolute inset-y-0 left-0 w-[3px] ${barClass}`} aria-hidden />
       <div className="flex items-center gap-1.5 pl-1">
         <span className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass(status)}`} aria-hidden />
-        <span className="truncate text-[13px] text-text-secondary">
+        <span className="truncate text-[12px] text-text-secondary">
           {STATUS_LABEL[status]}
         </span>
       </div>
-      <span className="nums pl-1 text-[32px] font-bold leading-none text-text-primary lg:text-[34px]">
+      <span className="nums pl-1 text-[28px] font-bold leading-none text-text-primary">
         {count}
       </span>
     </Link>

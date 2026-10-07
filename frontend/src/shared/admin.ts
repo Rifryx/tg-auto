@@ -68,6 +68,18 @@ export interface AdminAnalytics {
   };
 }
 
+export interface AdminTimeseriesPoint {
+  date: string;
+  new_users: number;
+  payments: number;
+  comments: number;
+}
+
+export interface AdminTimeseries {
+  days: number;
+  series: AdminTimeseriesPoint[];
+}
+
 export interface AdminPricing {
   price_usdt: number;
   price_stars: number;
@@ -119,6 +131,8 @@ export const adminApi = {
       campaigns: number;
     }>("/admin/stats"),
   analytics: () => api.get<AdminAnalytics>("/admin/analytics"),
+  timeseries: (days = 14) =>
+    api.get<AdminTimeseries>(`/admin/analytics/timeseries?days=${days}`),
   listSubscriptions: () =>
     api.get<
       {
