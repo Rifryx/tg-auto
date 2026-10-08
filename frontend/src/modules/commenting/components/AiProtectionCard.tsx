@@ -71,15 +71,19 @@ export function AiProtectionCard() {
 
 function FeatureChip({ feature }: { feature: AiProtectionFeature }) {
   return (
-    <div className="flex items-start gap-2 rounded-chip border border-hairline bg-surface-1 px-3 py-2">
+    <div className="flex min-w-0 items-start gap-2 rounded-chip border border-hairline bg-surface-1 px-3 py-2">
       <CheckCircle2
         className="mt-0.5 h-4 w-4 shrink-0 text-status-active"
         strokeWidth={2}
         aria-hidden
       />
-      <div className="min-w-0">
-        <p className="text-[13px] text-text-primary">{feature.label}</p>
-        <p className="text-[11px] text-text-tertiary">{feature.description}</p>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] text-text-primary [overflow-wrap:anywhere]">
+          {feature.label}
+        </p>
+        <p className="text-[11px] leading-snug text-text-tertiary [overflow-wrap:anywhere]">
+          {feature.description}
+        </p>
       </div>
     </div>
   );

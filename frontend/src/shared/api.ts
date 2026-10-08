@@ -26,6 +26,32 @@ export class ApiError extends Error {
   public status: number;
 }
 
+/* Человекочитаемое сообщение из любой ошибки запроса.
+ *
+ * Бэкенд иногда отдаёт структурный `detail` (напр. 409 {reason, phone, message}
+ * или 402 {reason, feature, limit}). Раньше UI показывал `e.message`, который
+ * для таких ответов был сырым JSON — пользователь видел кусок кода. Здесь мы
+ * достаём поле `message`/`detail` и даём понятный текст, с фолбэком по HTTP-коду. */
+export function humanizeError(e: unknown, fallback = "Что-то пошло не так. Попробуйте ещё раз."): string {
+  if (e instanceof ApiError) {
+    const d = e.detail;
+    if (d && typeof d === "object") {
+      const obj = d as Record<string, unknown>;
+      const msg = obj.message ?? obj.detail ?? obj.error;
+      if (typeof msg === "string" && msg.trim()) return msg;
+    }
+    if (typeof d === "string" && d.trim() && !d.trim().startsWith("{")) return d;
+    if (e.message && !e.message.trim().startsWith("{")) return e.message;
+    if (e.status === 404) return "Не найдено.";
+    if (e.status === 409) return "Конфликт: такая запись уже существует.";
+    if (e.status === 422) return "Проверьте правильность введённых данных.";
+    if (e.status >= 500) return "Сервис временно недоступен. Повторите позже.";
+    return fallback;
+  }
+  if (e instanceof Error && e.message && !e.message.trim().startsWith("{")) return e.message;
+  return fallback;
+}
+
 function authHeaders(): Record<string, string> {
   const initData = getInitData();
   const headers: Record<string, string> = {};

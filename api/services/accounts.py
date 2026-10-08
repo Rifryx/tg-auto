@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from sqlalchemy.exc import IntegrityError
@@ -21,6 +22,24 @@ from core.repositories.account import AccountRepository
 from core.repositories.proxy import ProxyRepository
 from core.schemas.account import AccountCreate, AccountUpdate
 from worker.fingerprint import FingerprintGenerator
+
+
+def normalize_phone(phone: str) -> str:
+    """Приводит номер к единому виду: убирает пробелы/скобки/дефисы и ставит
+    ведущий «+» (как и обещает подсказка в UI — «+ добавится автоматически»).
+
+    Единая нормализация на входе создания/импорта и в pre-check `check-phone`
+    даёт консистентный ключ ``uq_accounts_phone`` — чтобы «такой номер уже
+    есть» срабатывало детерминированно, а не зависело от формата ввода.
+    """
+    cleaned = re.sub(r"[\s()\-]", "", phone or "").strip()
+    if not cleaned:
+        return ""
+    digits = cleaned.lstrip("+")
+    if not digits.isdigit():
+        # Нестандартный ввод не калечим — отдаём как есть (без пробелов).
+        return cleaned
+    return "+" + digits
 
 
 class ProxyNotFoundError(Exception):
@@ -62,6 +81,7 @@ def create_account(
     warming_profile: WarmingProfile,
 ) -> Account:
     """Создаёт аккаунт (created) со сгенерированным фингерпринтом и прокси."""
+    phone = normalize_phone(phone)
     proxy = ProxyRepository(session).get(proxy_id)
     if proxy is None:
         raise ProxyNotFoundError(f"proxy {proxy_id} not found")
@@ -96,6 +116,14 @@ def create_account(
             raise PhoneAlreadyExistsError(phone) from exc
         raise
     return account
+
+
+def phone_exists(session: Session, phone: str) -> bool:
+    """Есть ли уже аккаунт с таким (нормализованным) номером — для pre-check UI."""
+    normalized = normalize_phone(phone)
+    if not normalized:
+        return False
+    return AccountRepository(session).get_by_phone(normalized) is not None
 
 
 def _is_phone_unique_violation(exc: IntegrityError) -> bool:
@@ -208,6 +236,7 @@ def import_account_from_session(
 
     Сессия шифруется (``session_enc``); аккаунт сразу попадает в пул — логин по
     коду не нужен. Валидность сессии проверит воркер при первом использовании."""
+    phone = normalize_phone(phone)
     proxy = ProxyRepository(session).get(proxy_id)
     if proxy is None:
         raise ProxyNotFoundError(f"proxy {proxy_id} not found")

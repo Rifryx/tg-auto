@@ -1,4 +1,4 @@
-import { api } from "../../shared/api";
+import { api, apiBlob } from "../../shared/api";
 import type { Persona, ProfileAsset, ProfileAssetKind, Proxy } from "../../shared/types";
 
 export interface PersonaBody {
@@ -73,4 +73,6 @@ export const profileAssetsApi = {
     api.get<ProfileAsset[]>(`/profile-assets${kind ? `?kind=${kind}` : ""}`),
   create: (body: ProfileAssetBody) => api.post<ProfileAsset>("/profile-assets", body),
   remove: (id: number) => api.del<void>(`/profile-assets/${id}`),
+  // Байты аватара для превью-галереи (как media-assets: fetch → blob → ObjectURL).
+  blob: (id: number) => apiBlob(`/profile-assets/${id}/blob`),
 };
