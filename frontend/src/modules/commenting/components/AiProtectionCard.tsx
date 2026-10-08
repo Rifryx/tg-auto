@@ -46,20 +46,38 @@ export function AiProtectionCard() {
   );
 }
 
+/* Короткие, человекочитаемые описания для плиток. Backend присылает
+   более подробный текст с внутренними id задач (напр.
+   «(задача health.predict_ban_risk_batch)») — такие длинные неразрывные
+   токены распирают карточку. В UI показываем лаконичную версию по ключу,
+   а на незнакомый ключ аккуратно укорачиваем backend-текст. */
+const SHORT_DESC: Record<string, string> = {
+  behavior_analysis: "Anti-Ban Predictor пересчитывает риск каждые 15 минут.",
+  human_mimicry: "Warming-поддержка каждые 5 минут имитирует живое поведение.",
+  ban_shield: "Health-монитор уводит рискующие аккаунты с нагрузки.",
+  adaptive_delays: "Адаптивные задержки постинга и автопауза при FloodWait.",
+};
+
+/* Обрезает служебный хвост «(задача …)» и внутренние id из backend-текста. */
+function tidyDescription(key: string, raw: string): string {
+  if (SHORT_DESC[key]) return SHORT_DESC[key];
+  return raw.replace(/\s*\(задача[^)]*\)\.?/gi, ".").replace(/\s{2,}/g, " ").trim();
+}
+
 function FeatureChip({ feature }: { feature: AiProtectionFeature }) {
   return (
-    <div className="flex min-w-0 items-start gap-2 rounded-chip border border-hairline bg-surface-1 px-3 py-2">
+    <div className="flex min-w-0 items-start gap-2 rounded-chip border border-hairline bg-surface-1 px-3 py-2.5">
       <CheckCircle2
         className="mt-0.5 h-4 w-4 shrink-0 text-status-active"
         strokeWidth={2}
         aria-hidden
       />
       <div className="min-w-0 flex-1">
-        <p className="text-[13px] text-text-primary [overflow-wrap:anywhere]">
+        <p className="text-[13px] font-medium text-text-primary [overflow-wrap:anywhere] hyphens-auto">
           {feature.label}
         </p>
-        <p className="text-[11px] leading-snug text-text-tertiary [overflow-wrap:anywhere]">
-          {feature.description}
+        <p className="mt-0.5 text-[11px] leading-snug text-text-tertiary [overflow-wrap:anywhere] hyphens-auto">
+          {tidyDescription(feature.key, feature.description)}
         </p>
       </div>
     </div>
