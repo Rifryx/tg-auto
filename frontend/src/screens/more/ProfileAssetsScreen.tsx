@@ -62,6 +62,7 @@ export function ProfileAssetsScreen() {
   const [kind, setKind] = useState<ProfileAssetKind>("avatar");
   const [text, setText] = useState("");
   const [tags, setTags] = useState("");
+  const [description, setDescription] = useState("");
   const [toDelete, setToDelete] = useState<ProfileAsset | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -83,6 +84,7 @@ export function ProfileAssetsScreen() {
     onSuccess: (n) => {
       showToast(`Добавлено: ${n}`, "success");
       setText("");
+      setDescription("");
       invalidate();
     },
     onError: () => showToast("Не удалось добавить", "error"),
@@ -99,10 +101,17 @@ export function ProfileAssetsScreen() {
   const onFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const t = tagList();
+    const desc = description.trim() || null;
     try {
       const bodies: ProfileAssetBody[] = [];
       for (const f of Array.from(files)) {
-        bodies.push({ kind: "avatar", binary_b64: await fileToBase64(f), mime: "image/jpeg", tags: t });
+        bodies.push({
+          kind: "avatar",
+          binary_b64: await fileToBase64(f),
+          mime: "image/jpeg",
+          tags: t,
+          description: desc,
+        });
       }
       addMany.mutate(bodies);
     } catch {
@@ -148,6 +157,18 @@ export function ProfileAssetsScreen() {
 
         {kind === "avatar" ? (
           <>
+            <div className="mb-3">
+              <Field label="Описание (опц.)">
+                <TextInput
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Напр.: мужские, нейтральный фон"
+                />
+              </Field>
+              <p className="-mt-2 px-1 text-[11px] text-text-tertiary">
+                Применится к изображениям, которые выберете ниже.
+              </p>
+            </div>
             <input
               ref={fileRef}
               type="file"
@@ -214,11 +235,18 @@ export function ProfileAssetsScreen() {
             {rows.map((a) => (
               <figure key={a.id} className="group relative">
                 <ProfileAssetThumb id={a.id} />
-                <figcaption className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 rounded-b-chip bg-gradient-to-t from-black/70 to-transparent px-2 pb-1.5 pt-4 text-[11px] text-white">
-                  <span className="truncate">{a.used_count}×</span>
-                  {a.tags.length > 0 && (
-                    <span className="truncate opacity-80">{a.tags.join(", ")}</span>
+                <figcaption className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-0.5 rounded-b-chip bg-gradient-to-t from-black/75 to-transparent px-2 pb-1.5 pt-5 text-[11px] text-white">
+                  {a.description && (
+                    <span className="truncate font-medium" title={a.description}>
+                      {a.description}
+                    </span>
                   )}
+                  <span className="flex items-center justify-between gap-1">
+                    <span className="truncate">{a.used_count}×</span>
+                    {a.tags.length > 0 && (
+                      <span className="truncate opacity-80">{a.tags.join(", ")}</span>
+                    )}
+                  </span>
                 </figcaption>
                 <button
                   onClick={() => setToDelete(a)}

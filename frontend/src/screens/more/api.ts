@@ -64,6 +64,7 @@ export interface ProfileAssetBody {
   binary_b64?: string | null;
   mime?: string | null;
   tags?: string[];
+  description?: string | null;
 }
 
 /* Пул оформления профиля (этап 3): имена/фамилии/BIO/шаблоны username (текст)

@@ -118,6 +118,27 @@ def test_profile_asset_blob_returns_bytes(session):
     assert r.headers["content-type"].startswith("image/jpeg")
 
 
+def test_profile_asset_create_roundtrips_description(session):
+    import base64
+
+    _clean(session)
+    client = _assets_client(session)
+    payload = {
+        "kind": "avatar",
+        "binary_b64": base64.b64encode(b"img").decode(),
+        "mime": "image/png",
+        "tags": ["ru"],
+        "description": "мужские, нейтральный фон",
+    }
+    r = client.post("/profile-assets", json=payload)
+    assert r.status_code == 201, r.text
+    assert r.json()["description"] == "мужские, нейтральный фон"
+
+    lst = client.get("/profile-assets?kind=avatar")
+    assert lst.status_code == 200
+    assert lst.json()[0]["description"] == "мужские, нейтральный фон"
+
+
 def test_profile_asset_blob_404_for_text_asset_and_foreign_owner(session):
     _clean(session)
     repo = ProfileAssetRepository(session)

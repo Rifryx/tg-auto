@@ -27,6 +27,7 @@ def _serialize(obj) -> ProfileAssetRead:
         value=obj.value,
         mime=obj.mime,
         tags=list(obj.tags or []),
+        description=obj.description,
         used_count=obj.used_count or 0,
         created_at=obj.created_at,
         has_binary=obj.binary is not None,
@@ -68,6 +69,7 @@ def create_asset(
         binary=binary,
         mime=body.mime,
         tags=list(body.tags),
+        description=(body.description or None),
     )
     session.commit()
     return _serialize(obj)

@@ -23,6 +23,7 @@ class ProfileAssetRepository(BaseRepository[ProfileAsset]):
         binary: Optional[bytes] = None,
         mime: Optional[str] = None,
         tags: Optional[list[str]] = None,
+        description: Optional[str] = None,
     ) -> ProfileAsset:
         obj = ProfileAsset(
             user_id=user_id,
@@ -31,6 +32,7 @@ class ProfileAssetRepository(BaseRepository[ProfileAsset]):
             binary=binary,
             mime=mime,
             tags=list(tags or []),
+            description=description,
         )
         return self._add(obj)
 

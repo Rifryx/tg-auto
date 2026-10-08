@@ -51,6 +51,8 @@ class ProfileAsset(Base):
     value: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     binary: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     mime: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Необязательное описание (подпись к аватару и т.п.).
+    description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     tags: Mapped[list[Any]] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
     )
