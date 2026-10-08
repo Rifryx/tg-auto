@@ -35,45 +35,46 @@ export function ParsingListsScreen() {
       <ScreenHeader
         title="Парсинг"
         action={
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => navigate("/modules/parsing/discover")}
-              aria-label="Найти каналы"
-              className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-surface-2 px-3 text-[14px] font-medium text-text-secondary active:text-text-primary"
-            >
-              <Sparkles className="h-4 w-4" strokeWidth={2.2} aria-hidden />
-              Найти каналы
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate("/modules/parsing/communities")}
-              aria-label="Поиск сообществ"
-              className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-surface-2 px-3 text-[14px] font-medium text-text-secondary active:text-text-primary"
-            >
-              <Radio className="h-4 w-4" strokeWidth={2.2} aria-hidden />
-              Сообщества
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate("/modules/parsing/ops")}
-              aria-label="Операции над списками"
-              className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-surface-2 px-3 text-[14px] font-medium text-text-secondary active:text-text-primary"
-            >
-              <Combine className="h-4 w-4" strokeWidth={2.2} aria-hidden />
-              Операции
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate("/modules/parsing/run")}
-              className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-accent px-4 text-[14px] font-medium text-accent-on active:opacity-80"
-            >
-              <Plus className="h-4 w-4" strokeWidth={2.2} aria-hidden />
-              Новый прогон
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => navigate("/modules/parsing/run")}
+            className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-accent px-4 text-[14px] font-medium text-accent-on active:opacity-80"
+          >
+            <Plus className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+            Прогон
+          </button>
         }
       />
+
+      {/* Доп. действия — отдельная прокручиваемая лента, чтобы не ломать
+          шапку на узких экранах (раньше 4 кнопки не помещались в заголовок). */}
+      <div className="-mx-5 mb-4 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <button
+          type="button"
+          onClick={() => navigate("/modules/parsing/discover")}
+          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-pill bg-surface-2 px-3.5 text-[14px] font-medium text-text-secondary active:text-text-primary"
+        >
+          <Sparkles className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+          Найти каналы
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate("/modules/parsing/communities")}
+          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-pill bg-surface-2 px-3.5 text-[14px] font-medium text-text-secondary active:text-text-primary"
+        >
+          <Radio className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+          Сообщества
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate("/modules/parsing/ops")}
+          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-pill bg-surface-2 px-3.5 text-[14px] font-medium text-text-secondary active:text-text-primary"
+        >
+          <Combine className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+          Операции
+        </button>
+      </div>
+
       <p className="mb-4 text-[13px] text-text-secondary">
         Собранные списки аудитории. Прайминг и другие модули берут отсюда,
         а не парсят повторно.

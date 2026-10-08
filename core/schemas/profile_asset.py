@@ -17,6 +17,8 @@ class ProfileAssetCreate(BaseModel):
     binary_b64: Optional[str] = None
     mime: Optional[str] = None
     tags: list[str] = Field(default_factory=list)
+    # Необязательное описание ассета (напр. подпись к аватару в галерее).
+    description: Optional[str] = Field(default=None, max_length=512)
 
     @model_validator(mode="after")
     def _check_content(self) -> "ProfileAssetCreate":
@@ -39,6 +41,7 @@ class ProfileAssetRead(BaseModel):
     value: Optional[str]
     mime: Optional[str]
     tags: list[str]
+    description: Optional[str]
     used_count: int
     created_at: datetime
     # Байты аватарки не отдаём наружу — только флаг, что они есть.

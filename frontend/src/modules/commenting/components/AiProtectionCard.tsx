@@ -6,12 +6,11 @@ import type { AiProtectionFeature } from "../types";
 /* Read-only плашка «ИИ Защита аккаунтов активна» (§ Этап 5).
  *
  * Заменяет paywall'ную заглушку конкурента. Показывает 4 подсистемы
- * защиты (все всегда «active», daemon'ы крутятся cron'ом воркера)
- * и агрегат по риск-бакетам аккаунтов. Данные тянутся из
- * /modules/commenting/ai-protection/status. */
+ * защиты (все всегда «active», daemon'ы крутятся cron'ом воркера).
+ * Данные тянутся из /modules/commenting/ai-protection/status. */
 
 export function AiProtectionCard() {
-  const { data, isLoading } = useQuery({
+  const { data } = useQuery({
     queryKey: ["ai-protection-status"],
     queryFn: aiProtectionApi.status,
     refetchInterval: 60_000,
@@ -37,75 +36,51 @@ export function AiProtectionCard() {
           </span>
         </div>
 
-        <div className="mb-3 grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           {(data?.features ?? PLACEHOLDER_FEATURES).map((f) => (
             <FeatureChip key={f.key} feature={f} />
           ))}
         </div>
-
-        {data && data.total_accounts > 0 && (
-          <div className="rounded-chip border border-hairline bg-surface-2 px-3 py-2">
-            <p className="mb-1.5 text-[12px] text-text-tertiary">
-              Аккаунтов под наблюдением: {data.total_accounts}
-            </p>
-            <div className="flex flex-wrap gap-1.5 text-[11px]">
-              <RiskChip label="low" count={data.accounts_by_risk.low} tone="ok" />
-              <RiskChip label="medium" count={data.accounts_by_risk.medium} tone="warn" />
-              <RiskChip label="high" count={data.accounts_by_risk.high} tone="risk" />
-              <RiskChip label="critical" count={data.accounts_by_risk.critical} tone="risk" />
-              <RiskChip
-                label="не считался"
-                count={data.accounts_by_risk.unknown}
-                tone="muted"
-              />
-            </div>
-          </div>
-        )}
-        {isLoading && !data && (
-          <p className="text-[12px] text-text-tertiary">Загрузка статуса…</p>
-        )}
       </div>
     </section>
   );
 }
 
+/* Короткие, человекочитаемые описания для плиток. Backend присылает
+   более подробный текст с внутренними id задач (напр.
+   «(задача health.predict_ban_risk_batch)») — такие длинные неразрывные
+   токены распирают карточку. В UI показываем лаконичную версию по ключу,
+   а на незнакомый ключ аккуратно укорачиваем backend-текст. */
+const SHORT_DESC: Record<string, string> = {
+  behavior_analysis: "Anti-Ban Predictor пересчитывает риск каждые 15 минут.",
+  human_mimicry: "Warming-поддержка каждые 5 минут имитирует живое поведение.",
+  ban_shield: "Health-монитор уводит рискующие аккаунты с нагрузки.",
+  adaptive_delays: "Адаптивные задержки постинга и автопауза при FloodWait.",
+};
+
+/* Обрезает служебный хвост «(задача …)» и внутренние id из backend-текста. */
+function tidyDescription(key: string, raw: string): string {
+  if (SHORT_DESC[key]) return SHORT_DESC[key];
+  return raw.replace(/\s*\(задача[^)]*\)\.?/gi, ".").replace(/\s{2,}/g, " ").trim();
+}
+
 function FeatureChip({ feature }: { feature: AiProtectionFeature }) {
   return (
-    <div className="flex items-start gap-2 rounded-chip border border-hairline bg-surface-1 px-3 py-2">
+    <div className="flex min-w-0 items-start gap-2 rounded-chip border border-hairline bg-surface-1 px-3 py-2.5">
       <CheckCircle2
         className="mt-0.5 h-4 w-4 shrink-0 text-status-active"
         strokeWidth={2}
         aria-hidden
       />
-      <div className="min-w-0">
-        <p className="text-[13px] text-text-primary">{feature.label}</p>
-        <p className="text-[11px] text-text-tertiary">{feature.description}</p>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-medium text-text-primary [overflow-wrap:anywhere] hyphens-auto">
+          {feature.label}
+        </p>
+        <p className="mt-0.5 text-[11px] leading-snug text-text-tertiary [overflow-wrap:anywhere] hyphens-auto">
+          {tidyDescription(feature.key, feature.description)}
+        </p>
       </div>
     </div>
-  );
-}
-
-function RiskChip({
-  label,
-  count,
-  tone,
-}: {
-  label: string;
-  count: number;
-  tone: "ok" | "warn" | "risk" | "muted";
-}) {
-  const cls = {
-    ok: "bg-status-active/15 text-status-active",
-    warn: "bg-status-warning/15 text-status-warning",
-    risk: "bg-status-critical/15 text-status-critical",
-    muted: "bg-surface-1 text-text-tertiary",
-  }[tone];
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-pill px-2 py-0.5 font-semibold ${cls}`}
-    >
-      {label}: {count}
-    </span>
   );
 }
 
