@@ -157,6 +157,11 @@ function ScenarioEditor({
       shillingApi.updateStep(scenarioId, p.id, { text: p.text }),
     onSuccess: invalidateSteps,
   });
+  const changeStepRole = useMutation({
+    mutationFn: (p: { id: number; roleId: number }) =>
+      shillingApi.updateStep(scenarioId, p.id, { role_id: p.roleId }),
+    onSuccess: invalidateSteps,
+  });
   const deleteStep = useMutation({
     mutationFn: (id: number) => shillingApi.removeStep(scenarioId, id),
     onSuccess: invalidateSteps,
@@ -165,6 +170,18 @@ function ScenarioEditor({
   const roleList: Role[] = roles.data ?? [];
   const stepList: Step[] = steps.data ?? [];
   const firstRoleId = roleList[0]?.id;
+
+  // Новый шаг добавляем от СЛЕДУЮЩЕЙ роли (чередование) — диалог естественно
+  // идёт «туда-сюда», а не всегда от одной персоны. Роль потом можно сменить в
+  // самом шаге. Если роль одна — она же и используется.
+  const nextRoleId = (): number | undefined => {
+    if (roleList.length === 0) return undefined;
+    const last = stepList[stepList.length - 1];
+    if (!last) return roleList[0].id;
+    const idx = roleList.findIndex((r) => r.id === last.role_id);
+    if (idx < 0) return roleList[0].id;
+    return roleList[(idx + 1) % roleList.length].id;
+  };
 
   // Порядковый номер шага по id — для чипа «ответ на #N».
   const orderById = new Map(stepList.map((s, i) => [s.id, i + 1]));
@@ -242,6 +259,7 @@ function ScenarioEditor({
                   onHoverStart={() => onHover(step.id)}
                   onHoverEnd={() => onHover(null)}
                   onEditText={(text) => editStep.mutate({ id: step.id, text })}
+                  onChangeRole={(roleId) => changeStepRole.mutate({ id: step.id, roleId })}
                   onDelete={() => deleteStep.mutate(step.id)}
                 />
               );
@@ -250,7 +268,10 @@ function ScenarioEditor({
         )}
         <div className="flex gap-2">
           <button
-            onClick={() => firstRoleId && addStep.mutate({ roleId: firstRoleId, type: "message" })}
+            onClick={() => {
+              const rid = nextRoleId();
+              if (rid) addStep.mutate({ roleId: rid, type: "message" });
+            }}
             disabled={!firstRoleId || addStep.isPending}
             className="inline-flex items-center gap-1.5 rounded-pill bg-surface-2 px-3.5 py-2 text-[13px] text-text-secondary active:text-text-primary disabled:opacity-40"
           >
@@ -258,7 +279,10 @@ function ScenarioEditor({
             Реплика
           </button>
           <button
-            onClick={() => firstRoleId && addStep.mutate({ roleId: firstRoleId, type: "reaction" })}
+            onClick={() => {
+              const rid = nextRoleId();
+              if (rid) addStep.mutate({ roleId: rid, type: "reaction" });
+            }}
             disabled={!firstRoleId || addStep.isPending}
             className="inline-flex items-center gap-1.5 rounded-pill bg-surface-2 px-3.5 py-2 text-[13px] text-text-secondary active:text-text-primary disabled:opacity-40"
           >

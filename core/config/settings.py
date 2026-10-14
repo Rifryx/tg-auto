@@ -103,6 +103,22 @@ class Settings(BaseSettings):
         return bool(self.deepseek_api_key or self.gemini_api_key)
 
     @property
+    def has_real_telegram_creds(self) -> bool:
+        """Заданы ли НАСТОЯЩИЕ Telegram-креды (а не dev-заглушки).
+
+        В ``DEV_MODE`` валидатор подставляет ``api_id=0`` / dummy-hash, если их
+        не задали. Эта проверка отличает реальные креды от заглушек — чтобы
+        login-флоу делал настоящий ``send_code`` даже при ``DEV_MODE=true``,
+        если пользователь прописал свои ключи (иначе код «не приходит»).
+        """
+        return bool(
+            self.telegram_api_id
+            and self.telegram_api_id != _DEV_TELEGRAM_API_ID
+            and self.telegram_api_hash
+            and self.telegram_api_hash != _DEV_TELEGRAM_API_HASH
+        )
+
+    @property
     def cryptobot_base_url(self) -> str:
         """Базовый URL Crypto Pay API по выбранной сети."""
         if self.cryptobot_network.strip().lower() == "testnet":

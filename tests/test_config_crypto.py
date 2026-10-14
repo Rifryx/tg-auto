@@ -69,6 +69,26 @@ def test_dev_mode_valid_without_llm_keys(env):
     assert settings.default_active_hours_tz == "Europe/Kiev"
 
 
+def test_has_real_telegram_creds_false_with_dev_stubs(env):
+    # DEV_MODE без Telegram-кредов → подставляются заглушки (api_id=0),
+    # has_real_telegram_creds=False → login-флоу уходит в dev-bypass.
+    env.setenv("ENCRYPTION_KEY", _valid_key())
+    env.setenv("DEV_MODE", "true")
+    settings = get_settings()
+    assert settings.has_real_telegram_creds is False
+
+
+def test_has_real_telegram_creds_true_with_real_keys_in_dev(env):
+    # DEV_MODE, но заданы РЕАЛЬНЫЕ креды → has_real_telegram_creds=True,
+    # значит login делает настоящий send_code (баг «код не приходит»).
+    env.setenv("ENCRYPTION_KEY", _valid_key())
+    env.setenv("DEV_MODE", "true")
+    env.setenv("TELEGRAM_API_ID", "123456")
+    env.setenv("TELEGRAM_API_HASH", "realhash")
+    settings = get_settings()
+    assert settings.has_real_telegram_creds is True
+
+
 def test_prod_invalid_without_llm_keys(env):
     env.setenv("ENCRYPTION_KEY", _valid_key())
     env.setenv("TELEGRAM_API_ID", "12345")
