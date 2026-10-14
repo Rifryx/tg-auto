@@ -121,6 +121,11 @@ export const accountsApi = {
   retire: (id: number) => api.post<Account>(`/accounts/${id}/actions/retire`),
   restore: (id: number) => api.post<Account>(`/accounts/${id}/actions/restore`),
   remove: (id: number) => api.del<void>(`/accounts/${id}`),
+  // Pre-check номера на этапе ввода: занят ли уже (UI показывает подсказку до SMS).
+  checkPhone: (phone: string) =>
+    api.get<{ phone: string; normalized: string; exists: boolean }>(
+      `/accounts/check-phone?phone=${encodeURIComponent(phone)}`,
+    ),
   // Массовая проверка валидности/спамблока (ставит задачи в очередь).
   healthCheckBulk: (account_ids: number[], include_spam = false) =>
     api.post<{ enqueued: { account_id: number; job_id: string }[]; throttled: number[] }>(

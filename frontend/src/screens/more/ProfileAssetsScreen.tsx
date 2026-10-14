@@ -13,6 +13,7 @@ import {
 } from "../../modules/commenting/components/ui";
 import { Section } from "../accounts/components/ui";
 import { profileAssetsApi, type ProfileAssetBody } from "./api";
+import { ProfileAssetThumb } from "./components/ProfileAssetThumb";
 import { BackHeader } from "./PersonasScreen";
 
 const KINDS: { value: ProfileAssetKind; label: string }[] = [
@@ -61,6 +62,7 @@ export function ProfileAssetsScreen() {
   const [kind, setKind] = useState<ProfileAssetKind>("avatar");
   const [text, setText] = useState("");
   const [tags, setTags] = useState("");
+  const [description, setDescription] = useState("");
   const [toDelete, setToDelete] = useState<ProfileAsset | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -82,6 +84,7 @@ export function ProfileAssetsScreen() {
     onSuccess: (n) => {
       showToast(`Добавлено: ${n}`, "success");
       setText("");
+      setDescription("");
       invalidate();
     },
     onError: () => showToast("Не удалось добавить", "error"),
@@ -98,10 +101,17 @@ export function ProfileAssetsScreen() {
   const onFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const t = tagList();
+    const desc = description.trim() || null;
     try {
       const bodies: ProfileAssetBody[] = [];
       for (const f of Array.from(files)) {
-        bodies.push({ kind: "avatar", binary_b64: await fileToBase64(f), mime: "image/jpeg", tags: t });
+        bodies.push({
+          kind: "avatar",
+          binary_b64: await fileToBase64(f),
+          mime: "image/jpeg",
+          tags: t,
+          description: desc,
+        });
       }
       addMany.mutate(bodies);
     } catch {
@@ -147,6 +157,18 @@ export function ProfileAssetsScreen() {
 
         {kind === "avatar" ? (
           <>
+            <div className="mb-3">
+              <Field label="Описание (опц.)">
+                <TextInput
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Напр.: мужские, нейтральный фон"
+                />
+              </Field>
+              <p className="-mt-2 px-1 text-[11px] text-text-tertiary">
+                Применится к изображениям, которые выберете ниже.
+              </p>
+            </div>
             <input
               ref={fileRef}
               type="file"
@@ -208,6 +230,34 @@ export function ProfileAssetsScreen() {
           <p className="text-[13px] text-text-tertiary">Загрузка…</p>
         ) : rows.length === 0 ? (
           <p className="text-[13px] text-text-tertiary">Пока пусто.</p>
+        ) : kind === "avatar" ? (
+          <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-5">
+            {rows.map((a) => (
+              <figure key={a.id} className="group relative">
+                <ProfileAssetThumb id={a.id} />
+                <figcaption className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-0.5 rounded-b-chip bg-gradient-to-t from-black/75 to-transparent px-2 pb-1.5 pt-5 text-[11px] text-white">
+                  {a.description && (
+                    <span className="truncate font-medium" title={a.description}>
+                      {a.description}
+                    </span>
+                  )}
+                  <span className="flex items-center justify-between gap-1">
+                    <span className="truncate">{a.used_count}×</span>
+                    {a.tags.length > 0 && (
+                      <span className="truncate opacity-80">{a.tags.join(", ")}</span>
+                    )}
+                  </span>
+                </figcaption>
+                <button
+                  onClick={() => setToDelete(a)}
+                  aria-label="Удалить изображение"
+                  className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-bg-elevated/85 text-text-secondary shadow-sm backdrop-blur active:text-status-critical"
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
+                </button>
+              </figure>
+            ))}
+          </div>
         ) : (
           <ul className="flex flex-col">
             {rows.map((a, i) => (
@@ -216,9 +266,7 @@ export function ProfileAssetsScreen() {
                 className={`flex items-center gap-3 py-2.5 ${i > 0 ? "border-t border-hairline" : ""}`}
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[14px] text-text-primary">
-                    {a.kind === "avatar" ? `Изображение #${a.id}` : a.value}
-                  </p>
+                  <p className="truncate text-[14px] text-text-primary">{a.value}</p>
                   <p className="text-[12px] text-text-tertiary">
                     применён {a.used_count}×{a.tags.length > 0 && ` · ${a.tags.join(", ")}`}
                   </p>

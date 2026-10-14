@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
@@ -26,6 +27,7 @@ def _serialize(obj) -> ProfileAssetRead:
         value=obj.value,
         mime=obj.mime,
         tags=list(obj.tags or []),
+        description=obj.description,
         used_count=obj.used_count or 0,
         created_at=obj.created_at,
         has_binary=obj.binary is not None,
@@ -67,9 +69,31 @@ def create_asset(
         binary=binary,
         mime=body.mime,
         tags=list(body.tags),
+        description=(body.description or None),
     )
     session.commit()
     return _serialize(obj)
+
+
+@router.get("/{asset_id}/blob")
+def get_asset_blob(
+    asset_id: int,
+    user_id: str = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> Response:
+    """Отдаёт байты аватара-ассета его владельцу — для превью-галереи в UI.
+
+    Как и у media-assets, `<img src>` не может пробросить `X-Telegram-Init-Data`,
+    поэтому фронтенд делает `fetch → blob → ObjectURL`. Ассет неизменен по id,
+    поэтому кэш держим долго."""
+    obj = ProfileAssetRepository(session).get(asset_id)
+    if obj is None or obj.user_id != user_id or obj.binary is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "asset binary not found")
+    return Response(
+        content=obj.binary,
+        media_type=obj.mime or "image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400, immutable"},
+    )
 
 
 @router.delete("/{asset_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)

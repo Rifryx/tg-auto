@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from typing import Callable, TypeVar
+
 from sqlalchemy import func, select
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 
 from core.models.account import Account
@@ -21,6 +24,24 @@ from core.models.priming import PrimingCampaign
 from modules.commenting.models.campaign import Campaign
 from modules.commenting.models.comment_log import CommentLog
 from modules.shilling.models import ShillingCampaign
+
+
+_T = TypeVar("_T")
+
+
+def _safe(session: Session, fn: Callable[[], _T], default: _T) -> _T:
+    """Выполняет блок аналитики, не роняя всю страницу, если таблицы ещё нет.
+
+    На свежей/недомигрированной БД (нет таблицы ``payments`` и т.п.) запрос
+    кидает ``ProgrammingError`` и «портит» транзакцию — поэтому откатываемся и
+    отдаём безопасный дефолт, чтобы графики/статистика всё равно загрузились.
+    Полные данные появятся после ``alembic upgrade head``.
+    """
+    try:
+        return fn()
+    except ProgrammingError:
+        session.rollback()
+        return default
 
 
 def _count(session: Session, model, *where) -> int:
@@ -144,11 +165,42 @@ def get_analytics(session: Session) -> dict[str, object]:
     now = datetime.now(timezone.utc)
     return {
         "generated_at": now.isoformat(),
-        "users": _users_block(session, now),
-        "revenue": _revenue_block(session, now),
-        "activity": _activity_block(session, now),
-        "load": _load_block(session),
+        "users": _safe(session, lambda: _users_block(session, now), _USERS_DEFAULT),
+        "revenue": _safe(session, lambda: _revenue_block(session, now), _REVENUE_DEFAULT),
+        "activity": _safe(session, lambda: _activity_block(session, now), _ACTIVITY_DEFAULT),
+        "load": _safe(session, lambda: _load_block(session), _LOAD_DEFAULT),
     }
+
+
+_USERS_DEFAULT: dict[str, object] = {
+    "total": 0,
+    "pro_active": 0,
+    "free": 0,
+    "new_7d": 0,
+    "new_30d": 0,
+    "expiring_7d": 0,
+    "conversion_pct": 0.0,
+}
+_REVENUE_DEFAULT: dict[str, object] = {
+    "by_currency": [],
+    "paid_total": 0,
+    "paid_30d": 0,
+    "pending": 0,
+}
+_ACTIVITY_DEFAULT: dict[str, object] = {
+    "comments_24h": 0,
+    "comments_7d": 0,
+    "accounts_by_status": {},
+    "campaigns": {"commenting": 0, "shilling": 0, "priming": 0},
+}
+_LOAD_DEFAULT: dict[str, object] = {
+    "bulk_jobs_queued": 0,
+    "bulk_jobs_running": 0,
+    "accounts_total": 0,
+    "accounts_working": 0,
+    "personas": 0,
+    "proxies": 0,
+}
 
 
 # ------------------------------ временны́е ряды -------------------------------
@@ -177,10 +229,20 @@ def get_timeseries(session: Session, days: int = 14) -> dict[str, object]:
     since = (now - timedelta(days=days - 1)).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
-    new_users = _daily_counts(session, Subscription.activated_at, since)
-    payments = _daily_counts(session, Payment.paid_at, since, Payment.status == "paid")
-    comments = _daily_counts(
-        session, CommentLog.created_at, since, CommentLog.status == "posted"
+    new_users = _safe(
+        session, lambda: _daily_counts(session, Subscription.activated_at, since), {}
+    )
+    payments = _safe(
+        session,
+        lambda: _daily_counts(session, Payment.paid_at, since, Payment.status == "paid"),
+        {},
+    )
+    comments = _safe(
+        session,
+        lambda: _daily_counts(
+            session, CommentLog.created_at, since, CommentLog.status == "posted"
+        ),
+        {},
     )
     series = []
     for i in range(days):

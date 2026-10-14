@@ -121,6 +121,28 @@ def list_accounts(
     return [AccountRead.model_validate(a) for a in accounts]
 
 
+class PhoneCheckResult(BaseModel):
+    """Результат pre-check номера перед добавлением аккаунта."""
+
+    phone: str
+    normalized: str
+    exists: bool
+
+
+@router.get("/check-phone", response_model=PhoneCheckResult)
+def check_phone(
+    phone: str,
+    session: Session = Depends(get_session),
+) -> PhoneCheckResult:
+    """Проверяет, занят ли номер, ещё на этапе ввода — чтобы UI показал
+    «такой номер уже есть» до отправки кода, а не ловил 409 после."""
+    return PhoneCheckResult(
+        phone=phone,
+        normalized=accounts_service.normalize_phone(phone),
+        exists=accounts_service.phone_exists(session, phone),
+    )
+
+
 @router.get("/{account_id}", response_model=AccountRead)
 def get_account(account_id: int, session: Session = Depends(get_session)) -> AccountRead:
     return AccountRead.model_validate(_get_account_or_404(session, account_id))

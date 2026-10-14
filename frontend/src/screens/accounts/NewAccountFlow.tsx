@@ -1,12 +1,22 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Check, Eye, EyeOff, Info, Upload } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Check,
+  Eye,
+  EyeOff,
+  Info,
+  Layers,
+  Upload,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { StickyActionBar } from "../../components/StickyActionBar";
 import { accountsApi, catalogApi } from "../../shared/accounts";
-import { subscribeStream } from "../../shared/api";
+import { humanizeError, subscribeStream } from "../../shared/api";
 import { useLimit } from "../../shared/limits";
-import { proxiesApi } from "../more/api";
+import { proxiesApi, type ProxyOccupancy } from "../more/api";
 import { Select } from "../../shared/Select";
 import { haptic } from "../../shared/tg";
 import type { LoginState, Proxy, WarmingProfile } from "../../shared/types";
@@ -49,9 +59,27 @@ export function NewAccountFlow() {
   const [sessionFile, setSessionFile] = useState<File | null>(null);
   const [tdataZip, setTdataZip] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [phoneExists, setPhoneExists] = useState(false);
   const accountIdRef = useRef<number | null>(null);
+  // Логин завершился успешно (шаг 4) — чтобы НЕ удалять аккаунт при выходе.
+  const successRef = useRef(false);
 
   const proxies = useQuery({ queryKey: ["proxies"], queryFn: catalogApi.proxies });
+
+  useEffect(() => {
+    if (step === 4) successRef.current = true;
+  }, [step]);
+
+  // Недорегистрированный аккаунт (код не введён / логин не завершён) не должен
+  // оседать в пуле «пустышкой». Убираем его при уходе с мастера.
+  const abandonPendingAccount = () => {
+    const id = accountIdRef.current;
+    if (id != null && !successRef.current) {
+      accountsApi.remove(id).catch(() => {});
+      accountIdRef.current = null;
+    }
+  };
+  useEffect(() => () => abandonPendingAccount(), []);
 
   const create = useMutation({
     mutationFn: () =>
@@ -60,7 +88,7 @@ export function NewAccountFlow() {
       accountIdRef.current = acc.id;
       setStep(2);
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e) => setError(humanizeError(e)),
   });
 
   const importSession = useMutation({
@@ -74,9 +102,10 @@ export function NewAccountFlow() {
       }),
     onSuccess: (acc) => {
       accountIdRef.current = acc.id;
+      successRef.current = true;
       setStep(4);
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e) => setError(humanizeError(e)),
   });
 
   const importTData = useMutation({
@@ -89,18 +118,19 @@ export function NewAccountFlow() {
       }),
     onSuccess: (acc) => {
       accountIdRef.current = acc.id;
+      successRef.current = true;
       setStep(4);
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e) => setError(humanizeError(e)),
   });
 
   const confirmCode = useMutation({
     mutationFn: () => accountsApi.confirmCode(accountIdRef.current!, code),
-    onError: (e: Error) => setError(e.message),
+    onError: (e) => setError(humanizeError(e)),
   });
   const confirmPassword = useMutation({
     mutationFn: () => accountsApi.confirmPassword(accountIdRef.current!, password),
-    onError: (e: Error) => setError(e.message),
+    onError: (e) => setError(humanizeError(e)),
   });
 
   // SSE-подписка на состояние логина: переключаем шаги 2 → 3 → 4 по событиям.
@@ -123,8 +153,21 @@ export function NewAccountFlow() {
   }, [step]);
 
   const back = () => {
-    if (step === 1) navigate("/accounts");
-    else setStep(((step - 1) as WizardStep) || 1);
+    if (step === 1) {
+      navigate("/accounts");
+      return;
+    }
+    // Уходя назад с ввода кода/2FA — считаем попытку брошенной и подчищаем
+    // недорегистрированный аккаунт, чтобы он не остался «пустышкой» в пуле.
+    if (method === "code") {
+      abandonPendingAccount();
+      setError(null);
+      setCode("");
+      setPassword("");
+      setStep(1);
+      return;
+    }
+    setStep(((step - 1) as WizardStep) || 1);
   };
 
   const finish = () =>
@@ -152,11 +195,7 @@ export function NewAccountFlow() {
       {/* Шаги 1–4 есть только у входа по коду; импорт .session — один шаг. */}
       {method === "code" ? <StepProgress current={step} /> : <div className="mt-4" />}
 
-      {error && (
-        <p className="mt-4 rounded-chip border border-hairline bg-surface-1 px-4 py-3 text-[13px] text-status-critical">
-          {error}
-        </p>
-      )}
+      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
       {step === 1 && (
         <StepFrame title="Добавить аккаунт" subtitle="Введите номер и настройте прокси">
@@ -172,7 +211,7 @@ export function NewAccountFlow() {
             />
           </div>
 
-          <PhoneCard phone={phone} onChange={setPhone} />
+          <PhoneCard phone={phone} onChange={setPhone} onExistsChange={setPhoneExists} />
 
           <ProxyCard
             proxyId={proxyId}
@@ -248,7 +287,7 @@ export function NewAccountFlow() {
       <StickyActionBar>
         {step === 1 && method === "code" && (
           <CapsuleButton
-            disabled={!phone.trim() || proxyId == null || create.isPending}
+            disabled={!phone.trim() || phoneExists || proxyId == null || create.isPending}
             onClick={() => {
               haptic();
               startCode();
@@ -261,6 +300,7 @@ export function NewAccountFlow() {
           <CapsuleButton
             disabled={
               !phone.trim() ||
+              phoneExists ||
               proxyId == null ||
               (!sessionFile && !sessionString.trim()) ||
               importSession.isPending
@@ -273,7 +313,7 @@ export function NewAccountFlow() {
         {step === 1 && method === "tdata" && (
           <CapsuleButton
             disabled={
-              !phone.trim() || proxyId == null || !tdataZip || importTData.isPending
+              !phone.trim() || phoneExists || proxyId == null || !tdataZip || importTData.isPending
             }
             onClick={() => {
               setError(null);
@@ -360,8 +400,75 @@ function StepFrame({
   );
 }
 
-/* ── Карточка «Номер телефона» — согласована с UI конкурента (скрин 6). */
-function PhoneCard({ phone, onChange }: { phone: string; onChange: (v: string) => void }) {
+/* ── Баннер ошибки: иконка-слева, выровнена по первой строке, текст переносится
+   (раньше сюда падал сырой JSON и иконки не было вовсе — скрин с «куском кода»). */
+function ErrorBanner({ message, onDismiss }: { message: string; onDismiss?: () => void }) {
+  return (
+    <div className="mt-4 flex items-start gap-2.5 rounded-chip border border-status-critical/40 bg-status-critical/10 px-4 py-3">
+      <AlertTriangle
+        className="mt-0.5 h-4 w-4 shrink-0 text-status-critical"
+        strokeWidth={2}
+        aria-hidden
+      />
+      <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-status-critical [overflow-wrap:anywhere]">
+        {message}
+      </p>
+      {onDismiss && (
+        <button
+          onClick={onDismiss}
+          aria-label="Скрыть ошибку"
+          className="-mr-1 -mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-status-critical/70 hover:text-status-critical"
+        >
+          <X className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ── Карточка «Номер телефона» — согласована с UI конкурента (скрин 6).
+   Pre-check занятости номера: показываем «такой номер уже есть» ещё до SMS. */
+function PhoneCard({
+  phone,
+  onChange,
+  onExistsChange,
+}: {
+  phone: string;
+  onChange: (v: string) => void;
+  onExistsChange: (exists: boolean) => void;
+}) {
+  const [exists, setExists] = useState(false);
+
+  useEffect(() => {
+    const trimmed = phone.trim();
+    // Номер слишком короткий — не дёргаем бэкенд, считаем «свободным».
+    if (trimmed.replace(/\D/g, "").length < 5) {
+      setExists(false);
+      onExistsChange(false);
+      return;
+    }
+    let alive = true;
+    const t = setTimeout(() => {
+      accountsApi
+        .checkPhone(trimmed)
+        .then((r) => {
+          if (!alive) return;
+          setExists(r.exists);
+          onExistsChange(r.exists);
+        })
+        .catch(() => {
+          if (!alive) return;
+          // Не блокируем добавление из-за сбоя проверки — финальный 409 подстрахует.
+          setExists(false);
+          onExistsChange(false);
+        });
+    }, 400);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [phone, onExistsChange]);
+
   return (
     <div className="mb-4 rounded-card border border-hairline bg-surface-1 p-4">
       <p className="mb-2 text-[13px] font-semibold text-text-primary">Введите номер телефона</p>
@@ -374,12 +481,20 @@ function PhoneCard({ phone, onChange }: { phone: string; onChange: (v: string) =
           onChange={(e) => onChange(e.target.value)}
           inputMode="tel"
           placeholder="+380123456789 или 380123456789"
-          className={`${INPUT} nums`}
+          className={`${INPUT} nums ${exists ? "border-status-critical focus:border-status-critical" : ""}`}
+          aria-invalid={exists}
         />
       </Field>
-      <p className="px-1 text-[12px] text-text-tertiary">
-        Префикс + опциональный, он будет добавлен автоматически
-      </p>
+      {exists ? (
+        <p className="flex items-center gap-1.5 px-1 text-[12px] text-status-critical">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+          Аккаунт с таким номером уже есть в системе.
+        </p>
+      ) : (
+        <p className="px-1 text-[12px] text-text-tertiary">
+          Префикс + опциональный, он будет добавлен автоматически
+        </p>
+      )}
     </div>
   );
 }
@@ -400,7 +515,7 @@ function ProxyCard({
   onRefetch: () => void;
 }) {
   const [mode, setMode] = useState<"string" | "detail">("string");
-  const [showPool, setShowPool] = useState(false);
+  const [poolOpen, setPoolOpen] = useState(false);
   const selected = useMemo(
     () => proxies.find((p) => p.id === proxyId) ?? null,
     [proxies, proxyId]
@@ -438,32 +553,199 @@ function ProxyCard({
       <div className="mt-4 border-t border-hairline pt-3">
         <AutoPickProxyButton phone={phone} onPicked={onSelect} />
         <button
-          onClick={() => setShowPool((v) => !v)}
-          className="text-[13px] text-text-secondary active:text-text-primary"
+          onClick={() => setPoolOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-3.5 py-2 text-[13px] font-medium text-text-primary active:opacity-80"
         >
-          {showPool ? "Скрыть пул" : "Или выбрать из существующего пула"}
+          <Layers className="h-4 w-4 text-text-secondary" strokeWidth={1.8} aria-hidden />
+          Выбрать из пула
+          {proxies.length > 0 && (
+            <span className="text-text-tertiary">· {proxies.length}</span>
+          )}
         </button>
-        {showPool && (
-          <div className="mt-3">
-            <Select
-              value={proxyId != null ? String(proxyId) : ""}
-              onChange={(v) => onSelect(v ? Number(v) : null)}
-              placeholder="Выберите прокси"
-              options={proxies.map((p) => ({
-                value: String(p.id),
-                label: `${p.host}:${p.port} · ${p.geo ?? "—"} · ${p.status}`,
-              }))}
-            />
-          </div>
-        )}
-        {selected && (
+        {selected ? (
           <p className="mt-2 text-[12px] text-text-tertiary">
-            Выбран: <span className="text-text-primary">{selected.host}:{selected.port}</span> ·{" "}
-            {selected.geo ?? "гео —"} · {selected.type}
+            Выбран:{" "}
+            <span className="text-text-primary">
+              {selected.host}:{selected.port}
+            </span>{" "}
+            · {selected.geo ?? "гео —"} · {selected.type}
+          </p>
+        ) : (
+          <p className="mt-2 text-[12px] text-text-tertiary">
+            Прокси не выбран — добавьте строкой/формой выше или откройте пул.
           </p>
         )}
       </div>
+
+      {poolOpen && (
+        <ProxyPoolSheet
+          selectedId={proxyId}
+          onSelect={(id) => {
+            onSelect(id);
+            onRefetch();
+          }}
+          onClose={() => setPoolOpen(false)}
+        />
+      )}
     </div>
+  );
+}
+
+/* ── Шторка выбора прокси из пула: листаемый список с гео/типом/статусом и
+   пометкой «свободен / занят». Данные — из /proxies/pool (ProxyOccupancy). */
+function ProxyPoolSheet({
+  selectedId,
+  onSelect,
+  onClose,
+}: {
+  selectedId: number | null;
+  onSelect: (id: number) => void;
+  onClose: () => void;
+}) {
+  const pool = useQuery({ queryKey: ["proxies", "pool"], queryFn: proxiesApi.pool });
+  const [onlyFree, setOnlyFree] = useState(false);
+  const [q, setQ] = useState("");
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const items = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    return (pool.data ?? []).filter((p) => {
+      if (onlyFree && !p.is_free) return false;
+      if (!term) return true;
+      return (
+        `${p.host}:${p.port}`.toLowerCase().includes(term) ||
+        (p.geo ?? "").toLowerCase().includes(term) ||
+        p.type.toLowerCase().includes(term)
+      );
+    });
+  }, [pool.data, onlyFree, q]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col justify-end bg-[color-mix(in_srgb,var(--bg-base)_72%,transparent)] lg:items-center lg:justify-center lg:p-8"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="mx-auto flex max-h-[85vh] w-full max-w-[440px] flex-col rounded-t-card border-t border-strong bg-bg-elevated lg:max-w-[560px] lg:rounded-card lg:border"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-5">
+          <div className="min-w-0">
+            <h3 className="text-[17px] font-semibold text-text-primary">Пул прокси</h3>
+            <p className="text-[12px] text-text-tertiary">
+              {pool.isLoading ? "Загрузка…" : `Всего: ${pool.data?.length ?? 0}`}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Закрыть"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-pill border border-hairline bg-surface-1 text-text-secondary hover:text-text-primary"
+          >
+            <X className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 px-5 pb-3">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Поиск: хост, гео, тип"
+            className={`${INPUT} min-h-[40px] flex-1 text-[14px]`}
+          />
+          <button
+            onClick={() => setOnlyFree((v) => !v)}
+            className={`shrink-0 rounded-pill border px-3 py-2 text-[13px] font-medium transition-colors ${
+              onlyFree
+                ? "border-strong bg-surface-2 text-text-primary"
+                : "border-hairline bg-surface-1 text-text-secondary"
+            }`}
+          >
+            Свободные
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom)+14px)] [scrollbar-width:thin]">
+          {pool.isLoading ? (
+            <p className="py-8 text-center text-[13px] text-text-tertiary">Загрузка пула…</p>
+          ) : items.length === 0 ? (
+            <p className="py-8 text-center text-[13px] text-text-tertiary">
+              {pool.data && pool.data.length > 0
+                ? "Ничего не найдено — измените фильтр."
+                : "Пул пуст. Добавьте прокси строкой или формой выше."}
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2 pb-2">
+              {items.map((p) => (
+                <ProxyPoolRow
+                  key={p.id}
+                  proxy={p}
+                  active={p.id === selectedId}
+                  onPick={() => {
+                    onSelect(p.id);
+                    onClose();
+                  }}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProxyPoolRow({
+  proxy: p,
+  active,
+  onPick,
+}: {
+  proxy: ProxyOccupancy;
+  active: boolean;
+  onPick: () => void;
+}) {
+  const statusTone =
+    p.status === "alive"
+      ? "bg-status-active/15 text-status-active"
+      : p.status === "dead"
+      ? "bg-status-critical/15 text-status-critical"
+      : "bg-surface-2 text-text-tertiary";
+  return (
+    <li>
+      <button
+        onClick={onPick}
+        className={`flex w-full items-center gap-3 rounded-chip border px-3.5 py-3 text-left transition-colors ${
+          active ? "border-strong bg-surface-2" : "border-hairline bg-surface-1 active:border-strong"
+        }`}
+      >
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-mono text-[14px] text-text-primary">
+            {p.host}:{p.port}
+          </p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className={`rounded-pill px-2 py-0.5 font-semibold ${statusTone}`}>
+              {p.status}
+            </span>
+            <span className="text-text-tertiary">{p.type}</span>
+            <span className="text-text-tertiary">· {p.geo ?? "гео —"}</span>
+            <span
+              className={p.is_free ? "text-status-active" : "text-text-tertiary"}
+            >
+              · {p.is_free ? "свободен" : "занят"}
+            </span>
+          </p>
+        </div>
+        {active && (
+          <Check className="h-4 w-4 shrink-0 text-accent" strokeWidth={2.4} aria-hidden />
+        )}
+      </button>
+    </li>
   );
 }
 

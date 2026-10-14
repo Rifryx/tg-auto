@@ -66,9 +66,9 @@ export function ScreenHeader({
   action?: ReactNode;
 }) {
   return (
-    <header className="mb-6 flex items-center justify-between">
-      <h1 className="screen-title">{title}</h1>
-      {action}
+    <header className="mb-6 flex items-start justify-between gap-3">
+      <h1 className="screen-title min-w-0 [overflow-wrap:anywhere]">{title}</h1>
+      {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
     </header>
   );
 }

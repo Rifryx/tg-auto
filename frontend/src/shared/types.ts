@@ -228,6 +228,7 @@ export interface ProfileAsset {
   value: string | null;
   mime: string | null;
   tags: string[];
+  description: string | null;
   used_count: number;
   created_at: string;
   has_binary: boolean;
