@@ -263,14 +263,12 @@ function StickyLaunchPanel({
     : [];
   return (
     <div
-      /* На мобилке BottomNav (плавающая капсула, z-40) живёт у нижнего
-         края. Поднимаем readiness-bar выше неё, чтобы не перекрывались.
-         На десктопе BottomNav скрыт (lg:hidden в AppLayout), bar
-         прижимается к низу обычным bottom-0. */
-      className="fixed inset-x-0 z-30 border-t border-hairline bg-bg-elevated px-4 pt-3 lg:pb-safe-b"
-      style={{
-        bottom: "calc(env(safe-area-inset-bottom) + 88px)",
-      }}
+      /* На мобилке BottomNav (плавающая капсула, z-40) живёт у нижнего края —
+         поднимаем readiness-bar выше неё (bottom +88px), чтобы не перекрывались.
+         На десктопе BottomNav скрыт (lg:hidden в AppLayout), а слева стоит
+         боковая панель (w-260px): прижимаем bar к самому низу и сдвигаем вправо
+         на ширину панели, чтобы он был вровень с контентом, а не «криво». */
+      className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)_+_88px)] z-30 border-t border-hairline bg-bg-elevated px-4 pb-3 pt-3 lg:bottom-0 lg:left-[260px] lg:pb-[calc(env(safe-area-inset-bottom)_+_12px)]"
     >
       <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
         <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1">

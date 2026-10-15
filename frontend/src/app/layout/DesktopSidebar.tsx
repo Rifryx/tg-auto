@@ -92,20 +92,49 @@ export function DesktopSidebar() {
         >
           <PlanBadge size="md" />
         </button>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          aria-label={theme === "dark" ? "Включить светлую тему" : "Включить тёмную тему"}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-pill border border-hairline bg-surface-1 text-text-secondary transition-colors hover:text-text-primary"
-        >
-          {theme === "dark" ? (
-            <Sun className="h-5 w-5" strokeWidth={1.8} aria-hidden />
-          ) : (
-            <Moon className="h-5 w-5" strokeWidth={1.8} aria-hidden />
-          )}
-        </button>
+        <ThemeToggle theme={theme} onToggle={toggleTheme} />
       </div>
     </aside>
+  );
+}
+
+/* Переключатель темы — ползунок в стиле приложения: pill-трек с hairline,
+   скользящий кружок и иконки луны/солнца по краям. Светлая тема — кружок
+   справа (солнце), тёмная — слева (луна). */
+function ThemeToggle({
+  theme,
+  onToggle,
+}: {
+  theme: "light" | "dark";
+  onToggle: () => void;
+}) {
+  const isLight = theme === "light";
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={isLight}
+      onClick={onToggle}
+      aria-label={isLight ? "Включить тёмную тему" : "Включить светлую тему"}
+      /* Габариты и цвета — как у штатного Toggle приложения (тёмный трек +
+         белый кружок), чтобы переключатель темы выглядел «в стиле». */
+      className="relative inline-flex h-[31px] w-[51px] shrink-0 items-center rounded-full border border-hairline bg-surface-2 px-[3px] transition-colors hover:border-strong"
+    >
+      {/* Кружок (белый, как в Toggle) с активной иконкой. Позицию задаём
+         флексом (ml-auto), а не transform — надёжно при reduced-motion. */}
+      <span
+        className={[
+          "flex h-[25px] w-[25px] items-center justify-center rounded-full bg-white text-black shadow-sm",
+          isLight ? "ml-auto" : "",
+        ].join(" ")}
+      >
+        {isLight ? (
+          <Sun className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden />
+        ) : (
+          <Moon className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden />
+        )}
+      </span>
+    </button>
   );
 }
 

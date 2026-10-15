@@ -41,6 +41,30 @@ const STEP_LABELS: Record<WizardStep, string> = {
 const INPUT =
   "w-full min-h-[48px] rounded-chip border border-hairline bg-surface-1 px-4 text-[16px] text-text-primary placeholder:text-text-tertiary outline-none focus:border-strong";
 
+/* Переводит техническую причину отказа логина (строка ошибки Telethon из
+   backend) в понятное пользователю сообщение. Так «код не приходит, непонятно
+   почему» превращается в конкретную причину. */
+function friendlyLoginError(reason?: string | null): string {
+  const r = (reason ?? "").toLowerCase();
+  if (!r) return "Логин не удался. Попробуйте заново.";
+  if (r.includes("api_id") || r.includes("api_hash") || r.includes("api id"))
+    return "Неверные API ID / API Hash. Проверьте TELEGRAM_API_ID и TELEGRAM_API_HASH на сервере.";
+  if (r.includes("banned") || r.includes("deleted") || r.includes("deactivated"))
+    return "Этот номер заблокирован или удалён в Telegram.";
+  if (r.includes("phone_number_invalid") || r.includes("phone number invalid"))
+    return "Неверный номер телефона. Проверьте формат (с кодом страны).";
+  if (r.includes("flood") || r.includes("too many"))
+    return "Слишком много попыток входа. Подождите и повторите позже.";
+  if (r.includes("code") && (r.includes("invalid") || r.includes("empty")))
+    return "Неверный код подтверждения.";
+  if (r.includes("code") && r.includes("expired"))
+    return "Код устарел. Запросите новый.";
+  if (r.includes("proxy") || r.includes("connect") || r.includes("timeout"))
+    return "Не удалось подключиться (прокси/сеть). Проверьте прокси аккаунта.";
+  // Незнакомая причина — показываем как есть, чтобы было с чем разбираться.
+  return `Логин не удался: ${reason}`;
+}
+
 export function NewAccountFlow() {
   const navigate = useNavigate();
   const limit = useLimit("accounts_max");
@@ -137,17 +161,22 @@ export function NewAccountFlow() {
   useEffect(() => {
     const id = accountIdRef.current;
     if (id == null || step === 1) return;
-    const apply = (state: LoginState | null) => {
+    const apply = (state: LoginState | null, reason?: string | null) => {
       if (state === "waiting_code") setStep(2);
       else if (state === "waiting_password") setStep(3);
       else if (state === "success") setStep(4);
-      else if (state === "failed") setError("Логин не удался. Попробуйте заново.");
+      else if (state === "failed") setError(friendlyLoginError(reason));
       else if (state === "rate_limited") setError("Слишком часто. Подождите и повторите.");
     };
-    accountsApi.loginState(id).then((s) => apply(s.state)).catch(() => {});
+    accountsApi.loginState(id).then((s) => apply(s.state, s.reason)).catch(() => {});
     const unsub = subscribeStream(`/accounts/${id}/login/stream`, (data) => {
-      const ev = data as { type?: string; account_id?: number; state?: LoginState };
-      if (ev.type === "login" && ev.account_id === id) apply(ev.state ?? null);
+      const ev = data as {
+        type?: string;
+        account_id?: number;
+        state?: LoginState;
+        reason?: string;
+      };
+      if (ev.type === "login" && ev.account_id === id) apply(ev.state ?? null, ev.reason);
     });
     return unsub;
   }, [step]);

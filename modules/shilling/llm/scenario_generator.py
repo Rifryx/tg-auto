@@ -43,6 +43,21 @@ class ScenarioGenerationError(RuntimeError):
     """LLM не вернул пригодный сценарий (пусто/битый JSON/нет валидных шагов)."""
 
 
+def _provider_error_message(exc: Exception) -> str:
+    """Понятное сообщение по ошибке обращения к LLM-провайдеру."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status in (401, 403):
+        return (
+            "LLM отклонил ключ (unauthorized). Проверьте API-ключ выбранного "
+            "провайдера и что он задан на сервере."
+        )
+    if status == 429:
+        return "LLM: превышен лимит запросов (429). Попробуйте позже."
+    if status is not None:
+        return f"LLM-провайдер вернул ошибку {status}."
+    return f"LLM-провайдер недоступен: {type(exc).__name__}: {exc}"
+
+
 SYSTEM_PROMPT = """
 Ты — сценарист нативных диалогов для Telegram-чатов. Создай естественную
 переписку между участниками так, чтобы это выглядело как живое обсуждение, а
@@ -102,12 +117,21 @@ class ScenarioGenerator:
             user_prompt = _build_user_prompt(
                 topic, brand_name, persons_count, target_steps, roles, enforce_brand
             )
-            raw = await self._provider.generate(
-                system=SYSTEM_PROMPT,
-                messages=[Message(role="user", content=user_prompt)],
-                max_tokens=self._max_tokens,
-                temperature=self._temperature,
-            )
+            try:
+                raw = await self._provider.generate(
+                    system=SYSTEM_PROMPT,
+                    messages=[Message(role="user", content=user_prompt)],
+                    max_tokens=self._max_tokens,
+                    temperature=self._temperature,
+                )
+            except ScenarioGenerationError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — ошибка вызова LLM
+                # Ошибка самого обращения к провайдеру (неверный/просроченный
+                # ключ, недоступность, не тот провайдер у кампании) превращаем в
+                # понятную ScenarioGenerationError → роутер отдаст 502 с причиной,
+                # а не «голый» 500. Иначе пользователь видит абстрактную ошибку.
+                raise ScenarioGenerationError(_provider_error_message(exc)) from exc
             raw = (raw or "").strip()
             if not raw:
                 last_error = "empty LLM response"
