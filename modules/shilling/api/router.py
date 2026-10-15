@@ -226,8 +226,8 @@ async def generate_scenario(
         if body.roles
         else None
     )
-    generator = ScenarioGenerator(get_provider(campaign.llm_provider))
     try:
+        generator = ScenarioGenerator(get_provider(campaign.llm_provider))
         draft = await generator.generate(
             topic=body.topic,
             brand_name=brand,
@@ -238,6 +238,11 @@ async def generate_scenario(
     except ScenarioGenerationError as exc:
         # 502: внешний LLM не дал пригодного результата (не вина клиента).
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    except ValueError as exc:
+        # Неизвестный/неправильно сконфигурированный провайдер у кампании.
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"LLM-провайдер настроен неверно: {exc}"
+        ) from exc
 
     return GeneratedScenarioRead(
         roles=[{"name": r.name, "character": r.character} for r in draft.roles],

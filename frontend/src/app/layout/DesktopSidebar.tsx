@@ -116,26 +116,22 @@ function ThemeToggle({
       aria-checked={isLight}
       onClick={onToggle}
       aria-label={isLight ? "Включить тёмную тему" : "Включить светлую тему"}
-      className="relative inline-flex h-9 w-16 shrink-0 items-center rounded-pill border border-hairline bg-surface-1 px-1 transition-colors hover:border-strong"
+      /* Габариты и цвета — как у штатного Toggle приложения (тёмный трек +
+         белый кружок), чтобы переключатель темы выглядел «в стиле». */
+      className="relative inline-flex h-[31px] w-[51px] shrink-0 items-center rounded-full border border-hairline bg-surface-2 px-[3px] transition-colors hover:border-strong"
     >
-      {/* Иконки по краям трека — подсказка направления. */}
-      <span className="pointer-events-none absolute inset-0 flex items-center justify-between px-2 text-text-tertiary">
-        <Moon className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
-        <Sun className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
-      </span>
-      {/* Кружок с активной иконкой. Позицию задаём флексом (ml-auto), а не
-         transform — так надёжнее (reduced-motion/эмуляция не ломает сдвиг). */}
+      {/* Кружок (белый, как в Toggle) с активной иконкой. Позицию задаём
+         флексом (ml-auto), а не transform — надёжно при reduced-motion. */}
       <span
         className={[
-          "relative z-10 flex h-7 w-7 items-center justify-center rounded-full bg-surface-2 text-text-primary shadow-sm",
+          "flex h-[25px] w-[25px] items-center justify-center rounded-full bg-white text-black shadow-sm",
           isLight ? "ml-auto" : "",
         ].join(" ")}
-        style={{ boxShadow: "0 0 0 1px var(--surface-border-strong) inset" }}
       >
         {isLight ? (
-          <Sun className="h-4 w-4" strokeWidth={2} aria-hidden />
+          <Sun className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden />
         ) : (
-          <Moon className="h-4 w-4" strokeWidth={2} aria-hidden />
+          <Moon className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden />
         )}
       </span>
     </button>

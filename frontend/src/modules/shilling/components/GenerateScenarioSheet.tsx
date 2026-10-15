@@ -1,10 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles, X } from "lucide-react";
 import { useState } from "react";
+import { ApiError } from "../../../shared/api";
 import { shillingApi } from "../api";
 import type { GeneratedScenario } from "../types";
 import { NumberStepper, TextArea, TextInput, Toggle } from "../../commenting/components/ui";
 import { RoleAvatar } from "./RoleCard";
+
+/* Показываем реальную причину от backend (502/500 detail), а не абстрактное
+   «не удалось». Так понятно: ключ отклонён, не тот провайдер, лимит и т.п. */
+function genErrorMessage(err: unknown): string {
+  const prefix = "Не удалось сгенерировать";
+  if (err instanceof ApiError) {
+    const detail =
+      typeof err.detail === "string" && err.detail ? err.detail : err.message;
+    if (detail && detail !== err.status.toString()) return `${prefix}: ${detail}`;
+    if (err.status === 500)
+      return `${prefix}: внутренняя ошибка сервера (проверьте ключи LLM на сервере).`;
+  }
+  return `${prefix}. Попробуйте изменить тему и повторить.`;
+}
 
 /* Модалка/боттом-шит ИИ-генерации сценария. Генерирует черновик, показывает
    превью и по «Применить» пересобирает сценарий кампании (роли + шаги). */
@@ -169,7 +184,7 @@ export function GenerateScenarioSheet({
 
             {generate.isError && (
               <p className="text-[13px] text-status-critical">
-                Не удалось сгенерировать. Попробуйте изменить тему и повторить.
+                {genErrorMessage(generate.error)}
               </p>
             )}
 
