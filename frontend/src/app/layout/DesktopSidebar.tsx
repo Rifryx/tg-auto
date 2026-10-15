@@ -92,20 +92,53 @@ export function DesktopSidebar() {
         >
           <PlanBadge size="md" />
         </button>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          aria-label={theme === "dark" ? "Включить светлую тему" : "Включить тёмную тему"}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-pill border border-hairline bg-surface-1 text-text-secondary transition-colors hover:text-text-primary"
-        >
-          {theme === "dark" ? (
-            <Sun className="h-5 w-5" strokeWidth={1.8} aria-hidden />
-          ) : (
-            <Moon className="h-5 w-5" strokeWidth={1.8} aria-hidden />
-          )}
-        </button>
+        <ThemeToggle theme={theme} onToggle={toggleTheme} />
       </div>
     </aside>
+  );
+}
+
+/* Переключатель темы — ползунок в стиле приложения: pill-трек с hairline,
+   скользящий кружок и иконки луны/солнца по краям. Светлая тема — кружок
+   справа (солнце), тёмная — слева (луна). */
+function ThemeToggle({
+  theme,
+  onToggle,
+}: {
+  theme: "light" | "dark";
+  onToggle: () => void;
+}) {
+  const isLight = theme === "light";
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={isLight}
+      onClick={onToggle}
+      aria-label={isLight ? "Включить тёмную тему" : "Включить светлую тему"}
+      className="relative inline-flex h-9 w-16 shrink-0 items-center rounded-pill border border-hairline bg-surface-1 px-1 transition-colors hover:border-strong"
+    >
+      {/* Иконки по краям трека — подсказка направления. */}
+      <span className="pointer-events-none absolute inset-0 flex items-center justify-between px-2 text-text-tertiary">
+        <Moon className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
+        <Sun className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
+      </span>
+      {/* Кружок с активной иконкой. Позицию задаём флексом (ml-auto), а не
+         transform — так надёжнее (reduced-motion/эмуляция не ломает сдвиг). */}
+      <span
+        className={[
+          "relative z-10 flex h-7 w-7 items-center justify-center rounded-full bg-surface-2 text-text-primary shadow-sm",
+          isLight ? "ml-auto" : "",
+        ].join(" ")}
+        style={{ boxShadow: "0 0 0 1px var(--surface-border-strong) inset" }}
+      >
+        {isLight ? (
+          <Sun className="h-4 w-4" strokeWidth={2} aria-hidden />
+        ) : (
+          <Moon className="h-4 w-4" strokeWidth={2} aria-hidden />
+        )}
+      </span>
+    </button>
   );
 }
 

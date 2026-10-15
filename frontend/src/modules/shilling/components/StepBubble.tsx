@@ -163,11 +163,18 @@ function RolePicker({
                   if (!selected) onChange(r.id);
                   setOpen(false);
                 }}
-                className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-[13px] text-text-primary active:bg-surface-2"
+                className={[
+                  "flex w-full items-center gap-2 px-2.5 py-2 text-left text-[13px]",
+                  selected
+                    ? "bg-surface-2 font-semibold text-text-primary"
+                    : "text-text-secondary active:bg-surface-1",
+                ].join(" ")}
               >
                 <RoleAvatar name={r.name} color={roleColor(r, i)} size={20} />
                 <span className="min-w-0 flex-1 truncate">{r.name || `Роль ${i + 1}`}</span>
-                {selected && <Check className="h-3.5 w-3.5 text-accent" strokeWidth={2.5} aria-hidden />}
+                {selected && (
+                  <Check className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={2.5} aria-hidden />
+                )}
               </button>
             );
           })}
