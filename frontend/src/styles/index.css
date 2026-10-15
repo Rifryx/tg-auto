@@ -45,6 +45,34 @@
     -webkit-appearance: none;
     margin: 0;
   }
+
+  /* Скроллбар в цвете темы — нативный белый на Windows выбивается из тёмного
+     интерфейса. Тонкий, полупрозрачный, по токенам (работает и в светлой теме).
+     В @layer base, поэтому утилиты скрытия скролла (карусели) по-прежнему выше. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--surface-border-strong) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--surface-border-strong);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--text-tertiary) 55%, transparent);
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
 }
 
 @layer components {
