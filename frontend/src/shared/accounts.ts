@@ -40,9 +40,10 @@ export const accountsApi = {
       tags: string[];
     }>,
   ) => api.patch<Account>(`/accounts/${id}`, body),
+  meta: () => api.get<{ allow_no_proxy: boolean }>("/accounts/meta"),
   create: (body: {
     phone: string;
-    proxy_id: number;
+    proxy_id: number | null;
     persona_id?: number | null;
     warming_profile: WarmingProfile;
   }) => api.post<Account>("/accounts", body),

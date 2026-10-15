@@ -92,7 +92,12 @@ def spy_client(monkeypatch):
     return _SpyClient
 
 
-_SETTINGS = SimpleNamespace(telegram_api_id=424242, telegram_api_hash="api-hash-xyz")
+_SETTINGS = SimpleNamespace(
+    telegram_api_id=424242, telegram_api_hash="api-hash-xyz", allow_no_proxy=False
+)
+_SETTINGS_NO_PROXY = SimpleNamespace(
+    telegram_api_id=424242, telegram_api_hash="api-hash-xyz", allow_no_proxy=True
+)
 
 
 # --- Фабрики данных -----------------------------------------------------------
@@ -130,10 +135,10 @@ def _make_account(
     )
 
 
-def _pool(accounts: dict, proxies: dict, spy=None) -> ClientPool:
+def _pool(accounts: dict, proxies: dict, spy=None, settings=_SETTINGS) -> ClientPool:
     return ClientPool(
         _session_factory(accounts, proxies),
-        settings=_SETTINGS,
+        settings=settings,
     )
 
 
@@ -217,6 +222,17 @@ async def test_account_without_proxy_raises_runtime_error(spy_client):
     with pytest.raises(RuntimeError, match="proxy"):
         await pool.get(1)
     assert spy_client.instances == []
+
+
+async def test_allow_no_proxy_connects_directly(spy_client):
+    # ALLOW_NO_PROXY=true → аккаунт без прокси коннектится напрямую (proxy=None),
+    # без RuntimeError.
+    account = _make_account(proxy_id=None)
+    pool = _pool({1: account}, {}, settings=_SETTINGS_NO_PROXY)
+
+    client = await pool.get(1)
+    assert client is spy_client.instances[0]
+    assert client.kwargs["proxy"] is None
 
 
 # --- 5. close_all дисконнектит всё и очищает реестр ---------------------------

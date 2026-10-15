@@ -93,6 +93,13 @@ class Settings(BaseSettings):
     proxy_check_host: str = "api.telegram.org"
     proxy_check_port: int = 443
 
+    # --- Тестирование без прокси ---
+    # ТОЛЬКО для разработки/тестов. Когда true: аккаунты можно создавать и
+    # логинить БЕЗ прокси — TelegramClient коннектится напрямую (proxy=None),
+    # а назначенный аккаунту прокси игнорируется. В проде ОСТАВЛЯТЬ false:
+    # прямое подключение палит IP сервера на все аккаунты.
+    allow_no_proxy: bool = False
+
     # --- Окна активности по умолчанию ---
     default_active_hours_start: time = time(9, 0)
     default_active_hours_end: time = time(23, 0)
