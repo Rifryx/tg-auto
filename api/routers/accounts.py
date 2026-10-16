@@ -145,15 +145,19 @@ def check_phone(
     )
 
 
+@router.get("/meta")
+def accounts_meta() -> dict[str, bool]:
+    """Флаги окружения для формы аккаунтов (напр. можно ли без прокси).
+
+    Определён ВЫШE ``/{account_id}`` — иначе путь ``/accounts/meta`` матчится на
+    параметризованный роут, ``meta`` парсится как int account_id → 422.
+    """
+    return {"allow_no_proxy": get_settings().allow_no_proxy}
+
+
 @router.get("/{account_id}", response_model=AccountRead)
 def get_account(account_id: int, session: Session = Depends(get_session)) -> AccountRead:
     return AccountRead.model_validate(_get_account_or_404(session, account_id))
-
-
-@router.get("/meta")
-def accounts_meta() -> dict[str, bool]:
-    """Флаги окружения для формы аккаунтов (напр. можно ли без прокси)."""
-    return {"allow_no_proxy": get_settings().allow_no_proxy}
 
 
 @router.post("", response_model=AccountRead, status_code=status.HTTP_201_CREATED)
