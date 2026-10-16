@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Camera, Check, HeartPulse, Lock, Radio, X } from "lucide-react";
+import { ArrowLeft, Camera, Check, HeartPulse, Lock, Radio, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { accountsApi, catalogApi, channelsApi } from "../../shared/accounts";
@@ -77,6 +77,18 @@ export function AccountDetailScreen() {
       accountsApi.patch(accountId, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["account", accountId] }),
   });
+  // Подтянуть профиль + 2FA из Telegram. Воркер исполняет асинхронно, поэтому
+  // данные обновляем с небольшой задержкой (инвалидируем аккаунт и health).
+  const syncProfile = useMutation({
+    mutationFn: () => accountsApi.syncProfile(accountId),
+    onSuccess: () => {
+      haptic("light");
+      window.setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ["account", accountId] });
+        qc.invalidateQueries({ queryKey: ["account", accountId, "health"] });
+      }, 3500);
+    },
+  });
   const retire = useMutation({
     mutationFn: () => accountsApi.retire(accountId),
     onSuccess: () => {
@@ -136,7 +148,24 @@ export function AccountDetailScreen() {
       <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-8">
       <div className="min-w-0">
       {/* Профиль — редактируемый в стиле Telegram (автосохранение onBlur). */}
-      <Section title="Профиль">
+      <Section
+        title="Профиль"
+        action={
+          <button
+            type="button"
+            onClick={() => syncProfile.mutate()}
+            disabled={syncProfile.isPending}
+            className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface-1 px-3 py-1.5 text-[12px] font-semibold text-text-secondary active:bg-surface-2 disabled:opacity-50"
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${syncProfile.isPending ? "animate-spin" : ""}`}
+              strokeWidth={2}
+              aria-hidden
+            />
+            Из Telegram
+          </button>
+        }
+      >
         <div className="card p-4">
           <AvatarPicker
             avatarUrl={acc.avatar_url}

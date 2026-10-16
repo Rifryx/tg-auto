@@ -145,6 +145,18 @@ def check_phone(
     )
 
 
+@router.post("/{account_id}/sync-profile", status_code=status.HTTP_202_ACCEPTED)
+async def sync_profile(
+    account_id: int,
+    session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> dict[str, object]:
+    """Поставить задачу подтянуть профиль + 2FA из Telegram (воркер исполнит)."""
+    _get_account_or_404(session, account_id)
+    await task_queue.enqueue(TaskName.ACCOUNT_SYNC_PROFILE, account_id)
+    return {"queued": True, "account_id": account_id}
+
+
 @router.get("/meta")
 def accounts_meta() -> dict[str, bool]:
     """Флаги окружения для формы аккаунтов (напр. можно ли без прокси).

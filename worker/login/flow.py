@@ -174,6 +174,9 @@ async def _finish_login(ctx: dict, account_id: int, session_str: str) -> None:
             account_id, AccountEvent.WARMING_START, Initiator.AUTO
         )
     await _task_queue(ctx).enqueue(TaskName.WARMING_INITIAL_START, account_id)
+    # Подтянуть реальный профиль (имя/@username/bio/аватар) и статус 2FA из
+    # Telegram — иначе аккаунт в UI пустой, а 2FA показывается «не установлен».
+    await _task_queue(ctx).enqueue(TaskName.ACCOUNT_SYNC_PROFILE, account_id)
     _publish(publisher, account_id, LoginState.SUCCESS)
 
 

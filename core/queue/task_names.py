@@ -34,6 +34,8 @@ class TaskName(str, Enum):
     BILLING_RECONCILE_PAYMENTS = "billing.reconcile_payments"
     ACCOUNT_RETIRE = "account.retire"
     ACCOUNT_ACKNOWLEDGE_BAN = "account.acknowledge_ban"
+    # Синхронизация реального Telegram-профиля (имя/@username/bio/аватар + 2FA).
+    ACCOUNT_SYNC_PROFILE = "account.sync_profile"
 
     # --- Модуль commenting ---
     COMMENTING_ON_NEW_POST = "commenting.on_new_post"
