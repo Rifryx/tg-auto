@@ -255,6 +255,7 @@ export function NewAccountFlow() {
             onSelect={setProxyId}
             phone={phone}
             onRefetch={() => proxies.refetch()}
+            required={!(allowNoProxy && method === "code")}
           />
           {allowNoProxy && method === "code" && (
             <p className="mt-2 px-1 text-[12px] text-text-tertiary">
@@ -554,12 +555,14 @@ function ProxyCard({
   onSelect,
   phone,
   onRefetch,
+  required = true,
 }: {
   proxyId: number | null;
   proxies: Proxy[];
   onSelect: (id: number | null) => void;
   phone: string;
   onRefetch: () => void;
+  required?: boolean;
 }) {
   const [mode, setMode] = useState<"string" | "detail">("string");
   const [poolOpen, setPoolOpen] = useState(false);
@@ -573,11 +576,19 @@ function ProxyCard({
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <p className="text-[13px] font-semibold text-text-primary">Настройки прокси</p>
-          <p className="text-[12px] text-text-tertiary">Обязательно</p>
+          <p className="text-[12px] text-text-tertiary">
+            {required ? "Обязательно" : "Необязательно (режим без прокси)"}
+          </p>
         </div>
-        <span className="rounded-chip bg-status-critical/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-status-critical">
-          Обязательно
-        </span>
+        {required ? (
+          <span className="rounded-chip bg-status-critical/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-status-critical">
+            Обязательно
+          </span>
+        ) : (
+          <span className="rounded-chip bg-surface-2 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
+            Опционально
+          </span>
+        )}
       </div>
 
       <div className="mb-4">
