@@ -79,6 +79,7 @@ export function NewAccountFlow() {
   const [profile] = useState<WarmingProfile>("medium");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [sessionString, setSessionString] = useState("");
   const [sessionFile, setSessionFile] = useState<File | null>(null);
   const [tdataZip, setTdataZip] = useState<File | null>(null);
@@ -304,13 +305,27 @@ export function NewAccountFlow() {
       {step === 3 && (
         <StepFrame title="Пароль 2FA" subtitle="Облачный пароль от аккаунта Telegram">
           <Field label="Пароль">
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type="password"
-              placeholder="••••••••"
-              className={INPUT}
-            />
+            <div className="relative">
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type={showPw ? "text" : "password"}
+                placeholder="••••••••"
+                className={`${INPUT} pr-12`}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw((v) => !v)}
+                aria-label={showPw ? "Скрыть пароль" : "Показать пароль"}
+                className="absolute inset-y-0 right-0 flex w-12 items-center justify-center text-text-tertiary active:text-text-primary"
+              >
+                {showPw ? (
+                  <EyeOff className="h-5 w-5" strokeWidth={1.8} aria-hidden />
+                ) : (
+                  <Eye className="h-5 w-5" strokeWidth={1.8} aria-hidden />
+                )}
+              </button>
+            </div>
           </Field>
         </StepFrame>
       )}
