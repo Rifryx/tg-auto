@@ -137,7 +137,8 @@ class ClientPool:
 
             # ALLOW_NO_PROXY (только для тестов): коннект напрямую, прокси
             # аккаунта игнорируем. Иначе действует инвариант §6 — прокси обязателен.
-            if settings.allow_no_proxy:
+            # getattr с дефолтом — на случай частичного settings-стаба в тестах.
+            if getattr(settings, "allow_no_proxy", False):
                 proxy_tuple = None
             else:
                 if account.proxy_id is None:
