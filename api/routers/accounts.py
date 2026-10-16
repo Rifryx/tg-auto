@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
+from core.config import get_settings
 from api.deps.governor import get_health_governor
 from api.deps.limits import enforce_limit
 from api.deps.queue import get_publisher, get_task_queue
@@ -62,7 +63,8 @@ class AccountCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     phone: str
-    proxy_id: int
+    # proxy_id можно опустить только при ALLOW_NO_PROXY=true (сервис это проверит).
+    proxy_id: Optional[int] = None
     persona_id: Optional[int] = None
     warming_profile: WarmingProfile = WarmingProfile.MEDIUM
 
@@ -146,6 +148,12 @@ def check_phone(
 @router.get("/{account_id}", response_model=AccountRead)
 def get_account(account_id: int, session: Session = Depends(get_session)) -> AccountRead:
     return AccountRead.model_validate(_get_account_or_404(session, account_id))
+
+
+@router.get("/meta")
+def accounts_meta() -> dict[str, bool]:
+    """Флаги окружения для формы аккаунтов (напр. можно ли без прокси)."""
+    return {"allow_no_proxy": get_settings().allow_no_proxy}
 
 
 @router.post("", response_model=AccountRead, status_code=status.HTTP_201_CREATED)

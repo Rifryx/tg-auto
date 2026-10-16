@@ -89,6 +89,13 @@ export function NewAccountFlow() {
   const successRef = useRef(false);
 
   const proxies = useQuery({ queryKey: ["proxies"], queryFn: catalogApi.proxies });
+  // ALLOW_NO_PROXY на сервере → прокси необязателен (режим тестов без прокси).
+  const meta = useQuery({
+    queryKey: ["accounts", "meta"],
+    queryFn: accountsApi.meta,
+    staleTime: 5 * 60_000,
+  });
+  const allowNoProxy = meta.data?.allow_no_proxy ?? false;
 
   useEffect(() => {
     if (step === 4) successRef.current = true;
@@ -107,7 +114,7 @@ export function NewAccountFlow() {
 
   const create = useMutation({
     mutationFn: () =>
-      accountsApi.create({ phone, proxy_id: proxyId!, persona_id: null, warming_profile: profile }),
+      accountsApi.create({ phone, proxy_id: proxyId, persona_id: null, warming_profile: profile }),
     onSuccess: (acc) => {
       accountIdRef.current = acc.id;
       setStep(2);
@@ -249,6 +256,12 @@ export function NewAccountFlow() {
             phone={phone}
             onRefetch={() => proxies.refetch()}
           />
+          {allowNoProxy && method === "code" && (
+            <p className="mt-2 px-1 text-[12px] text-text-tertiary">
+              Режим без прокси включён (ALLOW_NO_PROXY): прокси можно не выбирать —
+              подключение пойдёт напрямую. Только для тестов.
+            </p>
+          )}
 
           {method === "session" && (
             <SessionSourceCard
@@ -316,7 +329,12 @@ export function NewAccountFlow() {
       <StickyActionBar>
         {step === 1 && method === "code" && (
           <CapsuleButton
-            disabled={!phone.trim() || phoneExists || proxyId == null || create.isPending}
+            disabled={
+              !phone.trim() ||
+              phoneExists ||
+              (!allowNoProxy && proxyId == null) ||
+              create.isPending
+            }
             onClick={() => {
               haptic();
               startCode();

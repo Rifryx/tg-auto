@@ -15,6 +15,7 @@ from typing import Optional
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from core.config import get_settings
 from core.crypto import encrypt_session
 from core.enums import AccountStatus, WarmingProfile
 from core.models import Account
@@ -76,20 +77,30 @@ def create_account(
     session: Session,
     *,
     phone: str,
-    proxy_id: int,
+    proxy_id: Optional[int],
     persona_id: Optional[int],
     warming_profile: WarmingProfile,
 ) -> Account:
-    """Создаёт аккаунт (created) со сгенерированным фингерпринтом и прокси."""
+    """Создаёт аккаунт (created) со сгенерированным фингерпринтом и прокси.
+
+    ``proxy_id`` можно не задавать только при ``ALLOW_NO_PROXY=true`` (тесты без
+    прокси); иначе прокси обязателен (инвариант §6).
+    """
     phone = normalize_phone(phone)
-    proxy = ProxyRepository(session).get(proxy_id)
-    if proxy is None:
-        raise ProxyNotFoundError(f"proxy {proxy_id} not found")
+    proxy = None
+    if proxy_id is not None:
+        proxy = ProxyRepository(session).get(proxy_id)
+        if proxy is None:
+            raise ProxyNotFoundError(f"proxy {proxy_id} not found")
+    elif not get_settings().allow_no_proxy:
+        raise ProxyNotFoundError(
+            "proxy is required (set ALLOW_NO_PROXY=true to create without proxy)"
+        )
 
     accounts = AccountRepository(session)
     if accounts.get_by_phone(phone) is not None:
         raise PhoneAlreadyExistsError(phone)
-    fingerprint = FingerprintGenerator(accounts).generate(proxy.geo)
+    fingerprint = FingerprintGenerator(accounts).generate(proxy.geo if proxy else None)
 
     try:
         account = accounts.create(

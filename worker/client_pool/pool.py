@@ -133,22 +133,29 @@ class ClientPool:
                     f"account {account_id} is '{account.status}' and cannot be used"
                 )
 
-            if account.proxy_id is None:
-                raise RuntimeError(
-                    f"account {account_id} has no proxy_id; every account must be "
-                    "bound to a proxy (invariant §6)"
-                )
-            proxy = ProxyRepository(session).get(account.proxy_id)
-            if proxy is None:
-                raise RuntimeError(
-                    f"proxy {account.proxy_id} bound to account {account_id} "
-                    "does not exist"
-                )
-            proxy_tuple = self._build_proxy(proxy)
+            settings = self._settings or get_settings()
+
+            # ALLOW_NO_PROXY (только для тестов): коннект напрямую, прокси
+            # аккаунта игнорируем. Иначе действует инвариант §6 — прокси обязателен.
+            # getattr с дефолтом — на случай частичного settings-стаба в тестах.
+            if getattr(settings, "allow_no_proxy", False):
+                proxy_tuple = None
+            else:
+                if account.proxy_id is None:
+                    raise RuntimeError(
+                        f"account {account_id} has no proxy_id; every account must be "
+                        "bound to a proxy (invariant §6). Set ALLOW_NO_PROXY=true to "
+                        "connect directly (testing only)."
+                    )
+                proxy = ProxyRepository(session).get(account.proxy_id)
+                if proxy is None:
+                    raise RuntimeError(
+                        f"proxy {account.proxy_id} bound to account {account_id} "
+                        "does not exist"
+                    )
+                proxy_tuple = self._build_proxy(proxy)
 
             session_str = decrypt_session(account.session_enc).decode()
-
-            settings = self._settings or get_settings()
             factory = self._client_factory or TelegramClient
 
             return factory(
