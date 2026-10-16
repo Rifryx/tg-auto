@@ -38,6 +38,7 @@ from worker.tasks.commenting import (
     verify_comment_impl,
     sync_campaign_channels_impl,
 )
+from worker.profiles.sync import sync_profile_impl
 from worker.tasks.billing import reconcile_payments_impl
 from worker.tasks.bulk import dispatch_impl as bulk_dispatch_impl, item_impl as bulk_item_impl
 from modules.shilling.worker.dry_run import dry_run as shilling_dry_run_impl
@@ -325,6 +326,12 @@ TASK_FUNCTIONS = [
     # сессия) под max_tries.
     func(bulk_item, name=TaskName.BULK_ITEM.value, max_tries=1),
     func(predict_ban_risk, name=TaskName.HEALTH_PREDICT_BAN_RISK.value, max_tries=2),
+    # Синхронизация профиля из Telegram (после логина + по кнопке «обновить»).
+    func(
+        task(TaskName.ACCOUNT_SYNC_PROFILE.value)(sync_profile_impl),
+        name=TaskName.ACCOUNT_SYNC_PROFILE.value,
+        max_tries=2,
+    ),
 ]
 
 CRON_JOBS = [

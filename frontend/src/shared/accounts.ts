@@ -41,6 +41,8 @@ export const accountsApi = {
     }>,
   ) => api.patch<Account>(`/accounts/${id}`, body),
   meta: () => api.get<{ allow_no_proxy: boolean }>("/accounts/meta"),
+  syncProfile: (id: number) =>
+    api.post<{ queued: boolean; account_id: number }>(`/accounts/${id}/sync-profile`),
   create: (body: {
     phone: string;
     proxy_id: number | null;
