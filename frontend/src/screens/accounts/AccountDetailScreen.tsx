@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { accountsApi, catalogApi, channelsApi } from "../../shared/accounts";
 import { Select } from "../../shared/Select";
 import { commentingApi } from "../../modules/commenting/api";
-import { formatDateTime, maskHost, maskPhone, timeAgo } from "../../shared/format";
+import { accountDisplay, formatDateTime, maskHost, timeAgo } from "../../shared/format";
 import { PROFILE_LABEL, STATUS_LABEL, statusDotClass } from "../../shared/status";
 import { haptic } from "../../shared/tg";
 import type { MonitoredChannel, MonitoredChannelStatus, WarmingProfile } from "../../shared/types";
@@ -140,10 +140,16 @@ export function AccountDetailScreen() {
   return (
     <div className="pt-1">
       <BackLink />
-      <div className="mb-6 mt-1 flex items-center justify-between">
-        <h1 className="screen-title nums">{maskPhone(acc.phone)}</h1>
+      <div className="mb-3 mt-1 flex items-center justify-between">
+        <h1 className="screen-title nums [overflow-wrap:anywhere]">{accountDisplay(acc)}</h1>
         <StatusBadge status={acc.status} />
       </div>
+
+      <DisplayNameControl
+        value={acc.display_name}
+        username={acc.username}
+        onSave={(v) => patchProfile.mutate({ display_name: v })}
+      />
 
       <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-8">
       <div className="min-w-0">
@@ -827,6 +833,68 @@ function DetailSkeleton() {
       {[0, 1, 2].map((i) => (
         <div key={i} className="card h-28 animate-pulse bg-surface-2" />
       ))}
+    </div>
+  );
+}
+
+/* Отображаемое имя аккаунта: номер (по умолчанию) / @username / своё название.
+   Пустое значение → показываем замаскированный номер. */
+function DisplayNameControl({
+  value,
+  username,
+  onSave,
+}: {
+  value: string | null;
+  username: string | null;
+  onSave: (v: string | null) => void;
+}) {
+  const [draft, setDraft] = useState(value ?? "");
+  useEffect(() => setDraft(value ?? ""), [value]);
+
+  const commit = (next: string | null) => {
+    const norm = next && next.trim() ? next.trim() : null;
+    if (norm !== (value ?? null)) onSave(norm);
+  };
+
+  return (
+    <div className="mb-6 card p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[12px] text-text-tertiary">Отображаемое имя</span>
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              setDraft("");
+              commit(null);
+            }}
+            className="rounded-pill border border-hairline bg-surface-1 px-2.5 py-1 text-[11px] font-semibold text-text-secondary active:bg-surface-2"
+          >
+            Номер
+          </button>
+          <button
+            type="button"
+            disabled={!username}
+            onClick={() => {
+              const v = `@${username}`;
+              setDraft(v);
+              commit(v);
+            }}
+            className="rounded-pill border border-hairline bg-surface-1 px-2.5 py-1 text-[11px] font-semibold text-text-secondary active:bg-surface-2 disabled:opacity-40"
+          >
+            @username
+          </button>
+        </div>
+      </div>
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => commit(draft)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+        placeholder="Номер (по умолчанию) — или впишите своё"
+        className="min-h-[44px] w-full rounded-chip border border-hairline bg-surface-2 px-3 text-[15px] text-text-primary outline-none focus:border-strong"
+      />
     </div>
   );
 }
