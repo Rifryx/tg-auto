@@ -36,6 +36,9 @@ class TaskName(str, Enum):
     ACCOUNT_ACKNOWLEDGE_BAN = "account.acknowledge_ban"
     # Синхронизация реального Telegram-профиля (имя/@username/bio/аватар + 2FA).
     ACCOUNT_SYNC_PROFILE = "account.sync_profile"
+    # Снапшот диалогов (каналы/группы) аккаунта и выход из них.
+    ACCOUNT_SYNC_DIALOGS = "account.sync_dialogs"
+    ACCOUNT_LEAVE_DIALOGS = "account.leave_dialogs"
 
     # --- Модуль commenting ---
     COMMENTING_ON_NEW_POST = "commenting.on_new_post"

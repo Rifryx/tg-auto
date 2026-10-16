@@ -38,6 +38,7 @@ from worker.tasks.commenting import (
     verify_comment_impl,
     sync_campaign_channels_impl,
 )
+from worker.profiles.dialogs import leave_dialogs_impl, sync_dialogs_impl
 from worker.profiles.sync import sync_profile_impl
 from worker.tasks.billing import reconcile_payments_impl
 from worker.tasks.bulk import dispatch_impl as bulk_dispatch_impl, item_impl as bulk_item_impl
@@ -331,6 +332,17 @@ TASK_FUNCTIONS = [
         task(TaskName.ACCOUNT_SYNC_PROFILE.value)(sync_profile_impl),
         name=TaskName.ACCOUNT_SYNC_PROFILE.value,
         max_tries=2,
+    ),
+    # Диалоги аккаунта: снапшот каналов/групп + выход из них.
+    func(
+        task(TaskName.ACCOUNT_SYNC_DIALOGS.value)(sync_dialogs_impl),
+        name=TaskName.ACCOUNT_SYNC_DIALOGS.value,
+        max_tries=2,
+    ),
+    func(
+        task(TaskName.ACCOUNT_LEAVE_DIALOGS.value)(leave_dialogs_impl),
+        name=TaskName.ACCOUNT_LEAVE_DIALOGS.value,
+        max_tries=1,
     ),
 ]
 
