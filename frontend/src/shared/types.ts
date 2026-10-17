@@ -31,6 +31,15 @@ export type LoginState =
   | "failed"
   | "rate_limited";
 
+export interface AccountDialog {
+  id: number;
+  kind: "channel" | "group";
+  title: string;
+  username: string | null;
+  members: number | null;
+  is_creator: boolean;
+}
+
 export interface Account {
   id: number;
   phone: string;

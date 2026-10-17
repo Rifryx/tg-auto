@@ -158,6 +158,72 @@ async def sync_profile(
     return {"queued": True, "account_id": account_id}
 
 
+# ------------------------- диалоги аккаунта (#5) -----------------------------
+
+
+class LeaveDialogsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Конкретные id диалогов (entity.id из снапшота). Если all=true — выйти из всех.
+    dialog_ids: Optional[list[int]] = None
+    all: bool = False
+
+
+@router.post("/{account_id}/dialogs/sync", status_code=status.HTTP_202_ACCEPTED)
+async def sync_dialogs(
+    account_id: int,
+    session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> dict[str, object]:
+    """Поставить задачу снять снапшот каналов/групп аккаунта (воркер исполнит)."""
+    _get_account_or_404(session, account_id)
+    await task_queue.enqueue(TaskName.ACCOUNT_SYNC_DIALOGS, account_id)
+    return {"queued": True, "account_id": account_id}
+
+
+@router.get("/{account_id}/dialogs")
+def list_dialogs(
+    account_id: int, session: Session = Depends(get_session)
+) -> dict[str, object]:
+    """Снапшот диалогов из Redis. ``synced=false`` — ещё не синхронизировали."""
+    import json
+
+    from api.services.monitoring import get_cache_redis
+
+    _get_account_or_404(session, account_id)
+    raw = get_cache_redis().get(f"account:{account_id}:dialogs")
+    if not raw:
+        return {"synced": False, "items": [], "synced_at": None}
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return {"synced": False, "items": [], "synced_at": None}
+    return {
+        "synced": True,
+        "items": data.get("items", []),
+        "synced_at": data.get("synced_at"),
+    }
+
+
+@router.post("/{account_id}/dialogs/leave", status_code=status.HTTP_202_ACCEPTED)
+async def leave_dialogs(
+    account_id: int,
+    body: LeaveDialogsBody,
+    session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> dict[str, object]:
+    """Выйти из выбранных диалогов (или всех при all=true). Воркер исполнит."""
+    _get_account_or_404(session, account_id)
+    if not body.all and not body.dialog_ids:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "pass dialog_ids or all=true",
+        )
+    # all=true → None (воркер выйдет из всех по снапшоту).
+    ids = None if body.all else body.dialog_ids
+    await task_queue.enqueue(TaskName.ACCOUNT_LEAVE_DIALOGS, account_id, ids)
+    return {"queued": True, "account_id": account_id}
+
+
 @router.get("/meta")
 def accounts_meta() -> dict[str, bool]:
     """Флаги окружения для формы аккаунтов (напр. можно ли без прокси).

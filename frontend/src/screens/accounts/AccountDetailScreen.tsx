@@ -14,6 +14,7 @@ import { AccountLogsSection } from "./components/AccountLogsSection";
 import { AiProfileSection } from "./components/AiProfileSection";
 import { BanRiskCard } from "./components/BanRiskCard";
 import { ChannelManagerSection } from "./components/ChannelManagerSection";
+import { DialogsSection } from "./components/DialogsSection";
 import { ProjectRoleTagsSection } from "./components/ProjectRoleTagsSection";
 import { SubscriptionsSection } from "./components/SubscriptionsSection";
 import { TwoFactorPasswordCard } from "./components/TwoFactorPasswordCard";
@@ -396,6 +397,9 @@ export function AccountDetailScreen() {
 
       {/* Подписки/отписки по ссылкам и заявки на вступление (этап 1). */}
       <SubscriptionsSection accountId={accountId} />
+
+      {/* #5: все чаты/каналы аккаунта + выход/очистка (работает с подписками). */}
+      <DialogsSection accountId={accountId} />
 
       {/* Каналы мониторинга — свой список каналов у каждого аккаунта. */}
       <ChannelsSection accountId={accountId} />
