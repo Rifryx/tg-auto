@@ -1,7 +1,24 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Megaphone, Pin, PinOff, Plus, Send, Trash2 } from "lucide-react";
-import { useState } from "react";
-import { accountsApi } from "../../../shared/accounts";
+import {
+  Bold,
+  Code,
+  Copy,
+  EyeOff,
+  ImagePlus,
+  Italic,
+  Link as LinkIcon,
+  Megaphone,
+  Pin,
+  PinOff,
+  Plus,
+  Send,
+  Strikethrough,
+  Trash2,
+  X,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { accountsApi, mediaApi } from "../../../shared/accounts";
+import { apiBlob } from "../../../shared/api";
 import type { ProjectChannel } from "../../../shared/types";
 import { Field, TextArea, TextInput, Toggle } from "../../../modules/commenting/components/ui";
 import { CapsuleButton, Section } from "./ui";
@@ -79,7 +96,62 @@ function CreateChannelForm({
   const [hidePrehistory, setHidePrehistory] = useState(false);
   const [enableReactions, setEnableReactions] = useState(true);
   const [firstPost, setFirstPost] = useState("");
+  const [firstPostPin, setFirstPostPin] = useState(true);
+  const [mediaId, setMediaId] = useState<number | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const job = useBulkJob(() => onCreated());
+
+  useEffect(
+    () => () => {
+      if (mediaPreview) URL.revokeObjectURL(mediaPreview);
+    },
+    [mediaPreview],
+  );
+
+  // Оборачивает выделение в тексте маркерами эффекта (жирный/курсив/…).
+  const wrap = (before: string, after: string, placeholder = "текст") => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const s = ta.selectionStart;
+    const e = ta.selectionEnd;
+    const sel = firstPost.slice(s, e) || placeholder;
+    const next = firstPost.slice(0, s) + before + sel + after + firstPost.slice(e);
+    setFirstPost(next);
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(s + before.length, s + before.length + sel.length);
+    });
+  };
+
+  const onPickMedia = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true);
+    setUploadError(false);
+    try {
+      const asset = await mediaApi.upload(file);
+      setMediaId(asset.id);
+      const blob = await apiBlob(`/media-assets/${asset.id}/blob`);
+      if (mediaPreview) URL.revokeObjectURL(mediaPreview);
+      setMediaPreview(URL.createObjectURL(blob));
+    } catch {
+      setUploadError(true);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const clearMedia = () => {
+    if (mediaPreview) URL.revokeObjectURL(mediaPreview);
+    setMediaPreview(null);
+    setMediaId(null);
+  };
+
+  const fmtBtn =
+    "flex h-8 w-8 items-center justify-center rounded-chip border border-hairline text-text-secondary active:bg-surface-2 active:text-text-primary";
 
   const usernameValid = /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(username.trim());
   const busy = job.state.phase === "running";
@@ -143,12 +215,82 @@ function CreateChannelForm({
         <Toggle checked={enableReactions} onChange={setEnableReactions} label="Реакции" />
       </label>
 
-      <Field label="Первый пост (необязательно, будет закреплён)">
-        <TextArea
+      <Field label="Первый пост (необязательно)">
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          <button type="button" onClick={() => wrap("**", "**")} className={fmtBtn} aria-label="Жирный">
+            <Bold className="h-4 w-4" strokeWidth={2} aria-hidden />
+          </button>
+          <button type="button" onClick={() => wrap("__", "__")} className={fmtBtn} aria-label="Курсив">
+            <Italic className="h-4 w-4" strokeWidth={2} aria-hidden />
+          </button>
+          <button type="button" onClick={() => wrap("~~", "~~")} className={fmtBtn} aria-label="Зачёркнутый">
+            <Strikethrough className="h-4 w-4" strokeWidth={2} aria-hidden />
+          </button>
+          <button type="button" onClick={() => wrap("||", "||")} className={fmtBtn} aria-label="Скрытый (спойлер)">
+            <EyeOff className="h-4 w-4" strokeWidth={2} aria-hidden />
+          </button>
+          <button type="button" onClick={() => wrap("`", "`")} className={fmtBtn} aria-label="Моноширинный">
+            <Code className="h-4 w-4" strokeWidth={2} aria-hidden />
+          </button>
+          <button type="button" onClick={() => wrap("[", "](https://)", "ссылка")} className={fmtBtn} aria-label="Ссылка">
+            <LinkIcon className="h-4 w-4" strokeWidth={2} aria-hidden />
+          </button>
+        </div>
+        <textarea
+          ref={taRef}
           value={firstPost}
           onChange={(e) => setFirstPost(e.target.value)}
-          placeholder="Текст первого поста — закрепится автоматически"
+          placeholder="Текст первого поста. Выдели фрагмент и нажми эффект."
+          className="w-full min-h-[120px] resize-y rounded-chip border border-hairline bg-surface-1 px-4 py-3 text-[15px] leading-relaxed text-text-primary placeholder:text-text-tertiary outline-none focus:border-strong"
         />
+        <p className="mt-1 px-1 text-[12px] text-text-tertiary">
+          **жирный** · __курсив__ · ~~зачёркнутый~~ · ||скрытый|| · `моно` · [текст](ссылка)
+        </p>
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,video/*"
+          onChange={(e) => {
+            onPickMedia(e.target.files?.[0]);
+            e.target.value = "";
+          }}
+          className="hidden"
+        />
+        {mediaPreview ? (
+          <div className="mt-2 flex items-center gap-3 rounded-chip border border-hairline bg-surface-1 p-2">
+            <img src={mediaPreview} alt="" className="h-14 w-14 rounded-lg object-cover" />
+            <span className="min-w-0 flex-1 truncate text-[13px] text-text-secondary">
+              Медиа прикреплено
+            </span>
+            <button
+              type="button"
+              onClick={clearMedia}
+              aria-label="Убрать медиа"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-hairline text-text-tertiary active:text-text-primary"
+            >
+              <X className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-chip border border-dashed border-hairline bg-surface-1 py-2.5 text-[13px] text-text-secondary active:border-strong disabled:opacity-50"
+          >
+            <ImagePlus className="h-4 w-4 text-accent" strokeWidth={1.6} aria-hidden />
+            {uploading ? "Загружаем…" : "Прикрепить фото/видео"}
+          </button>
+        )}
+        {uploadError && (
+          <p className="mt-1 px-1 text-[12px] text-status-critical">Не удалось загрузить медиа.</p>
+        )}
+
+        <label className="mt-3 flex items-center justify-between px-1">
+          <span className="text-[14px] text-text-secondary">Закрепить первый пост</span>
+          <Toggle checked={firstPostPin} onChange={setFirstPostPin} label="Закрепить пост" />
+        </label>
       </Field>
 
       {job.state.phase === "failed" && (
@@ -173,7 +315,10 @@ function CreateChannelForm({
               public_username: isPublic ? username.trim() : null,
               hide_prehistory: isMegagroup && hidePrehistory,
               enable_reactions: enableReactions,
-              pin_first_post: firstPost.trim() || null,
+              first_post: firstPost.trim() || null,
+              first_post_media_id: mediaId,
+              first_post_markdown: true,
+              first_post_pin: firstPostPin,
             })
           }
         >

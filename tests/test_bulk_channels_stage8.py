@@ -246,6 +246,155 @@ async def test_create_channel_public_skips_invite_link(session):
     assert result.detail["invite_link"] is None
 
 
+# ── первый пост: эффекты, медиа, тумблер закрепления ─────────────────────────
+
+
+class _PostClient:
+    """Мок клиента с методами для отправки первого поста."""
+
+    def __init__(self, channel_id=6006):
+        self.channel_id = channel_id
+        self.requests: list[str] = []
+        self.sent_message = None  # (text, entities)
+        self.sent_file = None  # (caption, entities, file)
+        self.uploaded = None
+
+    async def __call__(self, request):
+        self.requests.append(type(request).__name__)
+        return SimpleNamespace(
+            chats=[SimpleNamespace(id=self.channel_id, access_hash=5, username=None)],
+            updates=[],
+        )
+
+    async def get_entity(self, _x):
+        return SimpleNamespace(id=self.channel_id)
+
+    async def upload_file(self, data, file_name=None):
+        self.uploaded = (data, file_name)
+        return "UPLOADED"
+
+    async def send_message(self, _entity, text, formatting_entities=None):
+        self.sent_message = (text, formatting_entities)
+        return SimpleNamespace(id=555)
+
+    async def send_file(self, _entity, file=None, caption="", formatting_entities=None, **_kw):
+        self.sent_file = (caption, formatting_entities, file)
+        return SimpleNamespace(id=556)
+
+
+async def test_create_channel_first_post_text_entities_and_pin(session):
+    """Текст с эффектами → send_message с entities; закрепляется по умолчанию."""
+    _clean(session)
+    account = _make_account(session)
+    client = _PostClient()
+
+    action = ACTION_REGISTRY[BulkActionType.CREATE_CHANNEL.value]
+    payload = CreateChannelPayload(title="C", first_post="привет **мир** и ||секрет||")
+    result = await action.run(
+        account_id=account.id,
+        payload=payload,
+        session_factory=lambda: _Ctx(session),
+        publisher=None,
+        client=client,
+    )
+
+    assert result.ok is True
+    text_sent, entities = client.sent_message
+    assert text_sent == "привет мир и секрет"
+    kinds = {type(e).__name__ for e in entities}
+    assert "MessageEntityBold" in kinds
+    assert "MessageEntitySpoiler" in kinds
+    # Закрепление по умолчанию включено.
+    assert "UpdatePinnedMessageRequest" in client.requests
+    assert result.detail["pinned_message_id"] == 555
+    session.expire_all()
+    assert session.query(ProjectChannel).one().pinned_message_id == 555
+
+
+async def test_create_channel_first_post_no_pin(session):
+    """first_post_pin=False → пост отправлен, но не закреплён."""
+    _clean(session)
+    account = _make_account(session)
+    client = _PostClient(channel_id=6007)
+
+    action = ACTION_REGISTRY[BulkActionType.CREATE_CHANNEL.value]
+    payload = CreateChannelPayload(title="C", first_post="текст", first_post_pin=False)
+    result = await action.run(
+        account_id=account.id,
+        payload=payload,
+        session_factory=lambda: _Ctx(session),
+        publisher=None,
+        client=client,
+    )
+
+    assert result.ok is True
+    assert client.sent_message is not None
+    assert "UpdatePinnedMessageRequest" not in client.requests
+    assert result.detail["pinned_message_id"] is None
+
+
+async def test_create_channel_first_post_plain_no_markdown(session):
+    """first_post_markdown=False → маркеры остаются как есть, entities нет."""
+    _clean(session)
+    account = _make_account(session)
+    client = _PostClient(channel_id=6008)
+
+    action = ACTION_REGISTRY[BulkActionType.CREATE_CHANNEL.value]
+    payload = CreateChannelPayload(
+        title="C", first_post="**как есть**", first_post_markdown=False
+    )
+    await action.run(
+        account_id=account.id,
+        payload=payload,
+        session_factory=lambda: _Ctx(session),
+        publisher=None,
+        client=client,
+    )
+
+    text_sent, entities = client.sent_message
+    assert text_sent == "**как есть**"
+    assert entities is None
+
+
+async def test_create_channel_first_post_media(session):
+    """Медиа-пост → upload_file + send_file с подписью."""
+    _clean(session)
+    account = _make_account(session)
+
+    from core.models import MediaAsset
+
+    asset = MediaAsset(
+        user_id="u1", mime="image/png", bytes=b"PNGDATA",
+        size_bytes=7, sha256="a" * 64, filename="pic.png",
+    )
+    session.add(asset)
+    session.commit()
+    asset_id = asset.id
+
+    client = _PostClient(channel_id=6009)
+    action = ACTION_REGISTRY[BulkActionType.CREATE_CHANNEL.value]
+    payload = CreateChannelPayload(
+        title="C", first_post="подпись", first_post_media_id=asset_id
+    )
+    result = await action.run(
+        account_id=account.id,
+        payload=payload,
+        session_factory=lambda: _Ctx(session),
+        publisher=None,
+        client=client,
+    )
+
+    assert result.ok is True
+    assert client.uploaded == (b"PNGDATA", "pic.png")
+    caption, _ent, file = client.sent_file
+    assert caption == "подпись"
+    assert file == "UPLOADED"
+    assert client.sent_message is None  # медиа → send_file, не send_message
+
+    session.execute(text("TRUNCATE media_assets RESTART IDENTITY CASCADE"))
+    session.commit()
+
+
 async def test_create_channel_dedups_by_account_and_tg_id(session):
     _clean(session)
     account = _make_account(session)

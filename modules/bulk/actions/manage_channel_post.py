@@ -101,7 +101,7 @@ async def _run(
             if payload.pin_after_send and msg_id is not None:
                 await around_telethon_call(
                     lambda: client(
-                        UpdatePinnedMessageRequest(peer=entity, id=msg_id, pinned=True)
+                        UpdatePinnedMessageRequest(peer=entity, id=msg_id)
                     ),
                     account_id=account_id,
                     session_factory=session_factory,
@@ -115,7 +115,7 @@ async def _run(
             await around_telethon_call(
                 lambda: client(
                     UpdatePinnedMessageRequest(
-                        peer=entity, id=payload.message_id, pinned=pinned
+                        peer=entity, id=payload.message_id, unpin=not pinned
                     )
                 ),
                 account_id=account_id,

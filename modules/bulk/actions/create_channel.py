@@ -6,15 +6,19 @@ Payload:
 * ``about`` (0..255) — описание;
 * ``is_megagroup`` — создать супергруппу вместо канала;
 * ``project_id`` — привязать к проекту (опц., проверяется API-слоем);
-* ``pin_first_post`` — тело первого поста и просьба закрепить (опц.).
+* ``first_post`` — текст первого поста (опц.), с markdown-разметкой эффектов;
+* ``first_post_media_id`` — media_assets.id для медиа-поста (опц.);
+* ``first_post_markdown`` — трактовать текст как markdown (по умолч. да);
+* ``first_post_pin`` — закрепить первый пост (по умолч. да).
 
 Каждый аккаунт создаёт СВОЙ канал; результат пишется в ``project_channels``
 (dedup по (account_id, channel_tg_id) — повторный запуск не плодит копии).
 
-Если ``pin_first_post`` задан:
-1. отправляем сообщение в свежесозданный канал;
-2. ``UpdatePinnedMessageRequest(pinned=True)`` на его id;
-3. в БД сохраняем ``pinned_message_id``.
+Если задан текст и/или медиа первого поста:
+1. (опц.) заливаем медиа и отправляем пост с подписью/текстом; эффекты
+   (жирный/курсив/спойлер/…) — через собранные вручную ``formatting_entities``;
+2. при ``first_post_pin`` — ``UpdatePinnedMessageRequest(pinned=True)`` на его id;
+3. в БД сохраняем ``pinned_message_id`` (если закрепили).
 """
 
 from __future__ import annotations
@@ -40,8 +44,10 @@ from telethon.tl.types import (
 )
 
 from core.enums import BulkActionType
+from core.repositories.media_asset import MediaAssetRepository
 from core.repositories.project_channel import ProjectChannelRepository
 from modules.bulk.actions.registry import BulkAction, BulkActionResult, register
+from modules.bulk.text_format import markdown_to_entities
 from worker.health.monitor import around_telethon_call
 
 
@@ -62,7 +68,11 @@ class CreateChannelPayload(BaseModel):
     # Разрешить реакции (по умолчанию да).
     enable_reactions: bool = True
     project_id: Optional[int] = None
-    pin_first_post: Optional[str] = Field(default=None, max_length=4096)
+    # Первый пост: текст (с markdown-эффектами) и/или медиа, закреплять ли.
+    first_post: Optional[str] = Field(default=None, max_length=4096)
+    first_post_media_id: Optional[int] = None
+    first_post_markdown: bool = True
+    first_post_pin: bool = True
 
 
 def _extract_created_channel(updates) -> tuple[int, Optional[int], Optional[str]]:
@@ -208,60 +218,78 @@ async def _run(
                 },
             )
 
-    # 3) Опционально: пост первым сообщением + pin.
+    # 3) Опционально: первый пост (текст и/или медиа) + закрепление.
+    text = (payload.first_post or "").strip()
+    has_post = bool(text) or payload.first_post_media_id is not None
     pinned_message_id: Optional[int] = None
-    if payload.pin_first_post:
-        # SendMessage через high-level Telethon API — сам разберётся с peer.
+    post_error: Optional[str] = None
+    if has_post:
         try:
+            # Эффекты (жирный/курсив/спойлер/…) — собранными вручную entities.
+            entities = None
+            if text and payload.first_post_markdown:
+                text, entities = markdown_to_entities(text)
+
             entity = await around_telethon_call(
                 lambda: client.get_entity(channel_id),
                 account_id=account_id,
                 session_factory=session_factory,
                 publisher=publisher,
             )
-            sent = await around_telethon_call(
-                lambda: client.send_message(entity, payload.pin_first_post),
-                account_id=account_id,
-                session_factory=session_factory,
-                publisher=publisher,
-            )
+
+            if payload.first_post_media_id is not None:
+                with session_factory() as session:
+                    asset = MediaAssetRepository(session).get(
+                        payload.first_post_media_id
+                    )
+                    if asset is None:
+                        raise RuntimeError(
+                            f"media_asset {payload.first_post_media_id} not found"
+                        )
+                    media_bytes = asset.bytes
+                    media_name = asset.filename or f"media_{asset.id}"
+                uploaded = await around_telethon_call(
+                    lambda: client.upload_file(media_bytes, file_name=media_name),
+                    account_id=account_id,
+                    session_factory=session_factory,
+                    publisher=publisher,
+                )
+                sent = await around_telethon_call(
+                    lambda: client.send_file(
+                        entity,
+                        file=uploaded,
+                        caption=text or "",
+                        formatting_entities=entities or None,
+                        force_document=False,
+                    ),
+                    account_id=account_id,
+                    session_factory=session_factory,
+                    publisher=publisher,
+                )
+            else:
+                sent = await around_telethon_call(
+                    lambda: client.send_message(
+                        entity, text, formatting_entities=entities or None
+                    ),
+                    account_id=account_id,
+                    session_factory=session_factory,
+                    publisher=publisher,
+                )
+
             msg_id = int(getattr(sent, "id", 0)) or None
-            if msg_id is not None:
+            if msg_id is not None and payload.first_post_pin:
                 await around_telethon_call(
                     lambda: client(
-                        UpdatePinnedMessageRequest(
-                            peer=entity, id=msg_id, pinned=True,
-                        )
+                        UpdatePinnedMessageRequest(peer=entity, id=msg_id)
                     ),
                     account_id=account_id,
                     session_factory=session_factory,
                     publisher=publisher,
                 )
                 pinned_message_id = msg_id
-        except Exception as exc:  # noqa: BLE001 — pin не критичен для create
-            # Канал создан, но pin не удался — фиксируем факт и продолжаем.
-            with session_factory() as session:
-                ProjectChannelRepository(session).create(
-                    account_id=account_id,
-                    project_id=payload.project_id,
-                    channel_tg_id=channel_id,
-                    channel_access_hash=access_hash,
-                    title=payload.title,
-                    username=username,
-                    is_megagroup=payload.is_megagroup,
-                    pinned_message_id=None,
-                    invite_link=invite_link,
-                )
-                session.commit()
-            return BulkActionResult(
-                ok=True,
-                detail={
-                    "channel_tg_id": channel_id,
-                    "username": username,
-                    "invite_link": invite_link,
-                    "pin_error": repr(exc),
-                },
-            )
+        except Exception as exc:  # noqa: BLE001 — пост не критичен для create
+            # Канал создан, пост/закрепление не удалось — фиксируем и продолжаем.
+            post_error = repr(exc)
 
     with session_factory() as session:
         obj = ProjectChannelRepository(session).create(
@@ -286,6 +314,8 @@ async def _run(
     }
     if username_error is not None:
         detail["username_error"] = username_error
+    if post_error is not None:
+        detail["post_error"] = post_error
     return BulkActionResult(ok=True, detail=detail)
 
 
