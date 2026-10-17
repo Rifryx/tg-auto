@@ -255,9 +255,12 @@ async def test_flood_wait_reschedules_via_task_queue(monkeypatch):
 #    стартовую пачку warming.tick (замыкание пайплайна из _finish_login, #1/#2).
 # --------------------------------------------------------------------------- #
 class _LowRng:
-    """rng, при котором randint возвращает нижнюю границу (детерминизм пачки)."""
+    """rng, при котором randint/uniform возвращают нижнюю границу (детерминизм)."""
 
     def randint(self, a, b):
+        return a
+
+    def uniform(self, a, b):
         return a
 
 
@@ -266,6 +269,12 @@ class _SpyTaskQueue:
         self.enqueued: list[tuple] = []
 
     async def enqueue(self, task_name, *args, **kwargs):
+        self.enqueued.append((task_name, args))
+        return "job-1"
+
+    async def schedule(self, task_name, run_at, *args, **kwargs):
+        # initial_start с начальной паузой ставит tick'и отложенно (schedule).
+        # Записываем в тот же список, чтобы проверка «сколько поставлено» работала.
         self.enqueued.append((task_name, args))
         return "job-1"
 
