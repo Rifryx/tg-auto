@@ -24,6 +24,7 @@ class ProjectChannelRepository(BaseRepository[ProjectChannel]):
         username: Optional[str],
         is_megagroup: bool,
         pinned_message_id: Optional[int] = None,
+        invite_link: Optional[str] = None,
     ) -> ProjectChannel:
         obj = ProjectChannel(
             account_id=account_id,
@@ -34,6 +35,7 @@ class ProjectChannelRepository(BaseRepository[ProjectChannel]):
             username=username,
             is_megagroup=is_megagroup,
             pinned_message_id=pinned_message_id,
+            invite_link=invite_link,
         )
         return self._add(obj)
 

@@ -46,6 +46,8 @@ class ProjectChannel(Base):
     channel_access_hash: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     title: Mapped[str] = mapped_column(String, nullable=False)
     username: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Инвайт-ссылка (t.me/+…) для приватных каналов; у публичных — username.
+    invite_link: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     is_megagroup: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )

@@ -21,6 +21,7 @@ class ProjectChannelRead(ORMModel):
     channel_access_hash: Optional[int]
     title: str
     username: Optional[str]
+    invite_link: Optional[str]
     is_megagroup: bool
     pinned_message_id: Optional[int]
     created_at: datetime
