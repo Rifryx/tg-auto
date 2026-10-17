@@ -215,6 +215,56 @@ async def test_item_runs_action_and_finalizes_job(session, _register_noop_action
     assert a1 in _calls
 
 
+async def test_item_times_out_and_fails(session, monkeypatch):
+    """Зависшее действие → item помечается failed по таймауту (не висит вечно)."""
+    _clean(session)
+    a1 = _make_account(session)
+    repo = BulkJobRepository(session)
+
+    async def _hang_run(*, account_id, payload, **_):
+        import asyncio as _a
+
+        await _a.sleep(60)  # дольше таймаута — должно быть отменено
+        return BulkActionResult(ok=True, detail={})
+
+    import worker.tasks.bulk as bt
+
+    original = ACTION_REGISTRY.get(_TEST_ACTION_NAME)
+    ACTION_REGISTRY[_TEST_ACTION_NAME] = BulkAction(
+        name=_TEST_ACTION_NAME,
+        requires_client=False,
+        payload_schema=_NoopPayload,
+        run=_hang_run,
+    )
+    monkeypatch.setattr(bt, "_ITEM_TIMEOUT_SECONDS", 0.1)
+    try:
+        job = repo.create(
+            action_type=_TEST_ACTION_NAME, payload={}, initiator="u",
+            account_ids=[a1],
+        )
+        session.commit()
+        item_id = repo.list_items(job.id)[0].id
+
+        ctx = {
+            "session_factory": _factory(session),
+            "publisher": _SpyPublisher(),
+            "client_pool": None,
+            "now": NOW,
+        }
+        result = await item_impl(ctx, job.id, item_id)
+    finally:
+        if original is not None:
+            ACTION_REGISTRY[_TEST_ACTION_NAME] = original
+
+    assert result["reason"] == "timeout"
+    session.expire_all()
+    it = repo.get_item(item_id)
+    assert it.status == BulkItemStatus.FAILED.value
+    assert "timeout" in (it.error or "")
+    # Job достиг терминального статуса — UI больше не крутит спиннер.
+    assert repo.get(job.id).status == BulkJobStatus.FAILED.value
+
+
 # ── 3. banned/retired → skipped, action не вызывается ─────────────────────────
 
 
