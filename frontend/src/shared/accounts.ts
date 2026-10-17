@@ -3,6 +3,7 @@ import type {
   Account,
   AccountHealth,
   AccountRole,
+  AccountDialog,
   BulkJobDetail,
   BulkJobRead,
   CommentLog,
@@ -43,6 +44,17 @@ export const accountsApi = {
   meta: () => api.get<{ allow_no_proxy: boolean }>("/accounts/meta"),
   syncProfile: (id: number) =>
     api.post<{ queued: boolean; account_id: number }>(`/accounts/${id}/sync-profile`),
+  // Диалоги аккаунта (#5): снапшот каналов/групп + выход.
+  dialogs: (id: number) =>
+    api.get<{
+      synced: boolean;
+      synced_at: string | null;
+      items: AccountDialog[];
+    }>(`/accounts/${id}/dialogs`),
+  syncDialogs: (id: number) =>
+    api.post<{ queued: boolean }>(`/accounts/${id}/dialogs/sync`),
+  leaveDialogs: (id: number, body: { dialog_ids?: number[]; all?: boolean }) =>
+    api.post<{ queued: boolean }>(`/accounts/${id}/dialogs/leave`, body),
   create: (body: {
     phone: string;
     proxy_id: number | null;
