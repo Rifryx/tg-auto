@@ -91,9 +91,18 @@ class _FakePool:
 class _SpyTaskQueue:
     def __init__(self):
         self.enqueued: list[tuple] = []
+        self.scheduled: list[tuple] = []
 
     async def enqueue(self, task_name, *args, **kwargs):
         self.enqueued.append((task_name, args))
+        return "job-1"
+
+    async def schedule(self, task_name, run_at, *args, **kwargs):
+        # initial_start с начальной паузой ставит tick'и через schedule.
+        # Записываем и в enqueued (чтобы прежние проверки «что поставлено»
+        # работали), и в scheduled (с временем запуска).
+        self.enqueued.append((task_name, args))
+        self.scheduled.append((task_name, run_at, args))
         return "job-1"
 
 

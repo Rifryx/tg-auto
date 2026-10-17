@@ -81,7 +81,37 @@ def choose_action(
     всё так же применяются множители персоны и риска.
     """
     weights = _compute_weights(persona, health_score, ban_risk, scenario)
+    # По умолчанию прогрев НЕ авто-подписывается на каналы и не вступает в группы:
+    # цели берутся из случайного каталога (DISCOVERY_CHANNELS), а не из ссылок
+    # пользователя — лишний след у Telegram. Включается ТОЛЬКО если сценарий
+    # прогрева явно задал вес для этих действий (ручная настройка) или
+    # WARMING_AUTO_SUBSCRIBE=true в окружении.
+    if not _auto_joins_enabled(scenario):
+        for at in (WarmingActionType.SUBSCRIBE_CHANNEL, WarmingActionType.JOIN_GROUP):
+            weights[_ACTION_TYPES.index(at)] = 0.0
+    if sum(weights) <= 0:  # защита: если вдруг всё обнулилось
+        weights = [1.0] * len(_ACTION_TYPES)
     return rng.choices(_ACTION_TYPES, weights=weights, k=1)[0]
+
+
+def _auto_joins_enabled(scenario: Optional[WarmingScenario]) -> bool:
+    """Разрешены ли авто-подписки/вступления в прогреве.
+
+    Да, если: (а) сценарий ЯВНО задал положительный вес SUBSCRIBE_CHANNEL или
+    JOIN_GROUP (пользователь настроил вручную), либо (б) включён флаг окружения
+    ``WARMING_AUTO_SUBSCRIBE``. Иначе — нет (поведение по умолчанию).
+    """
+    if scenario is not None and scenario.action_weights:
+        for key in (
+            WarmingActionType.SUBSCRIBE_CHANNEL.value,
+            WarmingActionType.JOIN_GROUP.value,
+        ):
+            if scenario.action_weights.get(key, 0) and scenario.action_weights[key] > 0:
+                return True
+    try:
+        return bool(getattr(get_settings(), "warming_auto_subscribe", False))
+    except Exception:  # noqa: BLE001 — настройки недоступны → по умолчанию выкл
+        return False
 
 
 def _compute_weights(

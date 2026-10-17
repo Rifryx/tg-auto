@@ -293,7 +293,30 @@ async def initial_start_impl(ctx: dict, account_id: int) -> int:
             if account is not None:
                 scenario = WarmingScenario.from_meta(account.meta)
     count = batch_action_count(INITIAL_BATCH_PROFILE, rng, scenario=scenario)
-    for _ in range(count):
-        await task_queue.enqueue(TaskName.WARMING_TICK, account_id)
-    get_logger().info("warming.initial_start", account_id=account_id, scheduled=count)
+
+    # Начальная пауза: сразу после входа аккаунт «отлёживается» случайные
+    # 1–3 часа (настраивается) и ничего не делает — так вход выглядит
+    # человечнее. Пачку tick'ов СТАВИМ НА ОТЛОЖЕННЫЙ ЗАПУСК (schedule), разнося
+    # внутри небольшого окна, чтобы не сработать всё разом. При idle=0 —
+    # немедленный enqueue (прежнее поведение, для тестов/отладки).
+    from core.config import get_settings
+
+    settings = get_settings()
+    lo = max(0.0, float(getattr(settings, "warming_initial_idle_hours_min", 1.0)))
+    hi = max(lo, float(getattr(settings, "warming_initial_idle_hours_max", 3.0)))
+    if hi > 0:
+        now = _now(ctx)
+        base = timedelta(hours=rng.uniform(lo, hi))
+        for _ in range(count):
+            run_at = now + base + timedelta(seconds=rng.uniform(0, 1200))
+            await task_queue.schedule(TaskName.WARMING_TICK, run_at, account_id)
+    else:
+        for _ in range(count):
+            await task_queue.enqueue(TaskName.WARMING_TICK, account_id)
+    get_logger().info(
+        "warming.initial_start",
+        account_id=account_id,
+        scheduled=count,
+        idle_hours=[lo, hi],
+    )
     return count
