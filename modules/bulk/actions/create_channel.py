@@ -24,10 +24,20 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 from telethon.tl.functions.channels import (
     CreateChannelRequest,
+    TogglePreHistoryHiddenRequest,
     UpdateUsernameRequest,
 )
-from telethon.tl.functions.messages import UpdatePinnedMessageRequest
-from telethon.tl.types import InputChannel
+from telethon.tl.functions.messages import (
+    ExportChatInviteRequest,
+    SetChatAvailableReactionsRequest,
+    UpdatePinnedMessageRequest,
+)
+from telethon.tl.types import (
+    ChatReactionsAll,
+    ChatReactionsNone,
+    InputChannel,
+    InputPeerChannel,
+)
 
 from core.enums import BulkActionType
 from core.repositories.project_channel import ProjectChannelRepository
@@ -47,6 +57,10 @@ class CreateChannelPayload(BaseModel):
     public_username: Optional[str] = Field(
         default=None, pattern=r"^[a-zA-Z][a-zA-Z0-9_]{4,31}$"
     )
+    # Супергруппа: скрыть историю чата для новых участников.
+    hide_prehistory: bool = False
+    # Разрешить реакции (по умолчанию да).
+    enable_reactions: bool = True
     project_id: Optional[int] = None
     pin_first_post: Optional[str] = Field(default=None, max_length=4096)
 
@@ -131,6 +145,53 @@ async def _run(
         except Exception as exc:  # noqa: BLE001 — username не критичен для create
             username_error = repr(exc)
 
+    ch_input = InputChannel(channel_id, access_hash or 0)
+    peer_input = InputPeerChannel(channel_id, access_hash or 0)
+
+    # 1.6) Скрыть историю для новых участников (только супергруппа).
+    if payload.is_megagroup and payload.hide_prehistory:
+        try:
+            await around_telethon_call(
+                lambda: client(
+                    TogglePreHistoryHiddenRequest(channel=ch_input, enabled=True)
+                ),
+                account_id=account_id,
+                session_factory=session_factory,
+                publisher=publisher,
+            )
+        except Exception:  # noqa: BLE001 — не критично для create
+            pass
+
+    # 1.7) Реакции (вкл/выкл).
+    try:
+        reactions = ChatReactionsAll() if payload.enable_reactions else ChatReactionsNone()
+        await around_telethon_call(
+            lambda: client(
+                SetChatAvailableReactionsRequest(
+                    peer=peer_input, available_reactions=reactions
+                )
+            ),
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 1.8) Инвайт-ссылка для приватных (у публичных есть @username).
+    invite_link: Optional[str] = None
+    if not payload.is_public:
+        try:
+            inv = await around_telethon_call(
+                lambda: client(ExportChatInviteRequest(peer=peer_input)),
+                account_id=account_id,
+                session_factory=session_factory,
+                publisher=publisher,
+            )
+            invite_link = getattr(inv, "link", None)
+        except Exception:  # noqa: BLE001
+            pass
+
     # 2) Дедуп: если такой канал у аккаунта уже есть — пишем возвращённые
     # поля, но новую строку не создаём.
     with session_factory() as session:
@@ -189,6 +250,7 @@ async def _run(
                     username=username,
                     is_megagroup=payload.is_megagroup,
                     pinned_message_id=None,
+                    invite_link=invite_link,
                 )
                 session.commit()
             return BulkActionResult(
@@ -196,6 +258,7 @@ async def _run(
                 detail={
                     "channel_tg_id": channel_id,
                     "username": username,
+                    "invite_link": invite_link,
                     "pin_error": repr(exc),
                 },
             )
@@ -210,6 +273,7 @@ async def _run(
             username=username,
             is_megagroup=payload.is_megagroup,
             pinned_message_id=pinned_message_id,
+            invite_link=invite_link,
         )
         session.commit()
 
@@ -217,6 +281,7 @@ async def _run(
         "id": obj.id,
         "channel_tg_id": channel_id,
         "username": username,
+        "invite_link": invite_link,
         "pinned_message_id": pinned_message_id,
     }
     if username_error is not None:

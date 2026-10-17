@@ -155,6 +155,7 @@ export interface ProjectChannel {
   channel_access_hash: number | null;
   title: string;
   username: string | null;
+  invite_link: string | null;
   is_megagroup: boolean;
   pinned_message_id: number | null;
   created_at: string;

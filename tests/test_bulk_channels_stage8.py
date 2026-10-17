@@ -176,6 +176,76 @@ def test_create_channel_rejects_bad_username():
         CreateChannelPayload(title="x", is_public=True, public_username="ab")  # слишком коротко
 
 
+async def test_create_channel_private_exports_invite_link(session):
+    """Приватный канал → ExportChatInvite, ссылка сохраняется; реакции по умолч. вкл."""
+    _clean(session)
+    account = _make_account(session)
+
+    class _Client:
+        def __init__(self):
+            self.requests: list[str] = []
+
+        async def __call__(self, request):
+            name = type(request).__name__
+            self.requests.append(name)
+            if name == "ExportChatInviteRequest":
+                return SimpleNamespace(link="https://t.me/+abc123")
+            return SimpleNamespace(
+                chats=[SimpleNamespace(id=3003, access_hash=999, username=None)],
+                updates=[],
+            )
+
+    client = _Client()
+    action = ACTION_REGISTRY[BulkActionType.CREATE_CHANNEL.value]
+    payload = CreateChannelPayload(title="Priv")  # is_public=False по умолчанию
+    result = await action.run(
+        account_id=account.id,
+        payload=payload,
+        session_factory=lambda: _Ctx(session),
+        publisher=None,
+        client=client,
+    )
+
+    assert result.ok is True
+    assert "ExportChatInviteRequest" in client.requests
+    assert "SetChatAvailableReactionsRequest" in client.requests
+    assert result.detail["invite_link"] == "https://t.me/+abc123"
+    session.expire_all()
+    assert session.query(ProjectChannel).one().invite_link == "https://t.me/+abc123"
+
+
+async def test_create_channel_public_skips_invite_link(session):
+    """Публичный канал → инвайт-ссылка не экспортируется (есть @username)."""
+    _clean(session)
+    account = _make_account(session)
+
+    class _Client:
+        def __init__(self):
+            self.requests: list[str] = []
+
+        async def __call__(self, request):
+            self.requests.append(type(request).__name__)
+            return SimpleNamespace(
+                chats=[SimpleNamespace(id=4004, access_hash=1, username=None)],
+                updates=[],
+            )
+
+    client = _Client()
+    action = ACTION_REGISTRY[BulkActionType.CREATE_CHANNEL.value]
+    payload = CreateChannelPayload(title="Pub", is_public=True, public_username="pubchan5")
+    result = await action.run(
+        account_id=account.id,
+        payload=payload,
+        session_factory=lambda: _Ctx(session),
+        publisher=None,
+        client=client,
+    )
+
+    assert result.ok is True
+    assert "ExportChatInviteRequest" not in client.requests
+    assert result.detail["invite_link"] is None
+
+
 async def test_create_channel_dedups_by_account_and_tg_id(session):
     _clean(session)
     account = _make_account(session)
