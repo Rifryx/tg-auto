@@ -74,10 +74,15 @@ function CreateChannelForm({
   const [title, setTitle] = useState("");
   const [about, setAbout] = useState("");
   const [isMegagroup, setIsMegagroup] = useState(false);
+  const [isPublic, setIsPublic] = useState(false);
+  const [username, setUsername] = useState("");
   const [firstPost, setFirstPost] = useState("");
   const job = useBulkJob(() => onCreated());
 
+  const usernameValid = /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(username.trim());
   const busy = job.state.phase === "running";
+  const canCreate =
+    title.trim().length > 0 && !busy && (!isPublic || usernameValid);
   return (
     <div className="card p-4">
       <Field label={isMegagroup ? "Название чата" : "Название канала"}>
@@ -90,6 +95,35 @@ function CreateChannelForm({
         <span className="text-[14px] text-text-secondary">Супергруппа (чат), а не канал</span>
         <Toggle checked={isMegagroup} onChange={setIsMegagroup} label="Супергруппа" />
       </label>
+
+      <label className="mb-1 flex items-center justify-between px-1">
+        <span className="text-[14px] text-text-secondary">
+          Публичный (есть ссылка t.me/…)
+        </span>
+        <Toggle checked={isPublic} onChange={setIsPublic} label="Публичный" />
+      </label>
+      {isPublic ? (
+        <Field label="Публичная ссылка">
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0 text-[14px] text-text-tertiary">t.me/</span>
+            <TextInput
+              value={username}
+              onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))}
+              maxLength={32}
+              placeholder="username"
+            />
+          </div>
+          {username.length > 0 && !usernameValid && (
+            <p className="mt-1 px-1 text-[12px] text-status-critical">
+              5–32 символа, латиница/цифры/_, начинается с буквы.
+            </p>
+          )}
+        </Field>
+      ) : (
+        <p className="mb-3 px-1 text-[12px] text-text-tertiary">
+          Приватный: без публичной ссылки, вступление только по пригласительной.
+        </p>
+      )}
       <Field label="Первый пост (необязательно, будет закреплён)">
         <TextArea
           value={firstPost}
@@ -110,12 +144,14 @@ function CreateChannelForm({
         </CapsuleButton>
         <CapsuleButton
           variant="accent"
-          disabled={title.trim().length === 0 || busy}
+          disabled={!canCreate}
           onClick={() =>
             job.run("create_channel", [accountId], {
               title: title.trim(),
               about: about.trim(),
               is_megagroup: isMegagroup,
+              is_public: isPublic,
+              public_username: isPublic ? username.trim() : null,
               pin_first_post: firstPost.trim() || null,
             })
           }

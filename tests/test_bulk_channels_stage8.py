@@ -135,6 +135,47 @@ async def test_create_channel_success_writes_project_channels(session):
     assert rows[0].pinned_message_id is None
 
 
+async def test_create_channel_public_sets_username(session):
+    _clean(session)
+    account = _make_account(session)
+
+    class _Client:
+        def __init__(self):
+            self.requests: list[str] = []
+
+        async def __call__(self, request):
+            self.requests.append(type(request).__name__)
+            # CreateChannel → Updates с новым каналом; UpdateUsername → ок.
+            return SimpleNamespace(
+                chats=[SimpleNamespace(id=2002, access_hash=888, username=None)],
+                updates=[],
+            )
+
+    client = _Client()
+    action = ACTION_REGISTRY[BulkActionType.CREATE_CHANNEL.value]
+    payload = CreateChannelPayload(title="Pub", is_public=True, public_username="mychan5")
+    result = await action.run(
+        account_id=account.id,
+        payload=payload,
+        session_factory=lambda: _Ctx(session),
+        publisher=None,
+        client=client,
+    )
+
+    assert result.ok is True
+    assert "UpdateUsernameRequest" in client.requests
+    assert result.detail["username"] == "mychan5"
+    session.expire_all()
+    assert session.query(ProjectChannel).one().username == "mychan5"
+
+
+def test_create_channel_rejects_bad_username():
+    import pytest as _pytest
+
+    with _pytest.raises(Exception):
+        CreateChannelPayload(title="x", is_public=True, public_username="ab")  # слишком коротко
+
+
 async def test_create_channel_dedups_by_account_and_tg_id(session):
     _clean(session)
     account = _make_account(session)

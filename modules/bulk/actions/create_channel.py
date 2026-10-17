@@ -22,8 +22,12 @@ from __future__ import annotations
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
-from telethon.tl.functions.channels import CreateChannelRequest
+from telethon.tl.functions.channels import (
+    CreateChannelRequest,
+    UpdateUsernameRequest,
+)
 from telethon.tl.functions.messages import UpdatePinnedMessageRequest
+from telethon.tl.types import InputChannel
 
 from core.enums import BulkActionType
 from core.repositories.project_channel import ProjectChannelRepository
@@ -37,6 +41,12 @@ class CreateChannelPayload(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     about: str = Field(default="", max_length=255)
     is_megagroup: bool = False
+    # Публичный канал/чат → задаётся @username (t.me/username). Иначе приватный
+    # (только пригласительная ссылка). username: 5–32 символа, буква в начале.
+    is_public: bool = False
+    public_username: Optional[str] = Field(
+        default=None, pattern=r"^[a-zA-Z][a-zA-Z0-9_]{4,31}$"
+    )
     project_id: Optional[int] = None
     pin_first_post: Optional[str] = Field(default=None, max_length=4096)
 
@@ -100,6 +110,26 @@ async def _run(
         return BulkActionResult(
             ok=False, detail={"reason": "no_channel_in_response", "error": repr(exc)}
         )
+
+    # 1.5) Публичный → выставляем @username. Если не вышло (занят/невалиден) —
+    # канал остаётся приватным, фиксируем ошибку в detail (канал уже создан).
+    username_error: Optional[str] = None
+    if payload.is_public and payload.public_username:
+        try:
+            await around_telethon_call(
+                lambda: client(
+                    UpdateUsernameRequest(
+                        channel=InputChannel(channel_id, access_hash or 0),
+                        username=payload.public_username,
+                    )
+                ),
+                account_id=account_id,
+                session_factory=session_factory,
+                publisher=publisher,
+            )
+            username = payload.public_username
+        except Exception as exc:  # noqa: BLE001 — username не критичен для create
+            username_error = repr(exc)
 
     # 2) Дедуп: если такой канал у аккаунта уже есть — пишем возвращённые
     # поля, но новую строку не создаём.
@@ -183,15 +213,15 @@ async def _run(
         )
         session.commit()
 
-    return BulkActionResult(
-        ok=True,
-        detail={
-            "id": obj.id,
-            "channel_tg_id": channel_id,
-            "username": username,
-            "pinned_message_id": pinned_message_id,
-        },
-    )
+    detail: dict[str, object] = {
+        "id": obj.id,
+        "channel_tg_id": channel_id,
+        "username": username,
+        "pinned_message_id": pinned_message_id,
+    }
+    if username_error is not None:
+        detail["username_error"] = username_error
+    return BulkActionResult(ok=True, detail=detail)
 
 
 register(
