@@ -265,6 +265,38 @@ async def test_item_times_out_and_fails(session, monkeypatch):
     assert repo.get(job.id).status == BulkJobStatus.FAILED.value
 
 
+async def test_dispatch_unknown_action_fails_job(session):
+    """Воркер не знает action (устаревшая сборка) → job становится failed,
+    а не висит в queued навсегда."""
+    _clean(session)
+    a1 = _make_account(session)
+    repo = BulkJobRepository(session)
+    # Валидный action_type (проходит DB-check), но «воркер» его не знает —
+    # временно убираем из реестра, имитируя устаревшую сборку.
+    action_name = BulkActionType.CREATE_CHANNEL.value
+    job = repo.create(
+        action_type=action_name, payload={}, initiator="u", account_ids=[a1],
+    )
+    session.commit()
+    item_id = repo.list_items(job.id)[0].id
+
+    saved = ACTION_REGISTRY.pop(action_name, None)
+    try:
+        result = await dispatch_impl(
+            {"session_factory": _factory(session), "now": NOW}, job.id
+        )
+    finally:
+        if saved is not None:
+            ACTION_REGISTRY[action_name] = saved
+    assert result["reason"] == "unknown_action"
+
+    session.expire_all()
+    assert repo.get_item(item_id).status == BulkItemStatus.FAILED.value
+    j = repo.get(job.id)
+    assert j.status == BulkJobStatus.FAILED.value
+    assert j.finished_at is not None
+
+
 # ── 3. banned/retired → skipped, action не вызывается ─────────────────────────
 
 

@@ -60,11 +60,25 @@ async def dispatch_impl(ctx: dict, job_id: int) -> dict[str, Any]:
             get_logger().warning("bulk.dispatch.missing_job", job_id=job_id)
             return {"enqueued": 0, "reason": "missing_job"}
         if job.action_type not in ACTION_REGISTRY:
+            # Напр. воркер старее API и не знает этого action'а. Раньше job
+            # оставался queued навсегда → UI крутил спиннер без ошибки. Теперь
+            # валим pending-item'ы, чтобы job стал терминальным (failed).
             get_logger().error(
                 "bulk.dispatch.unknown_action",
                 job_id=job_id,
                 action_type=job.action_type,
             )
+            for it in repo.list_pending_items(job_id):
+                repo.apply_item_result(
+                    it.id,
+                    status=BulkItemStatus.FAILED,
+                    error=f"unknown_action:{job.action_type} "
+                    "(воркер не знает это действие — устаревшая сборка?)",
+                    started_at=now,
+                    finished_at=now,
+                )
+            repo.recompute_counters(job_id)
+            session.commit()
             return {"enqueued": 0, "reason": "unknown_action"}
         pending = repo.list_pending_items(job_id)
         repo.mark_running(job_id, now=now)
