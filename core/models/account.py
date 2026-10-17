@@ -79,6 +79,9 @@ class Account(Base, TimestampMixin):
     username: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     bio: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     avatar_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Произвольная подпись для отображения в UI (номер/username/своё). Пусто —
+    # показываем замаскированный номер.
+    display_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     session_enc: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
 

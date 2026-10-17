@@ -33,6 +33,7 @@ export const accountsApi = {
       username: string | null;
       bio: string | null;
       avatar_url: string | null;
+      display_name: string | null;
       persona_id: number | null;
       proxy_id: number | null;
       project_id: number | null;

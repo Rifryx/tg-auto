@@ -9,6 +9,15 @@ export function maskPhone(phone: string): string {
   return `${head}***${tail}`;
 }
 
+/** Подпись аккаунта для UI: своё название, иначе замаскированный номер. */
+export function accountDisplay(acc: {
+  display_name?: string | null;
+  phone: string;
+}): string {
+  const custom = acc.display_name?.trim();
+  return custom ? custom : maskPhone(acc.phone);
+}
+
 /** Маскирует хост прокси: 10.20.30.40 → 10.20.***.40, dom.example → do***le. */
 export function maskHost(host: string): string {
   if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {

@@ -79,6 +79,7 @@ class AccountPatchRequest(BaseModel):
     username: Optional[str] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
+    display_name: Optional[str] = None
     proxy_id: Optional[int] = None
     persona_id: Optional[int] = None
     # Этап 2: проект-группировка, роль, теги.

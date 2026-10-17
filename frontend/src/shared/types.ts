@@ -39,6 +39,7 @@ export interface Account {
   username: string | null;
   bio: string | null;
   avatar_url: string | null;
+  display_name: string | null;
   proxy_id: number | null;
   persona_id: number | null;
   status: AccountStatus;

@@ -1,6 +1,6 @@
 import { Check, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
-import { ageFrom, countdown, maskPhone } from "../../../shared/format";
+import { accountDisplay, ageFrom, countdown } from "../../../shared/format";
 import { CONTAINER_LABEL, PROFILE_LABEL, ROLE_LABEL } from "../../../shared/status";
 import type { Account, Proxy } from "../../../shared/types";
 import { StatusBadge, StatusDot } from "./ui";
@@ -69,7 +69,7 @@ export function AccountRow({
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-[15px] font-semibold text-text-primary nums">
-          {maskPhone(account.phone)}
+          {accountDisplay(account)}
         </p>
         <p className="truncate text-[13px] text-text-secondary">
           {subtitle}
