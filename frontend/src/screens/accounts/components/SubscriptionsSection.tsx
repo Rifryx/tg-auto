@@ -43,9 +43,10 @@ export function SubscriptionsSection({ accountId }: { accountId: number }) {
           каналы/чаты. Папки-addlist разворачиваются автоматически.
         </p>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <CapsuleButton
             variant="accent"
+            className="flex-1 min-w-[140px]"
             disabled={parsed.length === 0 || busy}
             onClick={() => job.run("join_channels", [accountId], { channel_refs: parsed })}
           >
@@ -56,6 +57,7 @@ export function SubscriptionsSection({ accountId }: { accountId: number }) {
           </CapsuleButton>
           <CapsuleButton
             variant="secondary"
+            className="flex-1 min-w-[140px]"
             disabled={parsed.length === 0 || busy}
             onClick={() => job.run("leave_channels", [accountId], { channel_refs: parsed })}
           >

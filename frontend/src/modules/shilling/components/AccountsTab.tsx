@@ -4,7 +4,7 @@ import { useState } from "react";
 import { accountsApi } from "../../../shared/accounts";
 import { banRiskApi, riskDotClass, RISK_LEVEL_LABEL } from "../../../shared/banRisk";
 import type { RiskLevel } from "../../../shared/banRisk";
-import { maskPhone } from "../../../shared/format";
+import { accountDisplay } from "../../../shared/format";
 import { AccountPickerSheet } from "../../commenting/components/AccountPickerSheet";
 import { Select } from "../../../shared/Select";
 import { shillingApi } from "../api";
@@ -101,7 +101,7 @@ export function AccountsTab({ campaignId }: { campaignId: number }) {
             aria-hidden
           />
           <span className="min-w-0 flex-1 truncate text-[14px] text-text-primary nums">
-            {acc ? maskPhone(acc.phone) : `Аккаунт #${link.account_id}`}
+            {acc ? accountDisplay(acc) : `Аккаунт #${link.account_id}`}
           </span>
           <button
             onClick={() =>

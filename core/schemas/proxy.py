@@ -11,6 +11,7 @@ class ProxyCreate(BaseModel):
     host: str
     port: int
     type: ProxyType
+    name: Optional[str] = None
     login: Optional[str] = None
     password_enc: Optional[bytes] = None
     geo: Optional[str] = None
@@ -20,6 +21,7 @@ class ProxyUpdate(BaseModel):
     host: Optional[str] = None
     port: Optional[int] = None
     type: Optional[ProxyType] = None
+    name: Optional[str] = None
     login: Optional[str] = None
     password_enc: Optional[bytes] = None
     geo: Optional[str] = None
@@ -31,6 +33,7 @@ class ProxyRead(ORMModel):
     id: int
     host: str
     port: int
+    name: Optional[str]
     login: Optional[str]
     password_enc: Optional[bytes]
     type: ProxyType

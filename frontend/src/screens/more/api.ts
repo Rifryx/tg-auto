@@ -12,6 +12,7 @@ export interface ProxyBody {
   host: string;
   port: number;
   type: "socks5" | "http";
+  name?: string | null;
   geo?: string | null;
   login?: string | null;
 }
@@ -27,6 +28,7 @@ export interface ProxyOccupancy {
   id: number;
   host: string;
   port: number;
+  name: string | null;
   type: "socks5" | "http";
   geo: string | null;
   status: "alive" | "dead" | "unchecked";

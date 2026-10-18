@@ -42,6 +42,8 @@ export function ProxiesScreen() {
   const [port, setPort] = useState("1080");
   const [type, setType] = useState<ProxyType>("socks5");
   const [geo, setGeo] = useState("");
+  const [name, setName] = useState("");
+  const [search, setSearch] = useState("");
   const [toDelete, setToDelete] = useState<ProxyOccupancy | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -51,10 +53,17 @@ export function ProxiesScreen() {
 
   const create = useMutation({
     mutationFn: () =>
-      proxiesApi.create({ host: host.trim(), port: Number(port), type, geo: geo.trim() || null }),
+      proxiesApi.create({
+        host: host.trim(),
+        port: Number(port),
+        type,
+        name: name.trim() || null,
+        geo: geo.trim() || null,
+      }),
     onSuccess: () => {
       setHost("");
       setGeo("");
+      setName("");
       qc.invalidateQueries({ queryKey: ["proxy-pool"] });
       qc.invalidateQueries({ queryKey: ["proxies"] });
     },
@@ -76,6 +85,18 @@ export function ProxiesScreen() {
   const limit = useLimit("proxies_max");
   const blocked = limit?.atLimit ?? false;
 
+  // Поиск по названию/хосту/гео — чтобы быстро найти прокси в длинном списке.
+  const q = search.trim().toLowerCase();
+  const all = list.data ?? [];
+  const items = q
+    ? all.filter(
+        (p) =>
+          (p.name ?? "").toLowerCase().includes(q) ||
+          p.host.toLowerCase().includes(q) ||
+          (p.geo ?? "").toLowerCase().includes(q),
+      )
+    : all;
+
   return (
     <div className="pb-6 pt-1">
       <BackHeader title="Прокси" onBack={() => navigate("/more")} />
@@ -92,16 +113,37 @@ export function ProxiesScreen() {
           </button>
         }
       >
-        {list.data && list.data.length > 0 ? (
-          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 xl:grid-cols-3">
-            {list.data.map((p) => (
+        {all.length > 0 && (
+          <div className="mb-3">
+            <TextInput
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Поиск по названию, хосту или гео"
+            />
+          </div>
+        )}
+        {all.length > 0 ? (
+          items.length > 0 ? (
+            <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 xl:grid-cols-3">
+              {items.map((p) => (
               <div key={p.id} className="card flex items-center gap-3 px-4 py-3">
                 <span className={`h-2 w-2 shrink-0 rounded-full ${PROXY_DOT[p.status]}`} aria-hidden />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] text-text-primary nums">
-                    {maskHost(p.host)}:{p.port}
+                  <p className="truncate text-[15px] text-text-primary">
+                    {p.name ? (
+                      p.name
+                    ) : (
+                      <span className="nums">
+                        {maskHost(p.host)}:{p.port}
+                      </span>
+                    )}
                   </p>
-                  <p className="text-[12px] text-text-tertiary">
+                  <p className="truncate text-[12px] text-text-tertiary">
+                    {p.name ? (
+                      <span className="nums">
+                        {maskHost(p.host)}:{p.port} ·{" "}
+                      </span>
+                    ) : null}
                     {p.type.toUpperCase()} · {p.geo ?? "—"} · {PROXY_LABEL[p.status]}
                     {p.is_free ? " · свободен" : ` · занят #${p.assigned_account_id}`}
                   </p>
@@ -116,8 +158,13 @@ export function ProxiesScreen() {
                   <Trash2 className="h-4 w-4" strokeWidth={1.8} aria-hidden />
                 </button>
               </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="px-1 text-[13px] text-text-tertiary">
+              Ничего не найдено по запросу «{search}».
+            </p>
+          )
         ) : (
           <p className="px-1 text-[13px] text-text-tertiary">Прокси пока нет.</p>
         )}
@@ -126,6 +173,14 @@ export function ProxiesScreen() {
       <Section title="Новый прокси">
         <LimitBanner feature="proxies_max" />
         <div className="card p-4">
+          <Field label="Название (опц.)">
+            <TextInput
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="DE-residential-1"
+              maxLength={64}
+            />
+          </Field>
           <div className="flex gap-2">
             <div className="flex-[2]">
               <Field label="Хост">

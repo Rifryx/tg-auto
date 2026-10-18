@@ -593,8 +593,17 @@ function SubsSection() {
               }`}
             >
               <div className="min-w-0">
-                <p className="nums truncate text-[14px] text-text-primary">{s.user_id}</p>
-                <p className="text-[11px] text-text-tertiary">{s.payment_method ?? "—"}</p>
+                <p className="truncate text-[14px] text-text-primary">
+                  {s.username
+                    ? `@${s.username}`
+                    : s.first_name
+                      ? s.first_name
+                      : <span className="nums">{s.user_id}</span>}
+                </p>
+                <p className="nums text-[11px] text-text-tertiary">
+                  {(s.username || s.first_name) ? `${s.user_id} · ` : ""}
+                  {s.payment_method ?? "—"}
+                </p>
               </div>
               <span
                 className={`nums shrink-0 rounded-pill px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${

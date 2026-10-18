@@ -1,5 +1,5 @@
 import { Check } from "lucide-react";
-import { maskPhone } from "../../../shared/format";
+import { accountDisplay } from "../../../shared/format";
 import { statusDotClass, STATUS_LABEL } from "../../../shared/status";
 import type { Account } from "../../../shared/types";
 
@@ -22,8 +22,8 @@ export function AccountPickRow({
     >
       <span className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass(account.status)}`} aria-hidden />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] font-semibold text-text-primary nums">
-          {maskPhone(account.phone)}
+        <p className="truncate text-[15px] font-semibold text-text-primary">
+          {accountDisplay(account)}
         </p>
         <p className="truncate text-[12px] text-text-tertiary">
           {STATUS_LABEL[account.status]}

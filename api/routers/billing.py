@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from api.deps.auth import require_user
+from api.deps.auth import capture_user, require_user
 from api.deps.db import get_session
 from api.services import billing as billing_service
 from core.billing import payments as payments_service
@@ -42,7 +42,9 @@ class InvoiceRequest(BaseModel):
 
 @router.get("/plan")
 def get_plan(
-    user_id: str = Depends(require_user),
+    # capture_user: попутно кэшируем профиль (username/имя) для админки —
+    # /billing/plan дёргается при каждом заходе в приложение.
+    user_id: str = Depends(capture_user),
     session: Session = Depends(get_session),
 ) -> dict[str, object]:
     return billing_service.get_usage_snapshot(session, user_id)

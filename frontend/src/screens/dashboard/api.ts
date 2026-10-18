@@ -30,6 +30,8 @@ export interface ModuleSummary {
 export interface ActivityItem {
   type: string;
   account_id: number;
+  phone: string | null;
+  display_name: string | null;
   summary: string;
   timestamp: string | null;
 }

@@ -37,6 +37,7 @@ from core.models.persona import Persona
 from core.models.promotion import Promotion
 from core.models.proxy import Proxy
 from core.models.subscription import Subscription
+from core.repositories.app_user import AppUserRepository
 from core.repositories.subscription import SubscriptionRepository
 from modules.commenting.models.campaign import Campaign
 
@@ -82,17 +83,29 @@ def stats(session: Session = Depends(get_session)) -> dict[str, int]:
 def list_subscriptions(
     session: Session = Depends(get_session),
 ) -> list[dict[str, object]]:
-    rows = session.execute(select(Subscription).order_by(Subscription.updated_at.desc())).scalars()
-    return [
-        {
-            "user_id": s.user_id,
-            "plan_id": s.plan_id,
-            "activated_at": s.activated_at.isoformat() if s.activated_at else None,
-            "expires_at": s.expires_at.isoformat() if s.expires_at else None,
-            "payment_method": s.payment_method,
-        }
-        for s in rows
-    ]
+    rows = list(
+        session.execute(
+            select(Subscription).order_by(Subscription.updated_at.desc())
+        ).scalars()
+    )
+    # Подтягиваем профили (username/имя) одним запросом — для отображения в
+    # админке по @username, а не по числовому user_id.
+    profiles = AppUserRepository(session).get_many([s.user_id for s in rows])
+    result: list[dict[str, object]] = []
+    for s in rows:
+        prof = profiles.get(s.user_id)
+        result.append(
+            {
+                "user_id": s.user_id,
+                "username": prof.username if prof else None,
+                "first_name": prof.first_name if prof else None,
+                "plan_id": s.plan_id,
+                "activated_at": s.activated_at.isoformat() if s.activated_at else None,
+                "expires_at": s.expires_at.isoformat() if s.expires_at else None,
+                "payment_method": s.payment_method,
+            }
+        )
+    return result
 
 
 @router.post("/subscriptions/{target_user_id}", status_code=status.HTTP_200_OK)

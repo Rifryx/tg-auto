@@ -1,6 +1,7 @@
 from core.models.account import Account
 from core.models.account_health import AccountHealth
 from core.models.account_status_history import AccountStatusHistory
+from core.models.app_user import AppUser
 from core.models.autopilot import AutopilotAction, AutopilotGoal
 from core.models.ban_risk import BanRiskSnapshot
 from core.models.base import (
@@ -59,6 +60,7 @@ __all__ = [
     "Account",
     "AccountHealth",
     "AccountStatusHistory",
+    "AppUser",
     "AutopilotAction",
     "AutopilotGoal",
     "BanRiskSnapshot",

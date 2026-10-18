@@ -137,6 +137,8 @@ export const adminApi = {
     api.get<
       {
         user_id: string;
+        username: string | null;
+        first_name: string | null;
         plan_id: string;
         activated_at: string | null;
         expires_at: string | null;
