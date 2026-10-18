@@ -133,19 +133,48 @@ def test_set_photo_requires_media_id():
         ManageChannelPostPayload(channel_tg_id=1, mode="set_photo")
 
 
-def test_prune_not_in_removes_absent(session):
+async def test_sync_prunes_only_inaccessible(session):
+    """sync_project_channels удаляет лишь каналы с ChannelPrivateError (покинут/
+    удалён); доступные и неоднозначные (ошибка сети) — оставляет."""
+    from telethon.errors import ChannelPrivateError
+
+    from worker.profiles.dialogs import sync_project_channels_impl
+
     _clean(session)
     account = _make_account(session)
     repo = ProjectChannelRepository(session)
     for tg in (100, 200, 300):
         repo.create(
             account_id=account.id, project_id=None, channel_tg_id=tg,
-            channel_access_hash=1, title=f"c{tg}", username=None, is_megagroup=False,
+            channel_access_hash=tg, title=f"c{tg}", username=None, is_megagroup=False,
         )
     session.commit()
 
-    removed = repo.prune_not_in(account.id, {200})  # аккаунт остался только в 200
-    session.commit()
-    assert sorted(removed) == [100, 300]
+    class _Client:
+        async def connect(self):
+            return None
+
+        async def get_entity(self, peer):
+            cid = int(getattr(peer, "channel_id", 0))
+            if cid == 100:
+                raise ChannelPrivateError(request=None)  # покинут/удалён → убрать
+            if cid == 300:
+                raise RuntimeError("network")  # неоднозначно → оставить
+            return object()  # 200 доступен
+
+    class _Pool:
+        def __init__(self, c):
+            self._c = c
+
+        async def get(self, _a):
+            return self._c
+
+        async def release(self, _a):
+            return None
+
+    ctx = {"session_factory": lambda: _Ctx(session), "client_pool": _Pool(_Client())}
+    result = await sync_project_channels_impl(ctx, account.id)
+
+    assert result["removed"] == [100]
     session.expire_all()
-    assert [c.channel_tg_id for c in repo.list_for_account(account.id)] == [200]
+    assert sorted(c.channel_tg_id for c in repo.list_for_account(account.id)) == [200, 300]
