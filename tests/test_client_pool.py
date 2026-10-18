@@ -142,6 +142,40 @@ def _pool(accounts: dict, proxies: dict, spy=None, settings=_SETTINGS) -> Client
     )
 
 
+class _ConnSpyClient:
+    """Клиент, поддерживающий протокол соединения (is_connected/connect)."""
+
+    instances: list["_ConnSpyClient"] = []
+
+    def __init__(self, *args, **kwargs) -> None:
+        self._conn = False
+        self.connect_calls = 0
+        self.disconnect = AsyncMock()
+        _ConnSpyClient.instances.append(self)
+
+    def is_connected(self) -> bool:
+        return self._conn
+
+    async def connect(self) -> None:
+        self.connect_calls += 1
+        self._conn = True
+
+
+async def test_get_connects_client_and_reuse_does_not_reconnect(monkeypatch):
+    """get() отдаёт ПОДКЛЮЧЁННЫЙ клиент; повторный get не коннектит заново."""
+    _ConnSpyClient.instances = []
+    monkeypatch.setattr(pool_module, "TelegramClient", _ConnSpyClient)
+    pool = _pool({1: _make_account()}, {7: _make_proxy()})
+
+    client = await pool.get(1)
+    assert client.is_connected() is True
+    assert client.connect_calls == 1
+
+    again = await pool.get(1)
+    assert again is client
+    assert client.connect_calls == 1  # уже подключён → без повторного connect
+
+
 # --- 1. Переиспользование инстанса и выключение при release -------------------
 
 
