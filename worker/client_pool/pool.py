@@ -2,9 +2,16 @@
 
 ``ClientPool`` — единственный владелец инстансов ``TelegramClient`` в процессе
 воркера. На один аккаунт приходится не более одного клиента (гарантируется
-архитектурой одного worker-процесса, §6). Пул только управляет жизненным циклом
-(создание / переиспользование / корректный disconnect) и НЕ вызывает методы
-клиента (login, отправка, прослушивание) — это ответственность других модулей.
+архитектурой одного worker-процесса, §6). Пул управляет жизненным циклом
+(создание / подключение / переиспользование / корректный disconnect) и выдаёт
+ГОТОВЫЙ К РАБОТЕ (подключённый) клиент. Прикладную логику (login, отправка,
+прослушивание) по-прежнему выполняют другие модули.
+
+Важно: Telethon требует установленного соединения перед ЛЮБЫМ запросом — иначе
+``ConnectionError("Cannot send requests while disconnected")``. Раньше пул
+отдавал клиент ОТКЛЮЧЁННЫМ, и потребители, забывшие вызвать ``connect()`` (bulk,
+warming), падали на первом же запросе. Теперь ``get()`` подключает клиент сам;
+повторный ``connect()`` в других модулях — безопасный no-op.
 
 Клиент собирается строго из сохранённых полей аккаунта:
 
@@ -35,6 +42,10 @@ from core.crypto import decrypt_password, decrypt_session
 from core.enums import AccountStatus
 from core.repositories.account import AccountRepository
 from core.repositories.proxy import ProxyRepository
+
+# Таймаут на установку соединения в ``get()`` — чтобы мёртвый прокси/сеть не
+# завесили пул навсегда (тогда клиент помечается битым и get бросает ошибку).
+_CONNECT_TIMEOUT_SECONDS = 30
 
 # Фабрика сессий БД: вызывается без аргументов и возвращает контекст-менеджер,
 # отдающий синхронную ``Session`` (та же форма, что у задач воркера).
@@ -94,10 +105,29 @@ class ClientPool:
             managed = self._clients.get(account_id)
             if managed is not None:
                 managed.refcount += 1
-                return managed.client
+            else:
+                client = self._create_client(account_id)
+                managed = ManagedClient(client=client, refcount=1)
+                self._clients[account_id] = managed
 
-            client = self._create_client(account_id)
-            self._clients[account_id] = ManagedClient(client=client, refcount=1)
+            client = managed.client
+            # Клиент из _create_client создаётся ОТКЛЮЧЁННЫМ; переиспользуемый
+            # мог отвалиться по сети. Подключаем здесь, чтобы потребитель всегда
+            # получал готовый клиент. Таймаут — чтобы мёртвый прокси не завесил
+            # пул навсегда. getattr-гард: тестовые двойники без протокола
+            # соединения просто не подключаются (им это и не нужно).
+            is_connected = getattr(client, "is_connected", None)
+            connect = getattr(client, "connect", None)
+            if callable(is_connected) and callable(connect) and not is_connected():
+                try:
+                    await asyncio.wait_for(connect(), timeout=_CONNECT_TIMEOUT_SECONDS)
+                except BaseException:
+                    # Не кэшируем битый клиент: откатываем ссылку и чистим.
+                    managed.refcount -= 1
+                    if managed.refcount <= 0:
+                        self._clients.pop(account_id, None)
+                        await self._disconnect(client)
+                    raise
             return client
 
     async def release(self, account_id: int) -> None:

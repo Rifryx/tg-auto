@@ -28,6 +28,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 from telethon.tl.functions.channels import (
     CreateChannelRequest,
+    EditPhotoRequest,
     TogglePreHistoryHiddenRequest,
     UpdateUsernameRequest,
 )
@@ -40,6 +41,7 @@ from telethon.tl.types import (
     ChatReactionsAll,
     ChatReactionsNone,
     InputChannel,
+    InputChatUploadedPhoto,
     InputPeerChannel,
 )
 
@@ -67,6 +69,8 @@ class CreateChannelPayload(BaseModel):
     hide_prehistory: bool = False
     # Разрешить реакции (по умолчанию да).
     enable_reactions: bool = True
+    # Фото канала/чата (media_assets.id) — опционально.
+    photo_media_id: Optional[int] = None
     project_id: Optional[int] = None
     # Первый пост: текст (с markdown-эффектами) и/или медиа, закреплять ли.
     first_post: Optional[str] = Field(default=None, max_length=4096)
@@ -187,6 +191,38 @@ async def _run(
         )
     except Exception:  # noqa: BLE001
         pass
+
+    # 1.75) Фото канала/чата (из media_assets) — опционально.
+    photo_set = False
+    if payload.photo_media_id is not None:
+        try:
+            with session_factory() as session:
+                asset = MediaAssetRepository(session).get(payload.photo_media_id)
+                photo_bytes = asset.bytes if asset is not None else None
+                photo_name = (
+                    (asset.filename or f"photo_{asset.id}") if asset is not None else None
+                )
+            if photo_bytes is not None:
+                uploaded_photo = await around_telethon_call(
+                    lambda: client.upload_file(photo_bytes, file_name=photo_name),
+                    account_id=account_id,
+                    session_factory=session_factory,
+                    publisher=publisher,
+                )
+                await around_telethon_call(
+                    lambda: client(
+                        EditPhotoRequest(
+                            channel=ch_input,
+                            photo=InputChatUploadedPhoto(file=uploaded_photo),
+                        )
+                    ),
+                    account_id=account_id,
+                    session_factory=session_factory,
+                    publisher=publisher,
+                )
+                photo_set = True
+        except Exception:  # noqa: BLE001 — фото не критично для create
+            pass
 
     # 1.8) Инвайт-ссылка для приватных (у публичных есть @username).
     invite_link: Optional[str] = None
@@ -311,6 +347,7 @@ async def _run(
         "username": username,
         "invite_link": invite_link,
         "pinned_message_id": pinned_message_id,
+        "photo_set": photo_set,
     }
     if username_error is not None:
         detail["username_error"] = username_error

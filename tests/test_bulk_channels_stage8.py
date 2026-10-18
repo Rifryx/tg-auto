@@ -395,6 +395,41 @@ async def test_create_channel_first_post_media(session):
     session.commit()
 
 
+async def test_create_channel_sets_photo(session):
+    """photo_media_id → upload_file + EditPhotoRequest; detail.photo_set=True."""
+    _clean(session)
+    account = _make_account(session)
+
+    from core.models import MediaAsset
+
+    asset = MediaAsset(
+        user_id="u1", mime="image/png", bytes=b"AVATAR", size_bytes=6,
+        sha256="b" * 64, filename="ava.png",
+    )
+    session.add(asset)
+    session.commit()
+    asset_id = asset.id
+
+    client = _PostClient(channel_id=6010)
+    action = ACTION_REGISTRY[BulkActionType.CREATE_CHANNEL.value]
+    payload = CreateChannelPayload(title="C", photo_media_id=asset_id)
+    result = await action.run(
+        account_id=account.id,
+        payload=payload,
+        session_factory=lambda: _Ctx(session),
+        publisher=None,
+        client=client,
+    )
+
+    assert result.ok is True
+    assert client.uploaded == (b"AVATAR", "ava.png")
+    assert "EditPhotoRequest" in client.requests
+    assert result.detail["photo_set"] is True
+
+    session.execute(text("TRUNCATE media_assets RESTART IDENTITY CASCADE"))
+    session.commit()
+
+
 async def test_create_channel_dedups_by_account_and_tg_id(session):
     _clean(session)
     account = _make_account(session)

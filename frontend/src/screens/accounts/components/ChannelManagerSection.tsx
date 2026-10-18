@@ -101,8 +101,13 @@ function CreateChannelForm({
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(false);
+  const [photoId, setPhotoId] = useState<number | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoError, setPhotoError] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const photoRef = useRef<HTMLInputElement>(null);
   const job = useBulkJob(() => onCreated());
 
   useEffect(
@@ -111,6 +116,29 @@ function CreateChannelForm({
     },
     [mediaPreview],
   );
+  useEffect(
+    () => () => {
+      if (photoPreview) URL.revokeObjectURL(photoPreview);
+    },
+    [photoPreview],
+  );
+
+  const onPickPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    setPhotoUploading(true);
+    setPhotoError(false);
+    try {
+      const asset = await mediaApi.upload(file);
+      setPhotoId(asset.id);
+      const blob = await apiBlob(`/media-assets/${asset.id}/blob`);
+      if (photoPreview) URL.revokeObjectURL(photoPreview);
+      setPhotoPreview(URL.createObjectURL(blob));
+    } catch {
+      setPhotoError(true);
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
 
   // Оборачивает выделение в тексте маркерами эффекта (жирный/курсив/…).
   const wrap = (before: string, after: string, placeholder = "текст") => {
@@ -156,9 +184,66 @@ function CreateChannelForm({
   const usernameValid = /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(username.trim());
   const busy = job.state.phase === "running";
   const canCreate =
-    title.trim().length > 0 && !busy && (!isPublic || usernameValid);
+    title.trim().length > 0 &&
+    !busy &&
+    !photoUploading &&
+    !uploading &&
+    (!isPublic || usernameValid);
   return (
     <div className="card p-4">
+      <input
+        ref={photoRef}
+        type="file"
+        accept="image/*"
+        onChange={(e) => {
+          onPickPhoto(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+        className="hidden"
+      />
+      <div className="mb-4 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => photoRef.current?.click()}
+          disabled={photoUploading}
+          aria-label="Фото канала"
+          className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-hairline bg-surface-1 active:border-strong disabled:opacity-50"
+        >
+          {photoPreview ? (
+            <img src={photoPreview} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <ImagePlus className="h-6 w-6 text-accent" strokeWidth={1.6} aria-hidden />
+          )}
+        </button>
+        <div className="min-w-0">
+          <p className="text-[14px] text-text-primary">
+            {isMegagroup ? "Фото чата" : "Фото канала"}
+          </p>
+          <p className="text-[12px] text-text-tertiary">
+            {photoUploading
+              ? "Загружаем…"
+              : photoPreview
+                ? "Нажмите, чтобы заменить"
+                : "Необязательно"}
+          </p>
+          {photoPreview && (
+            <button
+              type="button"
+              onClick={() => {
+                if (photoPreview) URL.revokeObjectURL(photoPreview);
+                setPhotoPreview(null);
+                setPhotoId(null);
+              }}
+              className="mt-0.5 text-[12px] text-status-critical active:opacity-70"
+            >
+              Убрать фото
+            </button>
+          )}
+        </div>
+      </div>
+      {photoError && (
+        <p className="mb-3 px-1 text-[12px] text-status-critical">Не удалось загрузить фото.</p>
+      )}
       <Field label={isMegagroup ? "Название чата" : "Название канала"}>
         <TextInput value={title} onChange={(e) => setTitle(e.target.value)} maxLength={255} />
       </Field>
@@ -325,6 +410,7 @@ function CreateChannelForm({
               first_post_media_id: mediaId,
               first_post_markdown: true,
               first_post_pin: firstPostPin,
+              photo_media_id: photoId,
             })
           }
         >
