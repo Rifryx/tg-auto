@@ -12,9 +12,14 @@ export interface BulkJobState {
   firstResult: Record<string, unknown> | null;
   /** Ошибка элемента или общая. */
   error: string | null;
+  /** Задание выполняется подозрительно долго (воркер не запущен / завис). */
+  slow: boolean;
 }
 
 const TERMINAL = new Set(["done", "failed", "cancelled"]);
+
+// Через сколько секунд непрерывного «running» показать подсказку о заминке.
+const SLOW_AFTER_MS = 20_000;
 
 /* Запускает bulk-action над одним (или несколькими) аккаунтами и опрашивает
    статус задания до завершения. Рассчитан на одиночные действия из карточки
@@ -27,8 +32,10 @@ export function useBulkJob(onDone?: (detail: BulkJobDetail) => void) {
     detail: null,
     firstResult: null,
     error: null,
+    slow: false,
   });
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startedAt = useRef<number>(0);
 
   const stop = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -43,7 +50,8 @@ export function useBulkJob(onDone?: (detail: BulkJobDetail) => void) {
           const jobStatus = detail.job.status;
           if (!TERMINAL.has(jobStatus)) {
             timer.current = setTimeout(() => poll(jobId), 1500);
-            setState((s) => ({ ...s, phase: "running", detail }));
+            const slow = Date.now() - startedAt.current > SLOW_AFTER_MS;
+            setState((s) => ({ ...s, phase: "running", detail, slow }));
             return;
           }
           // Завершено: читаем первый item.
@@ -54,6 +62,7 @@ export function useBulkJob(onDone?: (detail: BulkJobDetail) => void) {
             detail,
             firstResult: item?.result ?? null,
             error: item?.error ?? (failed ? "Задание завершилось с ошибкой" : null),
+            slow: false,
           });
           haptic(failed ? "rigid" : "light");
           onDone?.(detail);
@@ -62,6 +71,7 @@ export function useBulkJob(onDone?: (detail: BulkJobDetail) => void) {
           setState((s) => ({
             ...s,
             phase: "failed",
+            slow: false,
             error: e instanceof Error ? e.message : "Ошибка опроса задания",
           }));
         });
@@ -72,7 +82,8 @@ export function useBulkJob(onDone?: (detail: BulkJobDetail) => void) {
   const run = useCallback(
     async (actionType: string, accountIds: number[], payload: Record<string, unknown> = {}) => {
       stop();
-      setState({ phase: "running", detail: null, firstResult: null, error: null });
+      startedAt.current = Date.now();
+      setState({ phase: "running", detail: null, firstResult: null, error: null, slow: false });
       try {
         const job = await bulkApi.create(actionType, accountIds, payload);
         poll(job.id);
@@ -82,6 +93,7 @@ export function useBulkJob(onDone?: (detail: BulkJobDetail) => void) {
           detail: null,
           firstResult: null,
           error: e instanceof Error ? e.message : "Не удалось создать задание",
+          slow: false,
         });
       }
     },
@@ -93,7 +105,8 @@ export function useBulkJob(onDone?: (detail: BulkJobDetail) => void) {
   const track = useCallback(
     (jobId: number) => {
       stop();
-      setState({ phase: "running", detail: null, firstResult: null, error: null });
+      startedAt.current = Date.now();
+      setState({ phase: "running", detail: null, firstResult: null, error: null, slow: false });
       poll(jobId);
     },
     [poll, stop],
@@ -101,7 +114,7 @@ export function useBulkJob(onDone?: (detail: BulkJobDetail) => void) {
 
   const reset = useCallback(() => {
     stop();
-    setState({ phase: "idle", detail: null, firstResult: null, error: null });
+    setState({ phase: "idle", detail: null, firstResult: null, error: null, slow: false });
   }, [stop]);
 
   return { state, run, track, reset };

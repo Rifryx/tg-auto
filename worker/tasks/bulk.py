@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -28,6 +29,13 @@ from modules.bulk.actions import ACTION_REGISTRY
 from worker.tasks.logging import get_logger
 
 BULK_PROGRESS_CHANNEL = "bulk.progress"
+
+# Потолок на выполнение одного item'а: даже если Telethon-вызов повис на
+# полумёртвом прокси / неотвечающей сессии, item не должен висеть вечно —
+# иначе job никогда не станет терминальным, а UI будет крутить «Создаём…»
+# без ошибки. По таймауту корутина отменяется, item → failed с понятной
+# причиной. Обычные операции укладываются в секунды.
+_ITEM_TIMEOUT_SECONDS = 180
 
 # Задержка перед повторной постановкой rate-limited item'а (этап 5, backlog #1).
 # Часовое окно governor'а — берём 5 минут, чтобы к следующему тику окно уже
@@ -52,11 +60,25 @@ async def dispatch_impl(ctx: dict, job_id: int) -> dict[str, Any]:
             get_logger().warning("bulk.dispatch.missing_job", job_id=job_id)
             return {"enqueued": 0, "reason": "missing_job"}
         if job.action_type not in ACTION_REGISTRY:
+            # Напр. воркер старее API и не знает этого action'а. Раньше job
+            # оставался queued навсегда → UI крутил спиннер без ошибки. Теперь
+            # валим pending-item'ы, чтобы job стал терминальным (failed).
             get_logger().error(
                 "bulk.dispatch.unknown_action",
                 job_id=job_id,
                 action_type=job.action_type,
             )
+            for it in repo.list_pending_items(job_id):
+                repo.apply_item_result(
+                    it.id,
+                    status=BulkItemStatus.FAILED,
+                    error=f"unknown_action:{job.action_type} "
+                    "(воркер не знает это действие — устаревшая сборка?)",
+                    started_at=now,
+                    finished_at=now,
+                )
+            repo.recompute_counters(job_id)
+            session.commit()
             return {"enqueued": 0, "reason": "unknown_action"}
         pending = repo.list_pending_items(job_id)
         repo.mark_running(job_id, now=now)
@@ -163,13 +185,29 @@ async def item_impl(ctx: dict, job_id: int, item_id: int) -> dict[str, Any]:
             if client_pool is None:
                 raise RuntimeError("client_pool not available in worker ctx")
             client = await client_pool.get(account_id)
-        result = await action.run(
-            account_id=account_id,
-            payload=payload,
-            session_factory=session_factory,
-            publisher=publisher,
-            client=client,
+        result = await asyncio.wait_for(
+            action.run(
+                account_id=account_id,
+                payload=payload,
+                session_factory=session_factory,
+                publisher=publisher,
+                client=client,
+            ),
+            timeout=_ITEM_TIMEOUT_SECONDS,
         )
+    except asyncio.TimeoutError:
+        _finalize_failed(
+            session_factory, publisher, job_id, item_id,
+            f"timeout: действие не завершилось за {_ITEM_TIMEOUT_SECONDS}с "
+            "(проверьте прокси и активную сессию аккаунта)",
+            now,
+        )
+        get_logger().warning(
+            "bulk.item.timeout",
+            job_id=job_id, item_id=item_id, action=action_name,
+            timeout_s=_ITEM_TIMEOUT_SECONDS,
+        )
+        return {"failed": True, "reason": "timeout"}
     except Exception as exc:  # noqa: BLE001 — фиксируем как failed
         _finalize_failed(session_factory, publisher, job_id, item_id, repr(exc), now)
         get_logger().warning(

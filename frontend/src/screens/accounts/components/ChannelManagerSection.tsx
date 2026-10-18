@@ -298,6 +298,12 @@ function CreateChannelForm({
           {job.state.error ?? "Не удалось создать."}
         </p>
       )}
+      {busy && job.state.slow && (
+        <p className="mb-2 text-[12px] text-text-tertiary">
+          Долго выполняется. Проверьте, что воркер запущен, а у аккаунта живой
+          прокси и активная сессия.
+        </p>
+      )}
 
       <div className="flex gap-2">
         <CapsuleButton variant="secondary" onClick={onClose}>
