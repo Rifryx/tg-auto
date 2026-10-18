@@ -12,6 +12,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# build-essential (gcc + заголовки libc) нужен для сборки wheel'а tgcrypto
+# (C-ускоритель Telethon): в python:3.12-slim нет ни компилятора, ни stdint.h.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
 # Метаданные + исходники, нужные для сборки wheel и рантайма.
 COPY pyproject.toml alembic.ini ./
 COPY core ./core
