@@ -94,6 +94,69 @@ async def sync_dialogs_impl(ctx: dict, account_id: int) -> dict[str, Any]:
     return {"count": len(items)}
 
 
+async def sync_project_channels_impl(ctx: dict, account_id: int) -> dict[str, Any]:
+    """Сверить ``project_channels`` аккаунта с реальностью.
+
+    Проверяем КАЖДЫЙ созданный канал по отдельности через ``get_entity`` и
+    удаляем только те, доступ к которым потерян окончательно — аккаунт покинул
+    канал или канал удалён (``ChannelPrivateError``/``ChannelInvalidError``).
+    Неоднозначные ошибки (сеть/flood/нет access_hash) НЕ трогаем, чтобы случайно
+    не выкинуть живой канал.
+
+    get_dialogs тут НЕ используем намеренно: он не всегда возвращает каналы,
+    которые аккаунт создал, → давал ложные удаления.
+    """
+    from telethon.errors import ChannelInvalidError, ChannelPrivateError
+    from telethon.tl.types import InputChannel
+
+    from core.repositories.project_channel import ProjectChannelRepository
+
+    session_factory = ctx["session_factory"]
+    with session_factory() as session:
+        rows = [
+            (int(r.channel_tg_id), int(r.channel_access_hash or 0))
+            for r in ProjectChannelRepository(session).list_for_account(account_id)
+        ]
+
+    pool = _pool(ctx)
+    gone: list[int] = []
+    client = await pool.get(account_id)
+    try:
+        await client.connect()
+        for tg_id, access_hash in rows:
+            if access_hash == 0:
+                continue  # без access_hash не проверить — оставляем как есть
+            try:
+                await client.get_entity(InputChannel(tg_id, access_hash))
+            except (ChannelPrivateError, ChannelInvalidError):
+                gone.append(tg_id)  # покинут/удалён → убрать из списка
+            except Exception as exc:  # noqa: BLE001 — неоднозначно, не трогаем
+                logger.info(
+                    "sync_project_channels.skip acc=%s id=%s err=%r",
+                    account_id, tg_id, exc,
+                )
+    finally:
+        await pool.release(account_id)
+
+    if gone:
+        with session_factory() as session:
+            repo = ProjectChannelRepository(session)
+            for tg_id in gone:
+                repo.delete_by_account_tg(account_id, tg_id)
+            session.commit()
+
+    publisher = ctx.get("publisher")
+    if publisher is not None:
+        publisher.publish(
+            "account_project_channels_synced",
+            {"account_id": account_id, "removed": len(gone)},
+        )
+    logger.info(
+        "sync_project_channels.done acc=%s removed=%s", account_id, len(gone)
+    )
+    return {"removed": gone}
+
+
 async def leave_dialogs_impl(
     ctx: dict, account_id: int, dialog_ids: Optional[list[int]] = None
 ) -> dict[str, Any]:

@@ -23,10 +23,12 @@ from __future__ import annotations
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from telethon.tl.functions.channels import DeleteChannelRequest, EditPhotoRequest
 from telethon.tl.functions.messages import UpdatePinnedMessageRequest
-from telethon.tl.types import InputChannel, PeerChannel
+from telethon.tl.types import InputChannel, InputChatUploadedPhoto, PeerChannel
 
 from core.enums import BulkActionType
+from core.repositories.media_asset import MediaAssetRepository
 from core.repositories.project_channel import ProjectChannelRepository
 from modules.bulk.actions.registry import BulkAction, BulkActionResult, register
 from worker.health.monitor import around_telethon_call
@@ -37,19 +39,27 @@ class ManageChannelPostPayload(BaseModel):
 
     channel_tg_id: int
     channel_access_hash: Optional[int] = None
-    mode: Literal["send", "pin", "unpin", "delete"] = "send"
+    mode: Literal[
+        "send", "pin", "unpin", "delete", "set_photo", "delete_channel"
+    ] = "send"
     text: Optional[str] = Field(default=None, max_length=4096)
     message_id: Optional[int] = None
     pin_after_send: bool = False
+    # Для mode=set_photo — новый аватар канала/чата (media_assets.id).
+    photo_media_id: Optional[int] = None
 
     @model_validator(mode="after")
     def _validate_mode(self) -> "ManageChannelPostPayload":
         if self.mode == "send":
             if not (self.text and self.text.strip()):
                 raise ValueError("mode=send requires non-empty text")
-        else:
+        elif self.mode in ("pin", "unpin", "delete"):
             if self.message_id is None:
                 raise ValueError(f"mode={self.mode} requires message_id")
+        elif self.mode == "set_photo":
+            if self.photo_media_id is None:
+                raise ValueError("mode=set_photo requires photo_media_id")
+        # delete_channel не требует дополнительных полей
         return self
 
 
@@ -127,7 +137,7 @@ async def _run(
             detail["message_id"] = payload.message_id
             detail["pinned"] = pinned
 
-        else:  # delete
+        elif payload.mode == "delete":
             await around_telethon_call(
                 lambda: client.delete_messages(entity, [payload.message_id]),
                 account_id=account_id,
@@ -136,6 +146,52 @@ async def _run(
             )
             detail["message_id"] = payload.message_id
             detail["deleted"] = True
+
+        elif payload.mode == "set_photo":
+            # Новый аватар канала/чата из media_assets.
+            with session_factory() as session:
+                asset = MediaAssetRepository(session).get(payload.photo_media_id)
+                if asset is None:
+                    return BulkActionResult(
+                        ok=False,
+                        detail={
+                            "reason": "media_not_found",
+                            "photo_media_id": payload.photo_media_id,
+                        },
+                    )
+                photo_bytes = asset.bytes
+                photo_name = asset.filename or f"photo_{asset.id}"
+            uploaded = await around_telethon_call(
+                lambda: client.upload_file(photo_bytes, file_name=photo_name),
+                account_id=account_id,
+                session_factory=session_factory,
+                publisher=publisher,
+            )
+            await around_telethon_call(
+                lambda: client(
+                    EditPhotoRequest(
+                        channel=entity, photo=InputChatUploadedPhoto(file=uploaded)
+                    )
+                ),
+                account_id=account_id,
+                session_factory=session_factory,
+                publisher=publisher,
+            )
+            detail["photo_set"] = True
+
+        else:  # delete_channel — удалить канал/чат целиком + убрать из списка
+            await around_telethon_call(
+                lambda: client(DeleteChannelRequest(channel=entity)),
+                account_id=account_id,
+                session_factory=session_factory,
+                publisher=publisher,
+            )
+            with session_factory() as session:
+                ProjectChannelRepository(session).delete_by_account_tg(
+                    account_id, payload.channel_tg_id
+                )
+                session.commit()
+            detail["channel_deleted"] = True
     except Exception as exc:  # noqa: BLE001
         return BulkActionResult(
             ok=False, detail={"reason": f"{payload.mode}_failed", "error": repr(exc)}

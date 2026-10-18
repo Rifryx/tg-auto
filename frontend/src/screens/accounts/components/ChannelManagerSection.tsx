@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bold,
   Code,
@@ -11,6 +11,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  RefreshCw,
   Send,
   Strikethrough,
   Trash2,
@@ -41,11 +42,37 @@ export function ChannelManagerSection({ accountId }: { accountId: number }) {
   const invalidate = () =>
     qc.invalidateQueries({ queryKey: ["account", accountId, "project-channels"] });
 
+  // Сверка списка с реальностью (воркер уберёт покинутые/удалённые) —
+  // несколько отложенных рефетчей, т.к. воркер выполняет асинхронно.
+  const sync = useMutation({
+    mutationFn: () => accountsApi.syncProjectChannels(accountId),
+    onSuccess: () => [2000, 5000, 9000].forEach((ms) => window.setTimeout(invalidate, ms)),
+  });
+
   const [open, setOpen] = useState(false);
   const rows = channels.data ?? [];
 
   return (
-    <Section title="Каналы и чаты аккаунта">
+    <Section
+      title="Каналы и чаты аккаунта"
+      action={
+        rows.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => sync.mutate()}
+            disabled={sync.isPending}
+            className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface-1 px-3 py-1.5 text-[12px] font-semibold text-text-secondary active:bg-surface-2 disabled:opacity-50"
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${sync.isPending ? "animate-spin" : ""}`}
+              strokeWidth={2}
+              aria-hidden
+            />
+            Синхронизировать
+          </button>
+        ) : undefined
+      }
+    >
       {rows.length === 0 && !open ? (
         <p className="mb-3 text-[13px] text-text-tertiary">
           Аккаунт ещё не создавал каналов.
@@ -438,10 +465,34 @@ function ChannelCard({
   const [post, setPost] = useState("");
   const [pinNew, setPinNew] = useState(false);
   const [deleteId, setDeleteId] = useState("");
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState(false);
+  const [confirmDelCh, setConfirmDelCh] = useState(false);
+  const cardPhotoRef = useRef<HTMLInputElement>(null);
   const job = useBulkJob(() => onChanged());
 
   const base = { channel_tg_id: channel.channel_tg_id, channel_access_hash: channel.channel_access_hash };
   const busy = job.state.phase === "running";
+
+  // Сменить аватар канала/чата: грузим фото в media-assets → manage_channel_post
+  // mode=set_photo (воркер ставит EditPhoto).
+  const onPickCardPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    setPhotoBusy(true);
+    setPhotoError(false);
+    try {
+      const asset = await mediaApi.upload(file);
+      await job.run("manage_channel_post", [accountId], {
+        ...base,
+        mode: "set_photo",
+        photo_media_id: asset.id,
+      });
+    } catch {
+      setPhotoError(true);
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
 
   return (
     <li className="rounded-card border border-hairline bg-surface-1">
@@ -470,6 +521,41 @@ function ChannelCard({
 
       {expanded && (
         <div className="border-t border-hairline p-4">
+          <input
+            ref={cardPhotoRef}
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+              onPickCardPhoto(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+            className="hidden"
+          />
+          <div className="mb-3 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => cardPhotoRef.current?.click()}
+              disabled={photoBusy || busy}
+              aria-label="Сменить фото канала"
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-hairline bg-surface-2 text-text-tertiary active:border-strong disabled:opacity-50"
+            >
+              <ImagePlus className="h-5 w-5" strokeWidth={1.6} aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={() => cardPhotoRef.current?.click()}
+              disabled={photoBusy || busy}
+              className="text-[13px] text-text-secondary active:text-text-primary disabled:opacity-50"
+            >
+              {photoBusy ? "Ставим фото…" : `Сменить фото ${channel.is_megagroup ? "чата" : "канала"}`}
+            </button>
+          </div>
+          {photoError && (
+            <p className="mb-3 px-1 text-[12px] text-status-critical">
+              Не удалось обновить фото.
+            </p>
+          )}
+
           {!channel.username && channel.invite_link && (
             <div className="mb-3">
               <p className="mb-1 px-1 text-[12px] text-text-tertiary">
@@ -569,6 +655,43 @@ function ChannelCard({
           {job.state.phase === "done" && (
             <p className="mt-2 text-[12px] text-status-active">Готово.</p>
           )}
+
+          <div className="mt-3 border-t border-hairline pt-3">
+            {confirmDelCh ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() =>
+                    job
+                      .run("manage_channel_post", [accountId], {
+                        ...base,
+                        mode: "delete_channel",
+                      })
+                      .then(() => onChanged())
+                  }
+                  disabled={busy}
+                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-pill bg-status-critical px-3 py-2 text-[13px] font-semibold text-white active:opacity-80 disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                  {busy ? "Удаляем…" : `Точно удалить ${channel.is_megagroup ? "чат" : "канал"}?`}
+                </button>
+                <button
+                  onClick={() => setConfirmDelCh(false)}
+                  disabled={busy}
+                  className="rounded-pill border border-hairline px-3 py-2 text-[13px] text-text-secondary active:bg-surface-2"
+                >
+                  Отмена
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmDelCh(true)}
+                className="flex items-center gap-1.5 text-[13px] text-status-critical active:opacity-70"
+              >
+                <Trash2 className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                Удалить {channel.is_megagroup ? "чат" : "канал"}
+              </button>
+            )}
+          </div>
         </div>
       )}
     </li>

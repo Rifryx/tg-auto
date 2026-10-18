@@ -39,6 +39,9 @@ class TaskName(str, Enum):
     # Снапшот диалогов (каналы/группы) аккаунта и выход из них.
     ACCOUNT_SYNC_DIALOGS = "account.sync_dialogs"
     ACCOUNT_LEAVE_DIALOGS = "account.leave_dialogs"
+    # Сверка созданных каналов (project_channels) с реальностью: убрать те,
+    # которые аккаунт покинул/удалил в Telegram.
+    ACCOUNT_SYNC_PROJECT_CHANNELS = "account.sync_project_channels"
 
     # --- Модуль commenting ---
     COMMENTING_ON_NEW_POST = "commenting.on_new_post"
