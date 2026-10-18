@@ -111,7 +111,7 @@ async def leave_dialogs_impl(
         targets = [d for d in snapshot if int(d["id"]) in wanted]
 
     pool = _pool(ctx)
-    left = 0
+    left_ids: set[int] = set()
     client = await pool.get(account_id)
     try:
         await client.connect()
@@ -125,7 +125,7 @@ async def leave_dialogs_impl(
                     await client(
                         DeleteChatUserRequest(chat_id=int(d["id"]), user_id=InputUserSelf())
                     )
-                left += 1
+                left_ids.add(int(d["id"]))
             except Exception as exc:  # noqa: BLE001 — не валим весь батч
                 logger.info("leave_dialogs.skip acc=%s id=%s err=%r", account_id, d.get("id"), exc)
     finally:
@@ -133,5 +133,26 @@ async def leave_dialogs_impl(
 
     # Обновляем снапшот, чтобы UI сразу увидел актуальный список.
     await sync_dialogs_impl(ctx, account_id)
-    logger.info("leave_dialogs.done acc=%s left=%s of=%s", account_id, left, len(targets))
-    return {"left": left, "requested": len(targets)}
+
+    # Telegram отдаёт список диалогов с задержкой: сразу после LeaveChannel
+    # get_dialogs() ЧАСТО ещё возвращает покинутый канал → в UI он «отписывается
+    # через раз». Поэтому детерминированно вычищаем успешно покинутые id из
+    # свежего снапшота — пользователь всегда видит результат своего действия.
+    if left_ids:
+        try:
+            raw2 = _redis().get(dialogs_key(account_id))
+            if raw2:
+                data = json.loads(raw2)
+                data["items"] = [
+                    it for it in data.get("items", []) if int(it["id"]) not in left_ids
+                ]
+                _redis().setex(
+                    dialogs_key(account_id), DIALOGS_TTL_SECONDS, json.dumps(data)
+                )
+        except Exception as exc:  # noqa: BLE001 — не критично, снапшот обновит sync
+            logger.warning("leave_dialogs.prune_fail acc=%s err=%r", account_id, exc)
+
+    logger.info(
+        "leave_dialogs.done acc=%s left=%s of=%s", account_id, len(left_ids), len(targets)
+    )
+    return {"left": len(left_ids), "requested": len(targets)}

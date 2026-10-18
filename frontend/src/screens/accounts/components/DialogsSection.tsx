@@ -14,12 +14,17 @@ export function DialogsSection({ accountId }: { accountId: number }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirmClear, setConfirmClear] = useState(false);
 
+  type DialogsData = { synced: boolean; synced_at: string | null; items: AccountDialog[] };
   const key = ["account", accountId, "dialogs"];
   const dialogs = useQuery({ queryKey: key, queryFn: () => accountsApi.dialogs(accountId) });
 
-  // Снапшот снимается воркером асинхронно — обновляем список с задержкой.
+  // Снапшот снимается воркером асинхронно (leave + повторный get_dialogs), время
+  // выполнения плавает — поэтому обновляем список НЕСКОЛЬКО раз, последний
+  // рефетч приходит на уже актуальный снапшот.
   const refetchSoon = () =>
-    window.setTimeout(() => qc.invalidateQueries({ queryKey: key }), 4000);
+    [1500, 4000, 8000].forEach((ms) =>
+      window.setTimeout(() => qc.invalidateQueries({ queryKey: key }), ms),
+    );
 
   const sync = useMutation({
     mutationFn: () => accountsApi.syncDialogs(accountId),
@@ -31,6 +36,19 @@ export function DialogsSection({ accountId }: { accountId: number }) {
   const leave = useMutation({
     mutationFn: (body: { dialog_ids?: number[]; all?: boolean }) =>
       accountsApi.leaveDialogs(accountId, body),
+    // Оптимистично убираем покинутые из списка сразу, чтобы UI обновился без
+    // ожидания воркера; затем refetchSoon сверит со снапшотом.
+    onMutate: (body) => {
+      const removing = new Set(selected);
+      qc.setQueryData<DialogsData>(key, (old) =>
+        old
+          ? {
+              ...old,
+              items: body.all ? [] : old.items.filter((d) => !removing.has(d.id)),
+            }
+          : old,
+      );
+    },
     onSuccess: () => {
       setSelected(new Set());
       setConfirmClear(false);
@@ -81,7 +99,7 @@ export function DialogsSection({ accountId }: { accountId: number }) {
         )}
 
         {items.length > 0 && (
-          <div className="flex flex-col gap-1">
+          <div className="flex max-h-[360px] flex-col gap-1 overflow-y-auto overscroll-contain pr-1">
             {items.map((d) => {
               const checked = selected.has(d.id);
               return (
