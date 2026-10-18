@@ -5,7 +5,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { accountsApi, catalogApi } from "../../shared/accounts";
 import { projectsApi } from "../../shared/projects";
 import { Select } from "../../shared/Select";
-import { maskPhone } from "../../shared/format";
+import { accountDisplay } from "../../shared/format";
 import { statusDotClass } from "../../shared/status";
 import { haptic } from "../../shared/tg";
 import type { Account } from "../../shared/types";
@@ -218,7 +218,7 @@ export function CampaignDetailScreen() {
                     aria-hidden
                   />
                   <span className="min-w-0 flex-1 truncate text-[15px] text-text-primary nums">
-                    {acc ? maskPhone(acc.phone) : `Аккаунт #${aid}`}
+                    {acc ? accountDisplay(acc) : `Аккаунт #${aid}`}
                   </span>
                   <button
                     onClick={() => detach.mutate(aid)}

@@ -157,12 +157,17 @@ function Metric({ label, value }: { label: string; value: number }) {
 }
 
 export function ActivityRow({ item }: { item: ActivityItem }) {
+  const who =
+    item.display_name?.trim() || (item.phone ? maskPhone(item.phone) : `Аккаунт #${item.account_id}`);
   return (
     <div className="flex items-center gap-3 px-4 py-3.5">
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2">
         <Activity className="h-4 w-4 text-text-tertiary" strokeWidth={1.6} aria-hidden />
       </span>
-      <p className="min-w-0 flex-1 truncate text-[14px] text-text-primary">{item.summary}</p>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[14px] text-text-primary">{item.summary}</p>
+        <p className="truncate text-[12px] text-text-tertiary">{who}</p>
+      </div>
       <span className="shrink-0 text-[12px] text-text-tertiary nums">
         {item.timestamp
           ? new Date(item.timestamp).toLocaleTimeString("ru-RU", {

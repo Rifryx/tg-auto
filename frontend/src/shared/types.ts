@@ -124,6 +124,7 @@ export interface Proxy {
   id: number;
   host: string;
   port: number;
+  name: string | null;
   login: string | null;
   type: ProxyType;
   geo: string | null;

@@ -66,6 +66,8 @@ class ModuleSummary(BaseModel):
 class ActivityItem(BaseModel):
     type: str
     account_id: int
+    phone: Optional[str] = None
+    display_name: Optional[str] = None
     summary: str
     timestamp: Optional[datetime] = None
 

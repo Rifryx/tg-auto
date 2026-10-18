@@ -24,6 +24,8 @@ class Proxy(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     host: Mapped[str] = mapped_column(String, nullable=False)
     port: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Опциональная человекочитаемая подпись прокси (навигация/поиск в UI).
+    name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     login: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     password_enc: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     type: Mapped[str] = mapped_column(String, nullable=False)

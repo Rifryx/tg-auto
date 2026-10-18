@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Megaphone, MessagesSquare, Pause, Play, Plus } from "lucide-react";
+import { ChevronRight, Megaphone, MessagesSquare, Pause, Play, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
@@ -134,6 +134,14 @@ function ShillingCard({ campaign: c }: { campaign: Campaign }) {
     },
   });
 
+  const [confirmDel, setConfirmDel] = useState(false);
+  const remove = useMutation({
+    mutationFn: () => shillingApi.remove(c.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["shilling", "campaigns"] }),
+  });
+  // Удалять даём только черновики/готовые (не трогаем запущенные/на паузе).
+  const canDelete = c.status === "draft" || c.status === "ready";
+
   const canToggle = c.status === "running" || c.status === "paused" || c.status === "ready";
   const successRate = stats.data?.success_rate_percent ?? 0;
 
@@ -188,6 +196,24 @@ function ShillingCard({ campaign: c }: { campaign: Campaign }) {
             {timeAgo(c.updated_at)}
           </span>
           <div className="flex items-center gap-2">
+            {canDelete &&
+              (confirmDel ? (
+                <button
+                  onClick={() => remove.mutate()}
+                  disabled={remove.isPending}
+                  className="inline-flex h-8 items-center gap-1 rounded-pill bg-status-critical px-3 text-[13px] font-medium text-white active:opacity-80 disabled:opacity-50"
+                >
+                  {remove.isPending ? "Удаляем…" : "Удалить?"}
+                </button>
+              ) : (
+                <button
+                  onClick={() => setConfirmDel(true)}
+                  aria-label="Удалить черновик"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-pill bg-surface-2 text-text-secondary active:text-status-critical"
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
+                </button>
+              ))}
             {canToggle && (
               <button
                 onClick={() => {

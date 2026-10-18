@@ -31,6 +31,7 @@ class ProxyCreateRequest(BaseModel):
     host: str
     port: int
     type: ProxyType
+    name: Optional[str] = None
     login: Optional[str] = None
     password: Optional[str] = None
     geo: Optional[str] = None
@@ -46,6 +47,7 @@ class ProxyOccupancy(BaseModel):
     id: int
     host: str
     port: int
+    name: Optional[str]
     type: ProxyType
     geo: Optional[str]
     status: ProxyStatus
@@ -77,7 +79,7 @@ def list_pool(
     occupancy: dict[int, int] = {pid: aid for pid, aid in occupancy_rows}
     return [
         ProxyOccupancy(
-            id=p.id, host=p.host, port=p.port, type=p.type, geo=p.geo,
+            id=p.id, host=p.host, port=p.port, name=p.name, type=p.type, geo=p.geo,
             status=p.status,
             last_checked_at=p.last_checked_at.isoformat() if p.last_checked_at else None,
             assigned_account_id=occupancy.get(p.id),
@@ -148,6 +150,7 @@ def create_proxy(
         host=body.host.strip(),
         port=body.port,
         type=body.type,
+        name=(body.name.strip() or None) if body.name else None,
         login=(body.login.strip() or None) if body.login else None,
         password_enc=pwd_enc,
         geo=(body.geo.strip() or None) if body.geo else None,
