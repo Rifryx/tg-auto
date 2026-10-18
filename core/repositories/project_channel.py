@@ -39,6 +39,29 @@ class ProjectChannelRepository(BaseRepository[ProjectChannel]):
         )
         return self._add(obj)
 
+    def delete_by_account_tg(self, account_id: int, channel_tg_id: int) -> bool:
+        """Удалить строку канала аккаунта. True, если что-то удалили."""
+        obj = self.find_by_account_tg(account_id, channel_tg_id)
+        if obj is None:
+            return False
+        self.session.delete(obj)
+        self.session.flush()
+        return True
+
+    def prune_not_in(
+        self, account_id: int, keep_channel_tg_ids: set[int]
+    ) -> list[int]:
+        """Удалить каналы аккаунта, которых НЕТ в ``keep_channel_tg_ids``
+        (аккаунт их покинул/удалил в Telegram). Возвращает удалённые tg_id."""
+        removed: list[int] = []
+        for ch in self.list_for_account(account_id):
+            if int(ch.channel_tg_id) not in keep_channel_tg_ids:
+                self.session.delete(ch)
+                removed.append(int(ch.channel_tg_id))
+        if removed:
+            self.session.flush()
+        return removed
+
     def find_by_account_tg(
         self, account_id: int, channel_tg_id: int
     ) -> Optional[ProjectChannel]:

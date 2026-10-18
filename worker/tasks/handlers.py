@@ -38,7 +38,11 @@ from worker.tasks.commenting import (
     verify_comment_impl,
     sync_campaign_channels_impl,
 )
-from worker.profiles.dialogs import leave_dialogs_impl, sync_dialogs_impl
+from worker.profiles.dialogs import (
+    leave_dialogs_impl,
+    sync_dialogs_impl,
+    sync_project_channels_impl,
+)
 from worker.profiles.sync import sync_profile_impl
 from worker.tasks.billing import reconcile_payments_impl
 from worker.tasks.bulk import dispatch_impl as bulk_dispatch_impl, item_impl as bulk_item_impl
@@ -343,6 +347,11 @@ TASK_FUNCTIONS = [
         task(TaskName.ACCOUNT_LEAVE_DIALOGS.value)(leave_dialogs_impl),
         name=TaskName.ACCOUNT_LEAVE_DIALOGS.value,
         max_tries=1,
+    ),
+    func(
+        task(TaskName.ACCOUNT_SYNC_PROJECT_CHANNELS.value)(sync_project_channels_impl),
+        name=TaskName.ACCOUNT_SYNC_PROJECT_CHANNELS.value,
+        max_tries=2,
     ),
 ]
 

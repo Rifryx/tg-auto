@@ -602,6 +602,21 @@ def list_project_channels(
     return [ProjectChannelRead.model_validate(r) for r in rows]
 
 
+@router.post(
+    "/{account_id}/project-channels/sync", status_code=status.HTTP_202_ACCEPTED
+)
+async def sync_project_channels(
+    account_id: int,
+    session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> dict[str, object]:
+    """Сверить список созданных каналов с реальностью: воркер уберёт те, в
+    которых аккаунта уже нет (покинул/удалил в Telegram)."""
+    _get_account_or_404(session, account_id)
+    await task_queue.enqueue(TaskName.ACCOUNT_SYNC_PROJECT_CHANNELS, account_id)
+    return {"queued": True, "account_id": account_id}
+
+
 # --- Журнал аккаунта («Логи», этап 3) ----------------------------------------
 
 

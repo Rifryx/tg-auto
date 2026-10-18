@@ -108,6 +108,8 @@ export const accountsApi = {
   // Созданные аккаунтом каналы (project_channels).
   projectChannels: (id: number) =>
     api.get<ProjectChannel[]>(`/accounts/${id}/project-channels`),
+  syncProjectChannels: (id: number) =>
+    api.post<{ queued: boolean }>(`/accounts/${id}/project-channels/sync`),
   // Журнал комментариев аккаунта (что запостил + ошибки TG API).
   commentLogs: (id: number, limit = 50) =>
     api.get<CommentLog[]>(`/accounts/${id}/comment-logs?limit=${limit}`),

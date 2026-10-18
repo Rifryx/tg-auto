@@ -94,6 +94,45 @@ async def sync_dialogs_impl(ctx: dict, account_id: int) -> dict[str, Any]:
     return {"count": len(items)}
 
 
+async def sync_project_channels_impl(ctx: dict, account_id: int) -> dict[str, Any]:
+    """Сверить ``project_channels`` аккаунта с реальностью.
+
+    Берём актуальный список каналов/групп аккаунта (``get_dialogs``) и удаляем из
+    ``project_channels`` те созданные каналы, в которых аккаунта уже нет (он их
+    покинул/удалил в Telegram) — чтобы меню «созданных каналов» было актуальным.
+    """
+    from core.repositories.project_channel import ProjectChannelRepository
+
+    pool = _pool(ctx)
+    present: set[int] = set()
+    client = await pool.get(account_id)
+    try:
+        await client.connect()
+        for dialog in await client.get_dialogs():
+            entity = dialog.entity
+            cid = getattr(entity, "id", None)
+            if cid is not None:
+                present.add(int(cid))
+    finally:
+        await pool.release(account_id)
+
+    session_factory = ctx["session_factory"]
+    with session_factory() as session:
+        removed = ProjectChannelRepository(session).prune_not_in(account_id, present)
+        session.commit()
+
+    publisher = ctx.get("publisher")
+    if publisher is not None:
+        publisher.publish(
+            "account_project_channels_synced",
+            {"account_id": account_id, "removed": len(removed)},
+        )
+    logger.info(
+        "sync_project_channels.done acc=%s removed=%s", account_id, len(removed)
+    )
+    return {"removed": removed}
+
+
 async def leave_dialogs_impl(
     ctx: dict, account_id: int, dialog_ids: Optional[list[int]] = None
 ) -> dict[str, Any]:
