@@ -38,6 +38,15 @@ def _post_date_kwargs(message: Any) -> dict:
     return {"post_date_ts": date.timestamp()} if date is not None else {}
 
 
+def _has_negative_keyword(text: Optional[str], negative_keywords: Iterable[str]) -> bool:
+    """В тексте есть стоп-слово (case-insensitive substring)."""
+    stop = [k.lower() for k in (negative_keywords or []) if k]
+    if not stop:
+        return False
+    haystack = (text or "").lower()
+    return any(k in haystack for k in stop)
+
+
 def _passes_post_filter(
     text: Optional[str],
     *,
@@ -45,6 +54,7 @@ def _passes_post_filter(
     keywords: Iterable[str],
     probability_percent: int,
     rng: random.Random,
+    negative_keywords: Iterable[str] = (),
 ) -> bool:
     """Пост проходит фильтр отбора (§ Этап 2, post_selection_mode).
 
@@ -53,8 +63,13 @@ def _passes_post_filter(
       (case-insensitive substring). Пустой список ключей → False (иначе
       keywords ничем не отличался бы от all).
     * ``probability``   → коин-флип 0..99 < probability_percent.
+
+    Стоп-слова (``negative_keywords``) отсекают пост в ЛЮБОМ режиме: если
+    текст содержит хотя бы одно стоп-слово — пост не проходит.
     """
 
+    if _has_negative_keyword(text, negative_keywords):
+        return False
     if mode == "all":
         return True
     if mode == "keywords":
@@ -110,6 +125,7 @@ def make_new_post_handler(
                     keywords=campaign.keywords or [],
                     probability_percent=campaign.probability_percent,
                     rng=_rng,
+                    negative_keywords=campaign.negative_keywords or [],
                 ):
                     get_logger().info(
                         "commenting.listener.filtered",

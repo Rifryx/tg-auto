@@ -16,6 +16,7 @@ import { AiProtectionCard } from "./components/AiProtectionCard";
 import { CampaignMediaSection } from "./components/CampaignMediaSection";
 import { CommentLogList } from "./components/CommentLogList";
 import { LaunchAndStats } from "./components/LaunchAndStats";
+import { CommentingDryRun } from "./components/DryRunSimulator";
 import {
   CapsuleButton,
   ConfirmDialog,
@@ -41,6 +42,7 @@ export function CampaignDetailScreen() {
   const qc = useQueryClient();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [dryRunOpen, setDryRunOpen] = useState(false);
   const [delayMin, setDelayMin] = useState<number | null>(null);
   const [delayMax, setDelayMax] = useState<number | null>(null);
 
@@ -278,6 +280,18 @@ export function CampaignDetailScreen() {
       <CampaignBlacklistSection campaignId={campaignId} />
 
       <LaunchAndStats campaignId={campaignId} />
+      <div className="mb-4">
+        <button
+          type="button"
+          onClick={() => setDryRunOpen(true)}
+          className="inline-flex h-10 items-center gap-2 rounded-pill border border-hairline bg-surface-1 px-4 text-[14px] font-medium text-text-primary active:bg-surface-2"
+        >
+          Сухой прогон (тест)
+        </button>
+        <p className="mt-1.5 px-1 text-[12px] text-text-tertiary">
+          Проверьте, какой комментарий сгенерирует каждый аккаунт — без отправки.
+        </p>
+      </div>
       <ChannelAlertsSection campaignId={campaignId} />
 
       {/* Лог этой кампании — изолирован по campaign_id, не пересекается
@@ -291,6 +305,12 @@ export function CampaignDetailScreen() {
       <CapsuleButton variant="danger" onClick={() => setConfirmDelete(true)}>
         Удалить кампанию
       </CapsuleButton>
+
+      <CommentingDryRun
+        open={dryRunOpen}
+        campaignId={campaignId}
+        onClose={() => setDryRunOpen(false)}
+      />
 
       <AccountPickerSheet
         open={sheetOpen}

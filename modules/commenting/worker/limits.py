@@ -34,25 +34,65 @@ def word_count(text: str) -> int:
     return len(_WORD.findall(text or ""))
 
 
-def posted_count(session, campaign_id: int) -> int:
-    return session.execute(
+# Длительность окна лимита max_comments. 'total' — без окна (вся жизнь кампании).
+_WINDOW_DELTA = {
+    "hour": timedelta(hours=1),
+    "day": timedelta(days=1),
+    "week": timedelta(weeks=1),
+}
+
+
+def _window_since(campaign, now: datetime) -> Optional[datetime]:
+    """Начало окна лимита (или None для 'total')."""
+    delta = _WINDOW_DELTA.get(getattr(campaign, "max_comments_window", "total") or "total")
+    return now - delta if delta is not None else None
+
+
+def posted_count(session, campaign_id: int, *, since: Optional[datetime] = None) -> int:
+    stmt = (
         select(func.count())
         .select_from(CommentLog)
         .where(
             CommentLog.campaign_id == campaign_id,
             CommentLog.status == CommentStatus.POSTED.value,
         )
-    ).scalar_one()
+    )
+    if since is not None:
+        stmt = stmt.where(CommentLog.created_at >= since)
+    return session.execute(stmt).scalar_one()
 
 
-def max_comments_reached(session, campaign) -> bool:
+def max_comments_reached(session, campaign, now: Optional[datetime] = None) -> bool:
     """Лимит считается по ОПУБЛИКОВАННЫМ: неудачные попытки его не съедают.
+
+    С ``max_comments_window`` != 'total' считаются только комментарии за
+    последний час/день/неделю (скользящее окно), иначе — за всю жизнь кампании.
 
     Параллельные отправки могут превысить лимит на число одновременно
     работающих задач воркера — точнее без резервирования слотов не сделать.
     """
     limit = campaign.max_comments
-    return limit is not None and posted_count(session, campaign.id) >= limit
+    if limit is None:
+        return False
+    since = _window_since(campaign, now or datetime.now(timezone.utc))
+    return posted_count(session, campaign.id, since=since) >= limit
+
+
+def is_active_weekday(campaign, now: datetime) -> bool:
+    """Сегодня — активный день недели кампании (по её таймзоне).
+
+    Пустой ``active_weekdays`` = активны все дни. 0=Пн … 6=Вс.
+    """
+    days = getattr(campaign, "active_weekdays", None) or []
+    if not days:
+        return True
+    try:
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo(campaign.active_hours_tz)
+    except Exception:  # pragma: no cover
+        tz = timezone.utc
+    return now.astimezone(tz).weekday() in set(days)
 
 
 def post_date_from_ts(post_date_ts: Optional[float]) -> Optional[datetime]:

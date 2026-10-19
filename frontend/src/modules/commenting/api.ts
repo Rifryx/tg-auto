@@ -79,6 +79,14 @@ export const commentingApi = {
   alerts: (id: number) => api.get<ChannelAlert[]>(`${BASE}/${id}/alerts`),
   resolveAlert: (alertId: number) =>
     api.post<ChannelAlert>(`/modules/commenting/alerts/${alertId}/resolve`),
+
+  // Сухой прогон: симуляция комментариев к тест-посту без отправки.
+  dryRun: (id: number, postText: string, channel: string) =>
+    api.post<{ job_id: string }>(
+      `${BASE}/${id}/dry-run?post_text=${encodeURIComponent(postText)}&channel=${encodeURIComponent(channel)}`,
+    ),
+  dryRunStreamPath: (id: number, jobId: string) =>
+    `${BASE}/${id}/dry-run/${jobId}/stream`,
 };
 
 /* Пресеты аккаунтов и задержек (§ Этап 1). Delay-list возвращает системные

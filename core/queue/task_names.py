@@ -58,6 +58,8 @@ class TaskName(str, Enum):
     COMMENTING_VERIFY_COMMENT = "commenting.verify_comment"
     COMMENTING_ON_CHANNEL_POST = "commenting.on_channel_post"
     COMMENTING_POST_CHANNEL_COMMENT = "commenting.post_channel_comment"
+    # Сухой прогон кампании (симуляция комментариев для UI, без отправки).
+    COMMENTING_DRY_RUN = "commenting.dry_run"
 
     # --- Модуль shilling ---
     # Идентификаторы задач объявлены здесь (нужны API-роутам start/stop/dry-run,

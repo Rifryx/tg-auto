@@ -47,6 +47,7 @@ from worker.profiles.sync import sync_profile_impl
 from worker.tasks.accounts import sweep_abandoned_logins_impl
 from worker.tasks.billing import reconcile_payments_impl
 from worker.tasks.bulk import dispatch_impl as bulk_dispatch_impl, item_impl as bulk_item_impl
+from modules.commenting.worker.dry_run import dry_run as commenting_dry_run_impl
 from modules.shilling.worker.dry_run import dry_run as shilling_dry_run_impl
 from modules.shilling.worker.executor import execute_step as shilling_execute_step_impl
 from modules.shilling.worker.orchestrator import (
@@ -181,6 +182,7 @@ on_channel_post = task(TaskName.COMMENTING_ON_CHANNEL_POST.value)(on_channel_pos
 post_channel_comment = task(TaskName.COMMENTING_POST_CHANNEL_COMMENT.value)(
     post_channel_comment_impl
 )
+commenting_dry_run = task(TaskName.COMMENTING_DRY_RUN.value)(commenting_dry_run_impl)
 
 # Логин-флоу (§3.2/§11): тела в worker/login, здесь только регистрация.
 login_start = task(TaskName.ACCOUNT_LOGIN_START.value)(login_start_impl)
@@ -263,6 +265,8 @@ TASK_FUNCTIONS = [
         name=TaskName.COMMENTING_POST_CHANNEL_COMMENT.value,
         max_tries=3,
     ),
+    # dry-run кампании: симуляция для UI, 1 попытка.
+    func(commenting_dry_run, name=TaskName.COMMENTING_DRY_RUN.value, max_tries=1),
     func(login_start, name=TaskName.ACCOUNT_LOGIN_START.value, max_tries=3),
     func(login_confirm, name=TaskName.ACCOUNT_LOGIN_CONFIRM.value, max_tries=3),
     func(login_password, name=TaskName.ACCOUNT_LOGIN_PASSWORD.value, max_tries=3),

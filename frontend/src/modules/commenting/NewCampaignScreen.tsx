@@ -30,11 +30,23 @@ import type {
   ChannelSourceMode,
   DelayPreset,
   LLMProvider,
+  MaxCommentsWindow,
+  MonitorMode,
   OnNotSubscribedAction,
   PostScope,
   PostSelectionMode,
   WorkMode,
 } from "./types";
+
+const WEEKDAYS: { value: number; label: string }[] = [
+  { value: 0, label: "Пн" },
+  { value: 1, label: "Вт" },
+  { value: 2, label: "Ср" },
+  { value: 3, label: "Чт" },
+  { value: 4, label: "Пт" },
+  { value: 5, label: "Сб" },
+  { value: 6, label: "Вс" },
+];
 
 function classifyChannelInput(raw: string): "username" | "invite" | "folder" {
   const low = raw.trim().toLowerCase();
@@ -104,6 +116,11 @@ export function NewCampaignScreen() {
   const [postScope, setPostScope] = useState<PostScope>("new");
   const [workMode, setWorkMode] = useState<WorkMode>("by_count");
   const [maxComments, setMaxComments] = useState<string>(""); // пусто = без лимита
+  const [maxCommentsWindow, setMaxCommentsWindow] = useState<MaxCommentsWindow>("total");
+  // Режим мониторинга + расписание + стоп-слова.
+  const [monitorMode, setMonitorMode] = useState<MonitorMode>("channels");
+  const [activeWeekdays, setActiveWeekdays] = useState<Set<number>>(new Set());
+  const [negativeKeywordsText, setNegativeKeywordsText] = useState("");
   const [minWords, setMinWords] = useState<number>(0);
   const [windowAfterPost, setWindowAfterPost] = useState<number>(3600);
   const [pauseBetween, setPauseBetween] = useState<number>(60);
@@ -146,6 +163,14 @@ export function NewCampaignScreen() {
         .filter(Boolean),
     [channelLinksText],
   );
+  const negativeKeywordsList = useMemo(
+    () =>
+      negativeKeywordsText
+        .split(/[\n,|]/)
+        .map((s) => s.trim())
+        .filter(Boolean),
+    [negativeKeywordsText],
+  );
 
   const valid =
     name.trim() !== "" &&
@@ -175,6 +200,10 @@ export function NewCampaignScreen() {
         post_scope: postScope,
         work_mode: workMode,
         max_comments: maxComments.trim() ? Number(maxComments) : null,
+        max_comments_window: maxCommentsWindow,
+        monitor_mode: monitorMode,
+        active_weekdays: [...activeWeekdays].sort((a, b) => a - b),
+        negative_keywords: negativeKeywordsList,
         min_words: minWords,
         window_after_post_sec:
           workMode === "by_time_window" ? windowAfterPost : null,
@@ -323,10 +352,26 @@ export function NewCampaignScreen() {
         </div>
       </Section>
 
+      <Section title="Режим мониторинга">
+        <SegmentedControl
+          options={[
+            { value: "channels", label: "Каналы" },
+            { value: "chats", label: "Чаты" },
+          ]}
+          value={monitorMode}
+          onChange={(v) => setMonitorMode(v as MonitorMode)}
+        />
+        <p className="mt-2 px-1 text-[12px] text-text-tertiary">
+          {monitorMode === "channels"
+            ? "Комментируем новые/существующие посты каналов (через их группу обсуждения)."
+            : "Мониторинг чатов по ключевым словам: аккаунты отвечают на сообщения с нужными словами. Настройки — ключевые слова, стоп-слова, паузы и лимиты ниже; live-слушатель чатов включается отдельно."}
+        </p>
+      </Section>
+
       <Section title="Режим комментирования">
         <SegmentedControl
           options={[
-            { value: "all", label: "Все посты" },
+            { value: "all", label: monitorMode === "chats" ? "Все сообщения" : "Все посты" },
             { value: "keywords", label: "По словам" },
             { value: "probability", label: "По вероятности" },
           ]}
@@ -367,6 +412,21 @@ export function NewCampaignScreen() {
             </p>
           </div>
         )}
+        <div className="mt-4">
+          <Field
+            label="Стоп-слова (исключения)"
+            hint={<span className="text-[11px] text-text-tertiary">одно в строке или через `|`</span>}
+          >
+            <TextArea
+              value={negativeKeywordsText}
+              onChange={(e) => setNegativeKeywordsText(e.target.value)}
+              placeholder={"реклама\nскам"}
+            />
+          </Field>
+          <p className="px-1 text-[12px] text-text-tertiary">
+            Если пост/сообщение содержит стоп-слово — пропускаем (в любом режиме отбора).
+          </p>
+        </div>
       </Section>
 
       <Section title="Какие посты комментировать">
@@ -407,6 +467,18 @@ export function NewCampaignScreen() {
               placeholder="Без лимита"
               className="nums text-center"
             />
+            <div className="mt-2">
+              <Select
+                value={maxCommentsWindow}
+                onChange={(v) => setMaxCommentsWindow(v as MaxCommentsWindow)}
+                options={[
+                  { value: "total", label: "всего" },
+                  { value: "hour", label: "в час" },
+                  { value: "day", label: "в день" },
+                  { value: "week", label: "в неделю" },
+                ]}
+              />
+            </div>
           </Field>
           <FieldGroup label="Мин. слов в комменте">
             <NumberStepper
@@ -466,6 +538,38 @@ export function NewCampaignScreen() {
             options={TZ_OPTIONS.map((t) => ({ value: t, label: t }))}
           />
         </Field>
+        <div className="mt-1">
+          <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">Дни недели</p>
+          <div className="flex flex-wrap gap-1.5">
+            {WEEKDAYS.map((d) => {
+              const on = activeWeekdays.has(d.value);
+              return (
+                <button
+                  key={d.value}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() =>
+                    setActiveWeekdays((s) => {
+                      const n = new Set(s);
+                      n.has(d.value) ? n.delete(d.value) : n.add(d.value);
+                      return n;
+                    })
+                  }
+                  className={`h-9 w-11 rounded-pill border text-[13px] font-medium transition-colors ${
+                    on
+                      ? "border-strong bg-surface-2 text-text-primary"
+                      : "border-hairline bg-surface-1 text-text-secondary"
+                  }`}
+                >
+                  {d.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-1.5 px-1 text-[12px] text-text-tertiary">
+            Ничего не выбрано = активны все дни.
+          </p>
+        </div>
       </Section>
 
       <Section title="Задержки постинга">

@@ -11,10 +11,12 @@ state machine (см. :mod:`modules.commenting.api.service`).
 
 from __future__ import annotations
 
+import uuid
 from typing import Optional
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -819,3 +821,129 @@ def list_logs(
         campaign_id, status=status_filter, limit=limit, offset=offset
     )
     return [CommentLogRead.model_validate(log) for log in logs]
+
+
+# --- Сухой прогон (симуляция комментариев без отправки) ----------------------
+
+
+@router.post(
+    "/campaigns/{campaign_id}/dry-run", status_code=status.HTTP_202_ACCEPTED
+)
+async def dry_run_campaign(
+    campaign_id: int,
+    post_text: str = Query("", description="Текст тест-поста (можно пусто, если задан channel)"),
+    channel: str = Query("", description="@канал — взять последний пост (если post_text пуст)"),
+    session: Session = Depends(get_session),
+) -> dict[str, str]:
+    """Готовит сухой прогон кампании. Результат — по SSE.
+
+    Задачу ставит SSE-эндпоинт уже ПОСЛЕ подписки на канал событий (POST лишь
+    сохраняет параметры), иначе воркер мог бы опубликовать события до появления
+    подписчика — гонка Redis pub/sub.
+    """
+    import json as _json
+
+    import redis.asyncio as aioredis
+
+    from core.config import get_settings
+    from modules.commenting.worker.dry_run import dry_run_req_key
+
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    job_id = uuid.uuid4().hex
+    redis_client = aioredis.from_url(get_settings().redis_url)
+    try:
+        await redis_client.set(
+            dry_run_req_key(job_id),
+            _json.dumps(
+                {"campaign_id": campaign_id, "post_text": post_text, "channel_ref": channel}
+            ),
+            ex=300,
+        )
+    finally:
+        await redis_client.aclose()
+    return {"job_id": job_id}
+
+
+@router.get("/campaigns/{campaign_id}/dry-run/{job_id}/stream")
+async def dry_run_stream(
+    campaign_id: int,
+    job_id: str,
+    request: Request,
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> StreamingResponse:
+    """SSE-поток событий сухого прогона (start/step/done).
+
+    Подписывается на ``commenting.dry_run.{job_id}`` и только ПОСЛЕ этого ставит
+    задачу (параметры сохранил POST) — без гонки pub/sub.
+    """
+    import asyncio
+    import json as _json
+
+    import redis.asyncio as aioredis
+
+    from core.config import get_settings
+    from modules.commenting.worker.dry_run import dry_run_channel, dry_run_req_key
+
+    channel = dry_run_channel(job_id)
+    redis_client = aioredis.from_url(get_settings().redis_url)
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe(channel)
+
+    # Подписка готова → забираем параметры (GETDEL: ровно один запуск) и ставим
+    # задачу. Нет параметров (истёк TTL/уже запущено) — просто слушаем канал.
+    try:
+        raw = await redis_client.getdel(dry_run_req_key(job_id))
+    except Exception:  # noqa: BLE001 — старый redis без GETDEL
+        raw = await redis_client.get(dry_run_req_key(job_id))
+        if raw is not None:
+            await redis_client.delete(dry_run_req_key(job_id))
+    if raw is not None:
+        try:
+            params = _json.loads(raw)
+            await task_queue.enqueue(
+                TaskName.COMMENTING_DRY_RUN,
+                params["campaign_id"],
+                params.get("post_text", ""),
+                params.get("channel_ref", ""),
+                job_id,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    async def event_source():
+        try:
+            yield ": connected\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    message = await asyncio.wait_for(
+                        pubsub.get_message(ignore_subscribe_messages=True, timeout=15),
+                        timeout=20,
+                    )
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                if message is None:
+                    yield ": keepalive\n\n"
+                    continue
+                data = message.get("data")
+                if isinstance(data, (bytes, bytearray)):
+                    data = data.decode()
+                yield f"data: {data}\n\n"
+                try:
+                    if _json.loads(data).get("event") == "done":
+                        break
+                except (TypeError, ValueError):
+                    pass
+        finally:
+            await pubsub.unsubscribe(channel)
+            await pubsub.aclose()
+            await redis_client.aclose()
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

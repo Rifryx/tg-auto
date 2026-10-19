@@ -279,8 +279,10 @@ async def _handle_access_error(
 
 
 def _limit_skip_reason(session, campaign, post_date_ts: Optional[float], now: datetime) -> Optional[str]:
-    """Причина не комментировать по лимитам кампании (E2.2) или None."""
-    if limits.max_comments_reached(session, campaign):
+    """Причина не комментировать по лимитам/расписанию кампании (E2.2) или None."""
+    if not limits.is_active_weekday(campaign, now):
+        return "inactive_weekday"
+    if limits.max_comments_reached(session, campaign, now):
         return "max_comments_reached"
     if limits.window_closed(campaign, limits.post_date_from_ts(post_date_ts), now):
         return "window_closed"

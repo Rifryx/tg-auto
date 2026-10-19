@@ -11,6 +11,8 @@ PostScope = Literal["new", "existing", "mixed"]
 WorkMode = Literal["by_count", "by_time_window"]
 ChannelSourceMode = Literal["by_account_subscriptions", "explicit_links"]
 OnNotSubscribedAction = Literal["subscribe_and_notify", "notify_only"]
+MonitorMode = Literal["channels", "chats"]
+MaxCommentsWindow = Literal["total", "hour", "day", "week"]
 
 
 class CampaignCreate(BaseModel):
@@ -42,9 +44,13 @@ class CampaignCreate(BaseModel):
     post_scope: PostScope = "new"
     work_mode: WorkMode = "by_count"
     max_comments: Optional[int] = Field(default=None, gt=0)
+    max_comments_window: MaxCommentsWindow = "total"
     min_words: int = Field(default=0, ge=0)
     window_after_post_sec: Optional[int] = Field(default=None, gt=0)
     pause_between_sec: Optional[int] = Field(default=None, ge=0)
+    monitor_mode: MonitorMode = "channels"
+    active_weekdays: list[int] = Field(default_factory=list)
+    negative_keywords: list[str] = Field(default_factory=list)
     channel_source_mode: ChannelSourceMode = "explicit_links"
     on_not_subscribed_action: OnNotSubscribedAction = "notify_only"
     # Стиль комментариев (§ Этап 4)
@@ -80,9 +86,13 @@ class CampaignUpdate(BaseModel):
     post_scope: Optional[PostScope] = None
     work_mode: Optional[WorkMode] = None
     max_comments: Optional[int] = Field(default=None, gt=0)
+    max_comments_window: Optional[MaxCommentsWindow] = None
     min_words: Optional[int] = Field(default=None, ge=0)
     window_after_post_sec: Optional[int] = Field(default=None, gt=0)
     pause_between_sec: Optional[int] = Field(default=None, ge=0)
+    monitor_mode: Optional[MonitorMode] = None
+    active_weekdays: Optional[list[int]] = None
+    negative_keywords: Optional[list[str]] = None
     channel_source_mode: Optional[ChannelSourceMode] = None
     on_not_subscribed_action: Optional[OnNotSubscribedAction] = None
     use_emojis: Optional[bool] = None
@@ -118,9 +128,13 @@ class CampaignRead(ORMModel):
     post_scope: PostScope
     work_mode: WorkMode
     max_comments: Optional[int]
+    max_comments_window: MaxCommentsWindow
     min_words: int
     window_after_post_sec: Optional[int]
     pause_between_sec: Optional[int]
+    monitor_mode: MonitorMode
+    active_weekdays: list[int]
+    negative_keywords: list[str]
     channel_source_mode: ChannelSourceMode
     on_not_subscribed_action: OnNotSubscribedAction
     use_emojis: bool

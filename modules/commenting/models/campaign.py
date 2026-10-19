@@ -16,6 +16,7 @@ from sqlalchemy import (
     Integer,
     String,
     Time,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
@@ -85,6 +86,14 @@ class Campaign(Base, TimestampMixin):
         CheckConstraint(
             "verify_delay_sec > 0",
             name="campaign_verify_delay_valid",
+        ),
+        CheckConstraint(
+            "monitor_mode IN ('channels', 'chats')",
+            name="campaign_monitor_mode_allowed",
+        ),
+        CheckConstraint(
+            "max_comments_window IN ('total', 'hour', 'day', 'week')",
+            name="campaign_max_comments_window_allowed",
         ),
         {"schema": COMMENTING_SCHEMA},
     )
@@ -159,11 +168,38 @@ class Campaign(Base, TimestampMixin):
         String, nullable=False, default="by_count", server_default="by_count"
     )
     max_comments: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Период, за который считается max_comments: total (вся жизнь кампании, как
+    # раньше) | hour | day | week. Общая настройка для каналов и чатов.
+    max_comments_window: Mapped[str] = mapped_column(
+        String, nullable=False, default="total", server_default="total"
+    )
     min_words: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
     window_after_post_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pause_between_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # ── Режим мониторинга + расписание + стоп-слова ────────────────────
+    # channels: комментируем посты каналов (текущий движок). chats: мониторинг
+    # чатов по ключевым словам (live-рантайм подключается отдельной задачей —
+    # конфигурация и UI готовы, слушатель чатов — следующий шаг).
+    monitor_mode: Mapped[str] = mapped_column(
+        String, nullable=False, default="channels", server_default="channels"
+    )
+    # Дни недели активности: 0=Пн … 6=Вс. Пусто = все дни.
+    active_weekdays: Mapped[list[int]] = mapped_column(
+        ARRAY(Integer),
+        nullable=False,
+        default=list,
+        server_default=text("ARRAY[]::integer[]"),
+    )
+    # Стоп-слова: пост/сообщение со стоп-словом пропускается (все режимы отбора).
+    negative_keywords: Mapped[list[str]] = mapped_column(
+        ARRAY(String),
+        nullable=False,
+        default=list,
+        server_default=text("ARRAY[]::text[]"),
+    )
 
     # ── Целевые каналы (§ Этап 3) ──────────────────────────────────────
     # by_account_subscriptions: источник = MonitoredChannel каждого аккаунта.
