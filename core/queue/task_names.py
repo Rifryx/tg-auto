@@ -42,6 +42,9 @@ class TaskName(str, Enum):
     # Сверка созданных каналов (project_channels) с реальностью: убрать те,
     # которые аккаунт покинул/удалил в Telegram.
     ACCOUNT_SYNC_PROJECT_CHANNELS = "account.sync_project_channels"
+    # Уборка брошенных недо-логинов: аккаунты, зависшие в статусе ``created``
+    # (пользователь закрыл приложение на вводе кода/2FA).
+    ACCOUNTS_SWEEP_ABANDONED_LOGINS = "accounts.sweep_abandoned_logins"
 
     # --- Модуль commenting ---
     COMMENTING_ON_NEW_POST = "commenting.on_new_post"

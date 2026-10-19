@@ -221,7 +221,8 @@ export function RunParsingScreen() {
               <button
                 key={a.id}
                 type="button"
-                onClick={() => setCollectorId(a.id)}
+                aria-pressed={collectorId === a.id}
+                onClick={() => setCollectorId(collectorId === a.id ? null : a.id)}
                 className={[
                   "flex items-center justify-between rounded-xl border p-3 text-left transition-colors",
                   collectorId === a.id ? "border-strong bg-surface-2" : "border-hairline bg-surface-1 active:bg-surface-2",

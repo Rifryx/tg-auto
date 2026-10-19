@@ -43,9 +43,20 @@ export function DryRunSimulator({
   const [done, setDone] = useState<DoneEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const unsubRef = useRef<(() => void) | null>(null);
+  const timeoutRef = useRef<number | null>(null);
+
+  const clearStuckTimer = () => {
+    if (timeoutRef.current != null) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  };
 
   useEffect(() => {
-    return () => unsubRef.current?.();
+    return () => {
+      unsubRef.current?.();
+      clearStuckTimer();
+    };
   }, []);
 
   const launch = useMutation({
@@ -62,12 +73,21 @@ export function DryRunSimulator({
           setSteps((prev) => [...prev, ev as unknown as StepEvent]);
         } else if (ev.event === "done") {
           const d = ev as unknown as DoneEvent;
+          clearStuckTimer();
           setDone(d);
           if (!d.ok) setError(d.reason || "Прогон не удался");
           setPhase("done");
           unsubRef.current?.();
         }
       });
+      // Страховка от «вечного» running, если поток событий не доедет до done
+      // (сеть/воркер). Через 90с показываем ошибку и даём повторить.
+      clearStuckTimer();
+      timeoutRef.current = window.setTimeout(() => {
+        setError((prev) => prev ?? "Прогон не ответил вовремя. Попробуйте ещё раз.");
+        setPhase("done");
+        unsubRef.current?.();
+      }, 90_000);
     },
     onError: () => setError("Не удалось запустить прогон"),
     meta: { silent: true }, // inline-сообщение в модалке
@@ -77,6 +97,7 @@ export function DryRunSimulator({
 
   const reset = () => {
     unsubRef.current?.();
+    clearStuckTimer();
     setPhase("form");
     setSteps([]);
     setDone(null);

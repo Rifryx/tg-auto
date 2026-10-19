@@ -44,6 +44,7 @@ from worker.profiles.dialogs import (
     sync_project_channels_impl,
 )
 from worker.profiles.sync import sync_profile_impl
+from worker.tasks.accounts import sweep_abandoned_logins_impl
 from worker.tasks.billing import reconcile_payments_impl
 from worker.tasks.bulk import dispatch_impl as bulk_dispatch_impl, item_impl as bulk_item_impl
 from modules.shilling.worker.dry_run import dry_run as shilling_dry_run_impl
@@ -198,6 +199,9 @@ shilling_execute_step = task(TaskName.SHILLING_EXECUTE_STEP.value)(
 )
 shilling_failover = task(TaskName.SHILLING_FAILOVER.value)(shilling_failover_impl)
 shilling_dry_run = task(TaskName.SHILLING_DRY_RUN.value)(shilling_dry_run_impl)
+sweep_abandoned_logins = task(
+    TaskName.ACCOUNTS_SWEEP_ABANDONED_LOGINS.value
+)(sweep_abandoned_logins_impl)
 
 # Модуль priming: исполнитель одной попытки (2.2) и tick-раскладчик (2.3).
 priming_execute_prime = task(TaskName.PRIMING_EXECUTE_PRIME.value)(
@@ -398,6 +402,14 @@ CRON_JOBS = [
     ),
     # Биллинг: сверка pending крипто-платежей каждые 2 минуты (страховка к
     # on-demand-проверке). Идемпотентно — повторы безопасны.
+    # Брошенные недо-логины: каждые 10 минут удаляем зависшие `created`-акки.
+    cron(
+        sweep_abandoned_logins,
+        name=TaskName.ACCOUNTS_SWEEP_ABANDONED_LOGINS.value,
+        minute=set(range(0, 60, 10)),
+        run_at_startup=False,
+        max_tries=1,
+    ),
     cron(
         reconcile_payments_impl,
         name=TaskName.BILLING_RECONCILE_PAYMENTS.value,

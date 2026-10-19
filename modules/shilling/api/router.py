@@ -735,18 +735,33 @@ async def dry_run_campaign(
     campaign_id: int,
     test_target: str = Query(..., description="@username или t.me/... тест-чата"),
     session: Session = Depends(get_session),
-    task_queue: TaskQueue = Depends(get_task_queue),
 ) -> dict[str, str]:
-    """Ставит задачу сухого прогона. Результат забирается по SSE (промпт 4.5).
+    """Готовит сухой прогон. Результат забирается по SSE (промпт 4.5).
 
-    Возвращает job_id, по которому фронт подпишется на поток событий.
+    Возвращает job_id, по которому фронт подпишется на поток событий. Саму
+    задачу ставит SSE-эндпоинт — уже ПОСЛЕ подписки на канал событий, иначе
+    воркер мог бы опубликовать start/step/done до появления подписчика
+    (гонка Redis pub/sub: события не буферизуются и терялись бы).
     """
+    import json as _json
+
+    import redis.asyncio as aioredis
+
+    from core.config import get_settings
+    from modules.shilling.worker.dry_run import dry_run_req_key
+
     if CampaignRepository(session).get(campaign_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
     job_id = uuid.uuid4().hex
-    await task_queue.enqueue(
-        TaskName.SHILLING_DRY_RUN, campaign_id, test_target, job_id
-    )
+    redis_client = aioredis.from_url(get_settings().redis_url)
+    try:
+        await redis_client.set(
+            dry_run_req_key(job_id),
+            _json.dumps({"campaign_id": campaign_id, "test_target": test_target}),
+            ex=300,
+        )
+    finally:
+        await redis_client.aclose()
     return {"job_id": job_id}
 
 
@@ -755,11 +770,13 @@ async def dry_run_stream(
     campaign_id: int,
     job_id: str,
     request: Request,
+    task_queue: TaskQueue = Depends(get_task_queue),
 ) -> StreamingResponse:
     """SSE-поток событий сухого прогона (start/step/done).
 
-    Подписывается на per-job Redis-канал ``shilling.dry_run.{job_id}``,
-    куда воркер публикует прогресс симуляции.
+    Подписывается на per-job Redis-канал ``shilling.dry_run.{job_id}`` и только
+    ПОСЛЕ этого ставит задачу прогона (параметры сохранил POST). Так события
+    воркера гарантированно попадают в наш pub/sub-буфер — без гонки.
     """
     import asyncio
     import json as _json
@@ -767,12 +784,33 @@ async def dry_run_stream(
     import redis.asyncio as aioredis
 
     from core.config import get_settings
-    from modules.shilling.worker.dry_run import dry_run_channel
+    from modules.shilling.worker.dry_run import dry_run_channel, dry_run_req_key
 
     channel = dry_run_channel(job_id)
     redis_client = aioredis.from_url(get_settings().redis_url)
     pubsub = redis_client.pubsub()
     await pubsub.subscribe(channel)
+
+    # Подписка готова → забираем параметры (GETDEL: ровно один запуск даже при
+    # повторном открытии стрима) и ставим задачу. Нет параметров (истёк TTL или
+    # уже запущено) — просто слушаем канал.
+    try:
+        raw = await redis_client.getdel(dry_run_req_key(job_id))
+    except Exception:  # noqa: BLE001 — старый redis без GETDEL: get+delete
+        raw = await redis_client.get(dry_run_req_key(job_id))
+        if raw is not None:
+            await redis_client.delete(dry_run_req_key(job_id))
+    if raw is not None:
+        try:
+            params = _json.loads(raw)
+            await task_queue.enqueue(
+                TaskName.SHILLING_DRY_RUN,
+                params["campaign_id"],
+                params["test_target"],
+                job_id,
+            )
+        except Exception:  # noqa: BLE001 — не валим стрим из-за битых параметров
+            pass
 
     async def event_source():
         try:
