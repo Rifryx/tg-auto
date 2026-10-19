@@ -149,7 +149,8 @@ export function DiscoverScreen() {
           </div>
           <div className="flex max-h-48 flex-col gap-1.5 overflow-y-auto">
             {collectors.map((a) => (
-              <button key={a.id} type="button" onClick={() => setCollectorId(a.id)}
+              <button key={a.id} type="button" aria-pressed={collectorId === a.id}
+                onClick={() => setCollectorId(collectorId === a.id ? null : a.id)}
                 className={["flex items-center justify-between rounded-xl border p-3 text-left transition-colors",
                   collectorId === a.id ? "border-strong bg-surface-2" : "border-hairline bg-surface-1 active:bg-surface-2"].join(" ")}>
                 <span className="truncate text-[14px] font-medium text-text-primary">{a.username ? `@${a.username}` : a.phone}</span>

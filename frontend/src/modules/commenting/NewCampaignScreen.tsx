@@ -3,6 +3,8 @@ import { ArrowLeft, Bookmark, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { StickyActionBar } from "../../components/StickyActionBar";
+import { ErrorBanner } from "../../components/ErrorBanner";
+import { humanizeError } from "../../shared/api";
 import { accountsApi, catalogApi } from "../../shared/accounts";
 import { useLimit } from "../../shared/limits";
 import { projectsApi } from "../../shared/projects";
@@ -644,7 +646,10 @@ export function NewCampaignScreen() {
       </div>
 
       {create.isError && (
-        <p className="mb-3 text-[13px] text-status-critical">Не удалось создать кампанию.</p>
+        <ErrorBanner
+          className="mb-3"
+          message={humanizeError(create.error, "Не удалось создать кампанию.")}
+        />
       )}
 
       <StickyActionBar>

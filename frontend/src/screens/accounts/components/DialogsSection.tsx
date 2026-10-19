@@ -99,6 +99,27 @@ export function DialogsSection({ accountId }: { accountId: number }) {
         )}
 
         {items.length > 0 && (
+          <div className="mb-2 flex items-center justify-between gap-2 border-b border-hairline pb-2">
+            <span className="text-[12px] text-text-tertiary nums">
+              Выбрано {selected.size} из {items.length}
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                setSelected(
+                  selected.size === items.length
+                    ? new Set()
+                    : new Set(items.map((d) => d.id)),
+                )
+              }
+              className="rounded-pill border border-hairline bg-surface-1 px-3 py-1 text-[12px] font-semibold text-text-secondary active:bg-surface-2"
+            >
+              {selected.size === items.length ? "Снять все" : "Выбрать все"}
+            </button>
+          </div>
+        )}
+
+        {items.length > 0 && (
           <div className="flex max-h-[360px] flex-col gap-1 overflow-y-auto overscroll-contain pr-1">
             {items.map((d) => {
               const checked = selected.has(d.id);

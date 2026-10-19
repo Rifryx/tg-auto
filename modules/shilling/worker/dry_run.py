@@ -39,6 +39,16 @@ def dry_run_channel(job_id: str) -> str:
     return f"shilling.dry_run.{job_id}"
 
 
+def dry_run_req_key(job_id: str) -> str:
+    """Redis-ключ с параметрами прогона (campaign_id, test_target).
+
+    POST сохраняет сюда запрос, а SSE-эндпоинт забирает его (GETDEL) и ставит
+    задачу — но только ПОСЛЕ подписки на канал событий, чтобы воркер не успел
+    опубликовать start/step/done до появления подписчика (гонка pub/sub).
+    """
+    return f"shilling.dry_run.{job_id}.req"
+
+
 def _now(ctx: dict) -> datetime:
     return ctx.get("now") or datetime.now(timezone.utc)
 
@@ -140,7 +150,8 @@ async def dry_run(
             publisher=ctx.get("publisher"), now=publisher_now,
         )
     except Exception as exc:  # noqa: BLE001
-        await pool.release(resolver_account_id)
+        # release — только в finally (иначе двойной release: refcount уходит
+        # в минус, второй disconnect по уже удалённому клиенту).
         return _fail(f"test target resolve failed: {type(exc).__name__}")
     finally:
         await pool.release(resolver_account_id)

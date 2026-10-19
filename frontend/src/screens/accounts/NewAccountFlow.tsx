@@ -13,6 +13,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { StickyActionBar } from "../../components/StickyActionBar";
+import { ErrorBanner } from "../../components/ErrorBanner";
 import { accountsApi, catalogApi } from "../../shared/accounts";
 import { humanizeError, subscribeStream } from "../../shared/api";
 import { useLimit } from "../../shared/limits";
@@ -79,6 +80,7 @@ export function NewAccountFlow() {
   const [profile] = useState<WarmingProfile>("medium");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [sessionString, setSessionString] = useState("");
   const [sessionFile, setSessionFile] = useState<File | null>(null);
   const [tdataZip, setTdataZip] = useState<File | null>(null);
@@ -110,7 +112,21 @@ export function NewAccountFlow() {
       accountIdRef.current = null;
     }
   };
-  useEffect(() => () => abandonPendingAccount(), []);
+  useEffect(() => {
+    // Закрытие/сворачивание приложения на вводе кода/2FA: пробуем убрать
+    // недорегистрированный аккаунт сразу (best-effort). Жёсткий «kill» сюда не
+    // попадёт — на этот случай есть серверная авточистка (cron accounts.sweep_abandoned_logins).
+    const onHide = () => {
+      if (document.visibilityState === "hidden") abandonPendingAccount();
+    };
+    window.addEventListener("pagehide", abandonPendingAccount);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("pagehide", abandonPendingAccount);
+      document.removeEventListener("visibilitychange", onHide);
+      abandonPendingAccount();
+    };
+  }, []);
 
   const create = useMutation({
     mutationFn: () =>
@@ -231,7 +247,13 @@ export function NewAccountFlow() {
       {/* Шаги 1–4 есть только у входа по коду; импорт .session — один шаг. */}
       {method === "code" ? <StepProgress current={step} /> : <div className="mt-4" />}
 
-      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+      {error && (
+        <ErrorBanner
+          message={error}
+          onDismiss={() => setError(null)}
+          className="mt-4"
+        />
+      )}
 
       {step === 1 && (
         <StepFrame title="Добавить аккаунт" subtitle="Введите номер и настройте прокси">
@@ -304,13 +326,27 @@ export function NewAccountFlow() {
       {step === 3 && (
         <StepFrame title="Пароль 2FA" subtitle="Облачный пароль от аккаунта Telegram">
           <Field label="Пароль">
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type="password"
-              placeholder="••••••••"
-              className={INPUT}
-            />
+            <div className="relative">
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type={showPassword ? "text" : "password"}
+                placeholder="••••••••"
+                className={`${INPUT} pr-12`}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
+                className="absolute inset-y-0 right-1 flex w-10 items-center justify-center text-text-tertiary hover:text-text-primary"
+              >
+                {showPassword ? (
+                  <EyeOff className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                ) : (
+                  <Eye className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                )}
+              </button>
+            </div>
           </Field>
         </StepFrame>
       )}
@@ -444,32 +480,6 @@ function StepFrame({
       <h1 className="screen-title">{title}</h1>
       <p className="mb-6 mt-1 text-[14px] text-text-secondary">{subtitle}</p>
       {children}
-    </div>
-  );
-}
-
-/* ── Баннер ошибки: иконка-слева, выровнена по первой строке, текст переносится
-   (раньше сюда падал сырой JSON и иконки не было вовсе — скрин с «куском кода»). */
-function ErrorBanner({ message, onDismiss }: { message: string; onDismiss?: () => void }) {
-  return (
-    <div className="mt-4 flex items-start gap-2.5 rounded-chip border border-status-critical/40 bg-status-critical/10 px-4 py-3">
-      <AlertTriangle
-        className="mt-0.5 h-4 w-4 shrink-0 text-status-critical"
-        strokeWidth={2}
-        aria-hidden
-      />
-      <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-status-critical [overflow-wrap:anywhere]">
-        {message}
-      </p>
-      {onDismiss && (
-        <button
-          onClick={onDismiss}
-          aria-label="Скрыть ошибку"
-          className="-mr-1 -mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-status-critical/70 hover:text-status-critical"
-        >
-          <X className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
-        </button>
-      )}
     </div>
   );
 }
