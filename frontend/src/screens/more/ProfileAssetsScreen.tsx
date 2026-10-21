@@ -249,20 +249,20 @@ export function ProfileAssetsScreen() {
                     )}
                   </span>
                 </figcaption>
-                <div className="absolute right-1.5 top-1.5 flex gap-1">
+                <div className="absolute right-1.5 top-1.5 flex gap-1.5">
                   <button
                     onClick={() => setToEdit(a)}
                     aria-label="Редактировать"
-                    className="flex h-7 w-7 items-center justify-center rounded-full bg-bg-elevated/85 text-text-secondary shadow-sm backdrop-blur active:text-accent"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white shadow-md ring-1 ring-white/20 backdrop-blur active:bg-black/75"
                   >
-                    <Pencil className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
+                    <Pencil className="h-4 w-4" strokeWidth={2} aria-hidden />
                   </button>
                   <button
                     onClick={() => setToDelete(a)}
                     aria-label="Удалить изображение"
-                    className="flex h-7 w-7 items-center justify-center rounded-full bg-bg-elevated/85 text-text-secondary shadow-sm backdrop-blur active:text-status-critical"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-status-critical text-white shadow-md ring-1 ring-white/25 active:opacity-80"
                   >
-                    <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
+                    <Trash2 className="h-4 w-4" strokeWidth={2} aria-hidden />
                   </button>
                 </div>
               </figure>
@@ -284,16 +284,16 @@ export function ProfileAssetsScreen() {
                 <button
                   onClick={() => setToEdit(a)}
                   aria-label="Редактировать"
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-text-secondary active:text-accent"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-hairline bg-surface-2 text-text-secondary active:text-accent"
                 >
-                  <Pencil className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                  <Pencil className="h-4 w-4" strokeWidth={2} aria-hidden />
                 </button>
                 <button
                   onClick={() => setToDelete(a)}
                   aria-label="Удалить"
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-text-secondary active:text-status-critical"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-status-critical/15 text-status-critical active:bg-status-critical/25"
                 >
-                  <Trash2 className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                  <Trash2 className="h-4 w-4" strokeWidth={2} aria-hidden />
                 </button>
               </li>
             ))}
