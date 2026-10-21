@@ -1,13 +1,40 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { api } from "../../shared/api";
 import { PlanBadge } from "../../shared/PlanBadge";
 import { PROFILE_LABEL } from "../../shared/status";
 import { useCurrentPlan } from "../../shared/store";
 import { hapticSelection } from "../../shared/tg";
+import { showToast } from "../../shared/toast";
 import type { WarmingProfile } from "../../shared/types";
 import { Field, Section, SegmentedControl, TextInput } from "../../modules/commenting/components/ui";
+import { useAppContent } from "./AboutScreen";
 import { BackHeader } from "./PersonasScreen";
+
+/* Набор частых IANA-таймзон для выпадающего списка. Определённую браузером TZ
+   добавляем сверху, если её нет в списке. */
+const TZ_OPTIONS = [
+  "UTC",
+  "Europe/Kaliningrad",
+  "Europe/Moscow",
+  "Europe/Kyiv",
+  "Europe/Minsk",
+  "Europe/London",
+  "Europe/Berlin",
+  "Europe/Istanbul",
+  "Asia/Yekaterinburg",
+  "Asia/Almaty",
+  "Asia/Novosibirsk",
+  "Asia/Tashkent",
+  "Asia/Dubai",
+  "Asia/Tbilisi",
+  "Asia/Yerevan",
+  "America/New_York",
+  "America/Chicago",
+  "America/Los_Angeles",
+];
 
 /* Локальные значения по умолчанию (бэкенд-эндпоинта настроек нет — храним в
    localStorage как пресеты для форм). */
@@ -39,8 +66,6 @@ const PROFILE_OPTIONS: { value: WarmingProfile; label: string }[] = [
 export function SettingsScreen() {
   const navigate = useNavigate();
   const [profile, setProfile] = useLocalSetting<WarmingProfile>("default_profile", "medium");
-  const [start, setStart] = useLocalSetting<string>("default_hours_start", "09:00");
-  const [end, setEnd] = useLocalSetting<string>("default_hours_end", "23:00");
 
   const plan = useCurrentPlan();
 
@@ -78,16 +103,7 @@ export function SettingsScreen() {
         </div>
       </Section>
 
-      <Section title="Окно активности по умолчанию">
-        <div className="card flex gap-2 p-4">
-          <Field label="С">
-            <TextInput type="time" value={start} onChange={(e) => setStart(e.target.value)} className="nums" />
-          </Field>
-          <Field label="До">
-            <TextInput type="time" value={end} onChange={(e) => setEnd(e.target.value)} className="nums" />
-          </Field>
-        </div>
-      </Section>
+      <ActivityWindowSection />
 
       <Section title="LLM-ключи">
         <div className="card px-4">
@@ -102,6 +118,97 @@ export function SettingsScreen() {
         </p>
       </Section>
     </div>
+  );
+}
+
+/* Таймзона + окно активности. Хранятся на сервере (app_settings) и учитываются
+   прогревом (фолбэк окна активности) и при отображении времён в UI. */
+function ActivityWindowSection() {
+  const qc = useQueryClient();
+  const { data } = useAppContent();
+  const [tz, setTz] = useState<string | null>(null);
+  const [start, setStart] = useState<string | null>(null);
+  const [end, setEnd] = useState<string | null>(null);
+
+  const activity = data?.activity;
+  const tzValue = tz ?? activity?.timezone ?? "UTC";
+  const startValue = start ?? activity?.window_start ?? "09:00";
+  const endValue = end ?? activity?.window_end ?? "23:00";
+
+  const detected = (() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    } catch {
+      return "";
+    }
+  })();
+  const options = Array.from(
+    new Set([tzValue, detected, ...TZ_OPTIONS].filter(Boolean)),
+  );
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.put("/app/settings/activity", {
+        timezone: tzValue,
+        window_start: startValue,
+        window_end: endValue,
+      }),
+    onSuccess: () => {
+      showToast("Сохранено", "success");
+      qc.invalidateQueries({ queryKey: ["app", "content"] });
+    },
+    onError: () => showToast("Не удалось сохранить", "error"),
+  });
+
+  return (
+    <Section title="Таймзона и окно активности">
+      <div className="card flex flex-col gap-3 p-4">
+        <Field label="Таймзона">
+          <select
+            value={tzValue}
+            onChange={(e) => setTz(e.target.value)}
+            className="w-full min-h-[48px] rounded-chip border border-hairline bg-surface-1 px-4 text-[16px] text-text-primary outline-none focus:border-strong"
+          >
+            {options.map((z) => (
+              <option key={z} value={z}>
+                {z}
+                {z === detected ? " (ваша)" : ""}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <div className="flex gap-2">
+          <Field label="С">
+            <TextInput
+              type="time"
+              value={startValue}
+              onChange={(e) => setStart(e.target.value)}
+              className="nums"
+            />
+          </Field>
+          <Field label="До">
+            <TextInput
+              type="time"
+              value={endValue}
+              onChange={(e) => setEnd(e.target.value)}
+              className="nums"
+            />
+          </Field>
+        </div>
+        <p className="px-1 text-[12px] text-text-tertiary">
+          Прогрев учитывает это окно в выбранной таймзоне, а времена в приложении
+          показываются в ней же.
+        </p>
+        <button
+          type="button"
+          disabled={save.isPending}
+          onClick={() => save.mutate()}
+          className="rounded-pill bg-accent px-4 py-3 text-[14px] font-semibold text-accent-on disabled:opacity-50"
+        >
+          {save.isPending ? "Сохраняем…" : "Сохранить"}
+        </button>
+      </div>
+    </Section>
   );
 }
 

@@ -20,6 +20,7 @@ from core.repositories.app_setting import AppSettingRepository
 
 ABOUT_KEY = "about"
 SUPPORT_KEY = "support"
+ACTIVITY_KEY = "activity"
 
 DEFAULT_ABOUT: dict[str, str] = {
     "app_name": "Neuro-Commenting",
@@ -42,6 +43,16 @@ DEFAULT_SUPPORT: dict[str, object] = {
 }
 
 
+DEFAULT_ACTIVITY: dict[str, str] = {
+    # IANA-таймзона, в которой считается окно активности и показываются времена.
+    "timezone": "UTC",
+    # Окно активности по умолчанию (HH:MM) — используется прогревом как фолбэк,
+    # когда у персоны не задано своё окно.
+    "window_start": "09:00",
+    "window_end": "23:00",
+}
+
+
 def _merged(defaults: dict, stored: Optional[dict]) -> dict:
     result = dict(defaults)
     if stored:
@@ -60,6 +71,18 @@ def set_about(
 ) -> dict:
     merged = _merged(DEFAULT_ABOUT, data)
     AppSettingRepository(session).set(ABOUT_KEY, merged, updated_by=updated_by)
+    return merged
+
+
+def get_activity(session: Session) -> dict:
+    return _merged(DEFAULT_ACTIVITY, AppSettingRepository(session).get(ACTIVITY_KEY))
+
+
+def set_activity(
+    session: Session, data: dict, *, updated_by: Optional[str] = None
+) -> dict:
+    merged = _merged(DEFAULT_ACTIVITY, data)
+    AppSettingRepository(session).set(ACTIVITY_KEY, merged, updated_by=updated_by)
     return merged
 
 

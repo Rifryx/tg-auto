@@ -21,6 +21,36 @@ def _app(session) -> FastAPI:
     return app
 
 
+def test_activity_settings_default_then_edit(session):
+    client = TestClient(_app(session))
+
+    # Дефолт.
+    r = client.get("/app/content")
+    assert r.status_code == 200
+    assert r.json()["activity"]["timezone"] == "UTC"
+
+    # Сохраняем таймзону и окно.
+    r2 = client.put(
+        "/app/settings/activity",
+        json={"timezone": "Asia/Almaty", "window_start": "08:00", "window_end": "22:00"},
+    )
+    assert r2.status_code == 200, r2.text
+
+    got = client.get("/app/content").json()["activity"]
+    assert got["timezone"] == "Asia/Almaty"
+    assert got["window_start"] == "08:00"
+    assert got["window_end"] == "22:00"
+
+
+def test_activity_rejects_bad_timezone(session):
+    client = TestClient(_app(session))
+    r = client.put(
+        "/app/settings/activity",
+        json={"timezone": "Mars/Phobos", "window_start": "09:00", "window_end": "23:00"},
+    )
+    assert r.status_code == 422
+
+
 def test_about_defaults_then_edit(session):
     client = TestClient(_app(session))
 

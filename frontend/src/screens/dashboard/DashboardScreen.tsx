@@ -3,6 +3,7 @@ import { useCallback } from "react";
 import { TopBar } from "../../app/layout/TopBar";
 import { MONITORING_STREAM, useSse } from "../../shared/sse";
 import type { AccountStatus } from "../../shared/types";
+import { useAppContent } from "../more/AboutScreen";
 import { dashboardApi } from "./api";
 import type { Dashboard } from "./api";
 import { ActivityRow, AlertCard, ModuleCard, StageCard } from "./components/cards";
@@ -24,6 +25,7 @@ export function DashboardScreen() {
     queryFn: dashboardApi.get,
     refetchInterval: 30_000,
   });
+  const tz = useAppContent().data?.activity?.timezone;
 
   const onLive = useCallback(() => {
     qc.invalidateQueries({ queryKey: ["dashboard"] });
@@ -135,7 +137,7 @@ function DashboardContent({ data }: { data: Dashboard }) {
           <div className="card overflow-hidden p-0">
             {data.recent_activity.slice(0, 20).map((item, i) => (
               <div key={i} className={i > 0 ? "border-t border-hairline" : ""}>
-                <ActivityRow item={item} />
+                <ActivityRow item={item} tz={tz} />
               </div>
             ))}
           </div>

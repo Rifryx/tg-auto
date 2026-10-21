@@ -156,7 +156,7 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
-export function ActivityRow({ item }: { item: ActivityItem }) {
+export function ActivityRow({ item, tz }: { item: ActivityItem; tz?: string }) {
   const who =
     item.display_name?.trim() || (item.phone ? maskPhone(item.phone) : `Аккаунт #${item.account_id}`);
   // Основная строка — развёрнутая деталь (что, где, какая реакция и т.п.);
@@ -183,6 +183,7 @@ export function ActivityRow({ item }: { item: ActivityItem }) {
           ? new Date(item.timestamp).toLocaleTimeString("ru-RU", {
               hour: "2-digit",
               minute: "2-digit",
+              ...(tz ? { timeZone: tz } : {}),
             })
           : ""}
       </span>
