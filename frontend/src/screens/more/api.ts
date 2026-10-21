@@ -17,6 +17,22 @@ export interface ProxyBody {
   login?: string | null;
 }
 
+export interface SupportMessage {
+  id: number;
+  direction: "user" | "manager";
+  text: string;
+  created_at: string | null;
+}
+
+export const supportApi = {
+  thread: () =>
+    api.get<{ in_app_enabled: boolean; messages: SupportMessage[] }>(
+      "/app/support/messages",
+    ),
+  send: (text: string) =>
+    api.post<SupportMessage>("/app/support/messages", { text }),
+};
+
 export const personasApi = {
   list: () => api.get<Persona[]>("/personas"),
   create: (body: PersonaBody) => api.post<Persona>("/personas", body),

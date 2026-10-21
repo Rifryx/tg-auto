@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 
 from aiogram import Bot, Dispatcher, F
@@ -126,6 +127,49 @@ async def _render_subs() -> str:
     return "\n".join(lines)
 
 
+# ---------------------------- поддержка: ответ менеджера ----------------------
+
+
+async def on_support_reply(message: Message) -> None:
+    """Менеджер ответил реплаем на пересланное обращение → доставляем ответ
+    пользователю в ЛС и сохраняем в тред.
+
+    Срабатывает только если:
+    * автор — админ (менеджер);
+    * это реплай на сообщение, для которого есть релей (chat_id, message_id).
+    Иначе молча выходим — чтобы не мешать обычным реплаям.
+    """
+    from core.repositories.support import SupportRepository
+
+    if message.reply_to_message is None or message.from_user is None:
+        return
+    if not _is_admin(message.from_user.id):
+        return
+    text = message.text or message.caption
+    if not text:
+        return
+
+    chat_id = str(message.chat.id)
+    reply_mid = int(message.reply_to_message.message_id)
+    with _session_factory()() as session:
+        repo = SupportRepository(session)
+        user_id = repo.user_for_relay(chat_id=chat_id, message_id=reply_mid)
+        if user_id is None:
+            return  # не поддержка — не трогаем
+        repo.add_message(user_id=user_id, direction="manager", text=text)
+        session.commit()
+
+    try:
+        await message.bot.send_message(
+            int(user_id),
+            f"💬 <b>Ответ поддержки</b>\n\n{html.escape(text)}",
+            parse_mode="HTML",
+        )
+        await message.reply("✓ Отправлено пользователю")
+    except Exception as exc:  # noqa: BLE001
+        await message.reply(f"Не удалось отправить пользователю: {exc!r}")
+
+
 # ---------------------------- entrypoint -------------------------------------
 
 
@@ -153,6 +197,9 @@ async def _amain() -> None:
     # Оплата Telegram Stars: pre-checkout + успешная оплата (идемпотентно).
     dp.pre_checkout_query.register(on_pre_checkout)
     dp.message.register(on_successful_payment, F.successful_payment)
+
+    # Поддержка: ответ менеджера реплаем на пересланное обращение.
+    dp.message.register(on_support_reply, F.reply_to_message)
 
     logger.info("bot starting (long-polling + notifier)…")
     # notifier — фоновая корутина: слушает Redis pub/sub и шлёт админам пуши
