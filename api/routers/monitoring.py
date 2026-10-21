@@ -68,7 +68,12 @@ class ActivityItem(BaseModel):
     account_id: int
     phone: Optional[str] = None
     display_name: Optional[str] = None
+    action_type: Optional[str] = None
     summary: str
+    # Человекочитаемое описание действия («🔥 на пост в @durov», «прочитал 24
+    # сообщ. в @telegram»). Без этого поля FastAPI отрезал бы его из ответа.
+    detail: Optional[str] = None
+    status: Optional[str] = None
     timestamp: Optional[datetime] = None
 
 
