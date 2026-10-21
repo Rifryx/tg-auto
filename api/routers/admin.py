@@ -176,6 +176,65 @@ def set_subscription_by_username(
     }
 
 
+# ----------------------------- контент приложения ----------------------------
+
+
+class AboutBody(BaseModel):
+    app_name: str = Field(min_length=1, max_length=120)
+    version: str = Field(min_length=1, max_length=40)
+    body: str = Field(max_length=4000)
+
+
+class SupportBody(BaseModel):
+    manager_username: str = Field(default="", max_length=64)
+    manager_url: str = Field(default="", max_length=300)
+    in_app_enabled: bool = True
+    intro: str = Field(default="", max_length=1000)
+
+
+@router.get("/app-content")
+def get_app_content(session: Session = Depends(get_session)) -> dict[str, object]:
+    from core.content import get_about, get_support
+
+    return {"about": get_about(session), "support": get_support(session)}
+
+
+@router.put("/app-content/about")
+def put_about(
+    body: AboutBody,
+    admin_id: str = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    from core.content import set_about
+
+    about = set_about(session, body.model_dump(), updated_by=admin_id)
+    session.commit()
+    admin_action(admin_id, "set_about")
+    return about
+
+
+@router.put("/app-content/support")
+def put_support(
+    body: SupportBody,
+    admin_id: str = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    from core.content import set_support
+
+    support = set_support(
+        session,
+        {
+            **body.model_dump(),
+            # username нормализуем (убираем ведущий @).
+            "manager_username": body.manager_username.strip().lstrip("@"),
+        },
+        updated_by=admin_id,
+    )
+    session.commit()
+    admin_action(admin_id, "set_support")
+    return support
+
+
 # ----------------------------- аналитика -------------------------------------
 
 

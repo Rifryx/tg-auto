@@ -176,4 +176,27 @@ export const adminApi = {
     api.get<AdminPayment[]>(
       `/admin/payments${statusFilter ? `?status_filter=${statusFilter}` : ""}`,
     ),
+  // --- контент приложения ---
+  getAppContent: () => api.get<AdminAppContent>("/admin/app-content"),
+  setAbout: (body: AdminAbout) => api.put<AdminAbout>("/admin/app-content/about", body),
+  setSupport: (body: AdminSupport) =>
+    api.put<AdminSupport>("/admin/app-content/support", body),
 };
+
+export interface AdminAbout {
+  app_name: string;
+  version: string;
+  body: string;
+}
+
+export interface AdminSupport {
+  manager_username: string;
+  manager_url: string;
+  in_app_enabled: boolean;
+  intro: string;
+}
+
+export interface AdminAppContent {
+  about: AdminAbout;
+  support: AdminSupport;
+}

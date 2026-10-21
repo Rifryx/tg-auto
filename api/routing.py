@@ -14,6 +14,7 @@ def include_all_routers(app: FastAPI) -> None:
     from api.routers import (
         accounts,
         admin,
+        app_content,
         autopilot,
         ban_risk,
         billing,
@@ -46,6 +47,7 @@ def include_all_routers(app: FastAPI) -> None:
         projects.router,
         profile_assets.router,
         media_assets.router,
+        app_content.router,
         commenting_router,
         channels_router,
         shilling_router,

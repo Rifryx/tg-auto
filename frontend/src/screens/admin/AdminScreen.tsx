@@ -51,6 +51,7 @@ export function AdminScreen() {
       <PromotionsSection />
       <SubsSection />
       <SetPlanForm />
+      <AppContentSection />
     </div>
   );
 }
@@ -740,6 +741,146 @@ function SetPlanForm() {
           </p>
         )}
         {mut.isSuccess && <p className="text-[12px] text-status-active">Обновлено.</p>}
+      </div>
+    </section>
+  );
+}
+
+function AppContentSection() {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ["admin", "app-content"],
+    queryFn: adminApi.getAppContent,
+  });
+
+  const [appName, setAppName] = useState("");
+  const [version, setVersion] = useState("");
+  const [body, setBody] = useState("");
+  const [managerUsername, setManagerUsername] = useState("");
+  const [managerUrl, setManagerUrl] = useState("");
+  const [inAppEnabled, setInAppEnabled] = useState(true);
+  const [intro, setIntro] = useState("");
+  const [loaded, setLoaded] = useState(false);
+
+  // Инициализируем поля один раз, когда пришли данные.
+  if (data && !loaded) {
+    setAppName(data.about.app_name);
+    setVersion(data.about.version);
+    setBody(data.about.body);
+    setManagerUsername(data.support.manager_username);
+    setManagerUrl(data.support.manager_url);
+    setInAppEnabled(data.support.in_app_enabled);
+    setIntro(data.support.intro);
+    setLoaded(true);
+  }
+
+  const saveAbout = useMutation({
+    mutationFn: () =>
+      adminApi.setAbout({ app_name: appName.trim(), version: version.trim(), body }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "app-content"] });
+      qc.invalidateQueries({ queryKey: ["app", "content"] });
+    },
+  });
+  const saveSupport = useMutation({
+    mutationFn: () =>
+      adminApi.setSupport({
+        manager_username: managerUsername.trim().replace(/^@/, ""),
+        manager_url: managerUrl.trim(),
+        in_app_enabled: inAppEnabled,
+        intro,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "app-content"] });
+      qc.invalidateQueries({ queryKey: ["app", "content"] });
+    },
+  });
+
+  const inputCls =
+    "min-h-[44px] rounded-chip border border-hairline bg-surface-2 px-3 text-[15px] text-text-primary outline-none focus:border-strong";
+  const lblCls = "text-[12px] text-text-tertiary";
+
+  return (
+    <section className="mb-6">
+      <h2 className="mb-4 text-[17px] font-bold text-text-primary">Контент приложения</h2>
+
+      <div className="card mb-3 flex flex-col gap-3 p-4">
+        <p className="text-[13px] font-semibold text-text-secondary">О приложении</p>
+        <label className="flex flex-col gap-1">
+          <span className={lblCls}>Название</span>
+          <input value={appName} onChange={(e) => setAppName(e.target.value)} className={inputCls} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={lblCls}>Версия</span>
+          <input value={version} onChange={(e) => setVersion(e.target.value)} className={inputCls} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={lblCls}>Описание</span>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={4}
+            className="min-h-[96px] resize-y rounded-chip border border-hairline bg-surface-2 px-3 py-2 text-[15px] text-text-primary outline-none focus:border-strong"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={saveAbout.isPending || !appName.trim() || !version.trim()}
+          onClick={() => saveAbout.mutate()}
+          className="mt-1 rounded-pill bg-accent px-4 py-3 text-[14px] font-semibold text-accent-on disabled:opacity-50"
+        >
+          {saveAbout.isPending ? "Сохраняем…" : "Сохранить «О приложении»"}
+        </button>
+        {saveAbout.isSuccess && <p className="text-[12px] text-status-active">Обновлено.</p>}
+      </div>
+
+      <div className="card flex flex-col gap-3 p-4">
+        <p className="text-[13px] font-semibold text-text-secondary">Поддержка</p>
+        <label className="flex flex-col gap-1">
+          <span className={lblCls}>@username менеджера (для ссылки «написать в ЛС»)</span>
+          <input
+            value={managerUsername}
+            onChange={(e) => setManagerUsername(e.target.value)}
+            placeholder="@manager"
+            className={inputCls}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={lblCls}>Ссылка на ЛС (опц., приоритетнее username)</span>
+          <input
+            value={managerUrl}
+            onChange={(e) => setManagerUrl(e.target.value)}
+            placeholder="https://t.me/manager"
+            className={inputCls}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={lblCls}>Приветственный текст над формой обращения</span>
+          <textarea
+            value={intro}
+            onChange={(e) => setIntro(e.target.value)}
+            rows={2}
+            className="min-h-[64px] resize-y rounded-chip border border-hairline bg-surface-2 px-3 py-2 text-[15px] text-text-primary outline-none focus:border-strong"
+          />
+        </label>
+        <label className="flex items-center justify-between">
+          <span className="text-[14px] text-text-secondary">Чат поддержки внутри приложения</span>
+          <input
+            type="checkbox"
+            checked={inAppEnabled}
+            onChange={(e) => setInAppEnabled(e.target.checked)}
+            className="h-5 w-5 accent-[var(--accent)]"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={saveSupport.isPending}
+          onClick={() => saveSupport.mutate()}
+          className="mt-1 rounded-pill bg-accent px-4 py-3 text-[14px] font-semibold text-accent-on disabled:opacity-50"
+        >
+          {saveSupport.isPending ? "Сохраняем…" : "Сохранить «Поддержку»"}
+        </button>
+        {saveSupport.isSuccess && <p className="text-[12px] text-status-active">Обновлено.</p>}
       </div>
     </section>
   );
