@@ -117,6 +117,7 @@ export interface WarmingActivity {
   target: string | null;
   status: WarmingActivityStatus;
   meta: Record<string, unknown> | null;
+  detail?: string | null;
   created_at: string;
 }
 

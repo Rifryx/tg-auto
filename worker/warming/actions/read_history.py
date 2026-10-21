@@ -21,6 +21,9 @@ async def execute(
 ):
     rng = rng or random.Random()
     target = pick_target(rng, persona, "channel", DISCOVERY_CHANNELS)
-    await client.get_messages(target, limit=rng.randint(10, 30))
+    count = rng.randint(10, 30)
+    messages = await client.get_messages(target, limit=count)
     await client.send_read_acknowledge(target)
-    return target
+    read = len(messages) if messages is not None else count
+    # meta: где (target) и сколько сообщений отмечено прочитанными.
+    return target, {"read": int(read)}

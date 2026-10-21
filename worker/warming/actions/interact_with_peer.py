@@ -56,9 +56,11 @@ async def execute(
         return None
 
     # «Присутствие»: пролистать пару последних сообщений.
-    await client.get_messages(peer_username, limit=rng.randint(5, 15))
+    viewed = rng.randint(5, 15)
+    await client.get_messages(peer_username, limit=viewed)
 
     # 1/3 tick'ов — реакция 👀 на последнее сообщение.
+    reacted = False
     if rng.random() < 0.33:
         from telethon.tl.functions.messages import SendReactionRequest
         from telethon.tl.types import ReactionEmoji
@@ -72,4 +74,6 @@ async def execute(
                     reaction=[ReactionEmoji(emoticon="👀")],
                 )
             )
-    return peer_username
+            reacted = True
+    # meta: с кем взаимодействовали и поставили ли реакцию 👀.
+    return peer_username, {"viewed": int(viewed), "reacted": reacted}

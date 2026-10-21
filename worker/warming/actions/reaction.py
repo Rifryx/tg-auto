@@ -22,15 +22,20 @@ async def execute(
     from telethon.tl.functions.messages import SendReactionRequest
     from telethon.tl.types import ReactionEmoji
 
-    target = pick_target(rng or random.Random(), persona, "channel", DISCOVERY_CHANNELS)
+    rng = rng or random.Random()
+    target = pick_target(rng, persona, "channel", DISCOVERY_CHANNELS)
     messages = await client.get_messages(target, limit=1)
     if not messages:
         raise RuntimeError(f"no messages to react to in {target!r}")
+    # Разнообразим реакцию — не всегда «палец вверх», так естественнее.
+    emoji = rng.choice(["👍", "🔥", "❤️", "👏", "😁", "🤯", "🎉"])
+    msg_id = messages[0].id
     await client(
         SendReactionRequest(
             peer=target,
-            msg_id=messages[0].id,
-            reaction=[ReactionEmoji(emoticon="👍")],
+            msg_id=msg_id,
+            reaction=[ReactionEmoji(emoticon=emoji)],
         )
     )
-    return target
+    # meta: где (target), на какое сообщение (message_id) и какая реакция (emoji).
+    return target, {"emoji": emoji, "message_id": int(msg_id)}

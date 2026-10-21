@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import redis
-from sqlalchemy import func, literal, select, union_all
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from core.config import get_settings
@@ -210,27 +210,65 @@ def _shilling_summary(session: Session) -> dict[str, Any]:
 
 
 def _recent_activity(session: Session) -> list[dict[str, Any]]:
-    warming = select(
-        literal("warming").label("type"),
-        WarmingActivity.account_id.label("account_id"),
-        func.concat(
-            WarmingActivity.action_type, literal(" ("), WarmingActivity.status, literal(")")
-        ).label("summary"),
-        WarmingActivity.created_at.label("ts"),
-    )
-    comments = select(
-        literal("comment").label("type"),
-        CommentLog.account_id.label("account_id"),
-        func.concat(literal("comment "), CommentLog.status).label("summary"),
-        CommentLog.created_at.label("ts"),
-    )
-    subq = union_all(warming, comments).subquery()
-    stmt = select(subq).order_by(subq.c.ts.desc()).limit(_ACTIVITY_LIMIT)
-    rows = session.execute(stmt).all()
+    from core.warming_detail import warming_detail
+
+    # Две отдельные выборки (без union по разнотипным колонкам) → мёрдж в Python.
+    warming_rows = session.execute(
+        select(
+            WarmingActivity.account_id,
+            WarmingActivity.action_type,
+            WarmingActivity.target,
+            WarmingActivity.meta,
+            WarmingActivity.status,
+            WarmingActivity.created_at,
+        )
+        .order_by(WarmingActivity.created_at.desc())
+        .limit(_ACTIVITY_LIMIT)
+    ).all()
+    comment_rows = session.execute(
+        select(
+            CommentLog.account_id,
+            CommentLog.status,
+            CommentLog.created_at,
+        )
+        .order_by(CommentLog.created_at.desc())
+        .limit(_ACTIVITY_LIMIT)
+    ).all()
+
+    events: list[dict[str, Any]] = []
+    for r in warming_rows:
+        events.append(
+            {
+                "type": "warming",
+                "account_id": r.account_id,
+                "action_type": r.action_type,
+                "summary": f"{r.action_type} ({r.status})",
+                "detail": warming_detail(
+                    r.action_type, target=r.target, meta=r.meta, status=r.status
+                ),
+                "status": r.status,
+                "ts": r.created_at,
+            }
+        )
+    for r in comment_rows:
+        events.append(
+            {
+                "type": "comment",
+                "account_id": r.account_id,
+                "action_type": "comment",
+                "summary": f"comment {r.status}",
+                "detail": f"комментарий ({r.status})",
+                "status": r.status,
+                "ts": r.created_at,
+            }
+        )
+
+    events.sort(key=lambda e: e["ts"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    events = events[:_ACTIVITY_LIMIT]
 
     # Подпись аккаунта (номер + своё имя) — чтобы в аудите было видно, какого
     # аккаунта касается событие. Одним запросом по уникальным id (без N+1).
-    acc_ids = {r.account_id for r in rows if r.account_id is not None}
+    acc_ids = {e["account_id"] for e in events if e["account_id"] is not None}
     labels: dict[int, tuple[Optional[str], Optional[str]]] = {}
     if acc_ids:
         for aid, phone, display_name in session.execute(
@@ -242,14 +280,17 @@ def _recent_activity(session: Session) -> list[dict[str, Any]]:
 
     return [
         {
-            "type": r.type,
-            "account_id": r.account_id,
-            "phone": labels.get(r.account_id, (None, None))[0],
-            "display_name": labels.get(r.account_id, (None, None))[1],
-            "summary": r.summary,
-            "timestamp": r.ts.isoformat() if r.ts else None,
+            "type": e["type"],
+            "account_id": e["account_id"],
+            "phone": labels.get(e["account_id"], (None, None))[0],
+            "display_name": labels.get(e["account_id"], (None, None))[1],
+            "action_type": e["action_type"],
+            "summary": e["summary"],
+            "detail": e["detail"],
+            "status": e["status"],
+            "timestamp": e["ts"].isoformat() if e["ts"] else None,
         }
-        for r in rows
+        for e in events
     ]
 
 
