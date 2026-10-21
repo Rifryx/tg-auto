@@ -632,11 +632,19 @@ function SubsSection() {
 
 function SetPlanForm() {
   const qc = useQueryClient();
+  const [by, setBy] = useState<"user_id" | "username">("user_id");
   const [uid, setUid] = useState("");
   const [plan, setPlan] = useState<"free" | "pro">("pro");
   const [reason, setReason] = useState("");
   const mut = useMutation({
-    mutationFn: () => adminApi.setSubscription(uid.trim(), plan, reason || undefined),
+    mutationFn: () =>
+      by === "username"
+        ? adminApi.setSubscriptionByUsername(
+            uid.trim().replace(/^@/, ""),
+            plan,
+            reason || undefined,
+          )
+        : adminApi.setSubscription(uid.trim(), plan, reason || undefined),
     onSuccess: () => {
       setUid("");
       setReason("");
@@ -652,15 +660,46 @@ function SetPlanForm() {
         Выдать/забрать план
       </h2>
       <div className="card flex flex-col gap-3 p-4">
+        <div className="flex gap-2">
+          {(
+            [
+              ["user_id", "По user_id"],
+              ["username", "По @username"],
+            ] as const
+          ).map(([v, lbl]) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => {
+                setBy(v);
+                setUid("");
+              }}
+              className={`flex-1 rounded-pill py-2 text-[13px] font-semibold ${
+                by === v
+                  ? "bg-surface-2 text-text-primary"
+                  : "border border-hairline bg-surface-1 text-text-secondary"
+              }`}
+            >
+              {lbl}
+            </button>
+          ))}
+        </div>
         <label className="flex flex-col gap-1">
-          <span className="text-[12px] text-text-tertiary">Telegram user_id</span>
+          <span className="text-[12px] text-text-tertiary">
+            {by === "username" ? "Telegram @username" : "Telegram user_id"}
+          </span>
           <input
             value={uid}
             onChange={(e) => setUid(e.target.value)}
-            inputMode="numeric"
-            placeholder="123456789"
+            inputMode={by === "username" ? "text" : "numeric"}
+            placeholder={by === "username" ? "@username" : "123456789"}
             className="nums min-h-[44px] rounded-chip border border-hairline bg-surface-2 px-3 text-[15px] text-text-primary outline-none focus:border-strong"
           />
+          {by === "username" && (
+            <span className="text-[11px] text-text-tertiary">
+              Пользователь должен хотя бы раз открыть приложение.
+            </span>
+          )}
         </label>
         <div className="flex gap-2">
           {(["free", "pro"] as const).map((p) => (

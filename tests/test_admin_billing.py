@@ -119,6 +119,37 @@ def test_analytics_timeseries_shape(session):
         assert {"date", "new_users", "payments", "comments"} <= set(pt)
 
 
+def test_set_plan_by_username(session):
+    """Админ может выдать план по @username (резолв через кэш app_users)."""
+    from core.repositories.app_user import AppUserRepository
+    from core.repositories.subscription import SubscriptionRepository
+
+    AppUserRepository(session).upsert("555", username="CoolUser", first_name="Vas")
+    session.commit()
+
+    client = TestClient(_admin_app(session))
+    # Регистр и ведущий @ игнорируются.
+    r = client.post(
+        "/admin/subscriptions/by-username/set",
+        json={"username": "@cooluser", "plan_id": "pro", "reason": "manual"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    assert body["user_id"] == "555"
+    assert body["plan_id"] == "pro"
+    assert SubscriptionRepository(session).get("555").plan_id == "pro"
+
+
+def test_set_plan_by_username_not_found(session):
+    client = TestClient(_admin_app(session))
+    r = client.post(
+        "/admin/subscriptions/by-username/set",
+        json={"username": "ghost_user", "plan_id": "pro"},
+    )
+    assert r.status_code == 404
+
+
 def test_non_admin_gets_404(session):
     app = FastAPI()
     app.include_router(admin_router.router)

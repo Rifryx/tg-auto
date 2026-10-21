@@ -53,6 +53,12 @@ class SetPlanBody(BaseModel):
     reason: str | None = None
 
 
+class SetPlanByUsernameBody(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    plan_id: Literal["free", "pro"]
+    reason: str | None = None
+
+
 @router.get("/me")
 def me(admin_id: str = Depends(require_admin)) -> dict[str, object]:
     return {"user_id": admin_id, "is_admin": True}
@@ -128,6 +134,46 @@ def set_subscription(
         reason=body.reason,
     )
     return {"ok": True, "user_id": target_user_id, "plan_id": body.plan_id}
+
+
+@router.post("/subscriptions/by-username/set", status_code=status.HTTP_200_OK)
+def set_subscription_by_username(
+    body: SetPlanByUsernameBody,
+    admin_id: str = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """Сменить план по @username.
+
+    username резолвится в user_id через кэш профилей (app_users), который
+    пишется при заходе в Mini App. Если пользователь ни разу не открывал
+    приложение — его профиля в кэше нет, возвращаем 404 с понятным текстом.
+    """
+    prof = AppUserRepository(session).find_by_username(body.username)
+    if prof is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "Пользователь с таким @username не найден. "
+                "Он должен хотя бы раз открыть приложение, либо выдайте план по user_id."
+            ),
+        )
+    SubscriptionRepository(session).upsert(prof.user_id, body.plan_id)
+    session.commit()
+    admin_action(
+        admin_id,
+        "set_subscription",
+        target=prof.user_id,
+        via="username",
+        username=prof.username,
+        plan=body.plan_id,
+        reason=body.reason,
+    )
+    return {
+        "ok": True,
+        "user_id": prof.user_id,
+        "username": prof.username,
+        "plan_id": body.plan_id,
+    }
 
 
 # ----------------------------- аналитика -------------------------------------

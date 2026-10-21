@@ -150,6 +150,15 @@ export const adminApi = {
       `/admin/subscriptions/${encodeURIComponent(userId)}`,
       { plan_id, reason },
     ),
+  setSubscriptionByUsername: (
+    username: string,
+    plan_id: "free" | "pro",
+    reason?: string,
+  ) =>
+    api.post<{ ok: boolean; user_id: string; username: string | null; plan_id: string }>(
+      "/admin/subscriptions/by-username/set",
+      { username, plan_id, reason },
+    ),
   // --- цена ---
   getPricing: () => api.get<AdminPricing>("/admin/pricing"),
   setPricing: (body: { price_usdt: string; price_stars: number; period_days: number }) =>

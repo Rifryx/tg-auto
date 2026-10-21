@@ -39,6 +39,26 @@ class AppUserRepository:
         )
         self.session.execute(stmt)
 
+    def find_by_username(self, username: str) -> Optional[AppUser]:
+        """Найти пользователя по @username (без учёта регистра, ведущий @ — опц.).
+
+        Username в Telegram регистронезависим и уникален, но кэш пишется по
+        user_id best-effort, поэтому теоретически возможны устаревшие дубли —
+        берём самый свежий по updated_at.
+        """
+        handle = (username or "").strip().lstrip("@")
+        if not handle:
+            return None
+        from sqlalchemy import func
+
+        row = self.session.execute(
+            select(AppUser)
+            .where(func.lower(AppUser.username) == handle.lower())
+            .order_by(AppUser.updated_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        return row
+
     def get_many(self, user_ids: list[str]) -> dict[str, AppUser]:
         if not user_ids:
             return {}
