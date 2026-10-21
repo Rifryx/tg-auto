@@ -16,12 +16,11 @@ import { profileAssetsApi, type ProfileAssetBody } from "./api";
 import { ProfileAssetThumb } from "./components/ProfileAssetThumb";
 import { BackHeader } from "./PersonasScreen";
 
+// Имена/Фамилии/Username убраны из пула намеренно: их генерирует ИИ по персоне
+// (см. generate_and_apply_profile) — пользователь не заносит их вручную.
 const KINDS: { value: ProfileAssetKind; label: string }[] = [
   { value: "avatar", label: "Аватары" },
-  { value: "first_name", label: "Имена" },
-  { value: "last_name", label: "Фамилии" },
   { value: "bio", label: "BIO" },
-  { value: "username_template", label: "Username" },
 ];
 
 const HINT: Record<ProfileAssetKind, string> = {
@@ -152,6 +151,11 @@ export function ProfileAssetsScreen() {
           </button>
         ))}
       </div>
+
+      <p className="mb-4 px-1 text-[12px] text-text-tertiary">
+        Имя, фамилию и @username генерирует ИИ по персоне аккаунта (с подбором
+        свободного username) — заносить их вручную не нужно.
+      </p>
 
       <Section title="Добавить в пул">
         <p className="mb-3 text-[12px] text-text-tertiary">{HINT[kind]}</p>
