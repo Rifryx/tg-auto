@@ -52,6 +52,10 @@ class ProjectChannel(Base):
         Boolean, nullable=False, default=False, server_default=text("false")
     )
     pinned_message_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    # Закреплён ли канал/чат в списке диалогов аккаунта (ToggleDialogPin).
+    is_pinned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

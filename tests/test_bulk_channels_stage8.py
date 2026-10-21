@@ -214,8 +214,13 @@ async def test_create_channel_private_exports_invite_link(session):
     assert session.query(ProjectChannel).one().invite_link == "https://t.me/+abc123"
 
 
-async def test_create_channel_public_skips_invite_link(session):
-    """Публичный канал → инвайт-ссылка не экспортируется (есть @username)."""
+async def test_create_channel_public_exports_invite_link(session):
+    """Публичный канал → инвайт-ссылка ВСЁ РАВНО экспортируется и сохраняется.
+
+    Нужна на случай, когда запрошенный @username занят/невалиден: тогда канал
+    остаётся без t.me/<username>, и инвайт-ссылка — единственный способ попасть
+    в него. UI обязан иметь ссылку на любой созданный канал/чат.
+    """
     _clean(session)
     account = _make_account(session)
 
@@ -224,7 +229,10 @@ async def test_create_channel_public_skips_invite_link(session):
             self.requests: list[str] = []
 
         async def __call__(self, request):
-            self.requests.append(type(request).__name__)
+            name = type(request).__name__
+            self.requests.append(name)
+            if name == "ExportChatInviteRequest":
+                return SimpleNamespace(link="https://t.me/+pubInvite")
             return SimpleNamespace(
                 chats=[SimpleNamespace(id=4004, access_hash=1, username=None)],
                 updates=[],
@@ -242,8 +250,8 @@ async def test_create_channel_public_skips_invite_link(session):
     )
 
     assert result.ok is True
-    assert "ExportChatInviteRequest" not in client.requests
-    assert result.detail["invite_link"] is None
+    assert "ExportChatInviteRequest" in client.requests
+    assert result.detail["invite_link"] == "https://t.me/+pubInvite"
 
 
 # ── первый пост: эффекты, медиа, тумблер закрепления ─────────────────────────

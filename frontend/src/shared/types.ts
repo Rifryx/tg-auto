@@ -159,6 +159,7 @@ export interface ProjectChannel {
   invite_link: string | null;
   is_megagroup: boolean;
   pinned_message_id: number | null;
+  is_pinned: boolean;
   created_at: string;
 }
 

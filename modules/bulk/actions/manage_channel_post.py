@@ -24,8 +24,16 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from telethon.tl.functions.channels import DeleteChannelRequest, EditPhotoRequest
-from telethon.tl.functions.messages import UpdatePinnedMessageRequest
-from telethon.tl.types import InputChannel, InputChatUploadedPhoto, PeerChannel
+from telethon.tl.functions.messages import (
+    ToggleDialogPinRequest,
+    UpdatePinnedMessageRequest,
+)
+from telethon.tl.types import (
+    InputChannel,
+    InputChatUploadedPhoto,
+    InputDialogPeer,
+    PeerChannel,
+)
 
 from core.enums import BulkActionType
 from core.repositories.media_asset import MediaAssetRepository
@@ -40,7 +48,14 @@ class ManageChannelPostPayload(BaseModel):
     channel_tg_id: int
     channel_access_hash: Optional[int] = None
     mode: Literal[
-        "send", "pin", "unpin", "delete", "set_photo", "delete_channel"
+        "send",
+        "pin",
+        "unpin",
+        "delete",
+        "set_photo",
+        "delete_channel",
+        "pin_dialog",
+        "unpin_dialog",
     ] = "send"
     text: Optional[str] = Field(default=None, max_length=4096)
     message_id: Optional[int] = None
@@ -96,6 +111,8 @@ async def _run(
 
     new_pinned: Optional[int] = None  # что записать в project_channels (если надо)
     touch_pinned = False
+    # (От)закрепление канала/чата в диалогах аккаунта — отдельный флаг is_pinned.
+    new_dialog_pinned: Optional[bool] = None
     detail: dict[str, object] = {"mode": payload.mode}
 
     try:
@@ -179,6 +196,28 @@ async def _run(
             )
             detail["photo_set"] = True
 
+        elif payload.mode in ("pin_dialog", "unpin_dialog"):
+            # Закрепить/открепить канал/чат в списке диалогов аккаунта.
+            pinned = payload.mode == "pin_dialog"
+            input_peer = await around_telethon_call(
+                lambda: client.get_input_entity(entity),
+                account_id=account_id,
+                session_factory=session_factory,
+                publisher=publisher,
+            )
+            await around_telethon_call(
+                lambda: client(
+                    ToggleDialogPinRequest(
+                        peer=InputDialogPeer(peer=input_peer), pinned=pinned
+                    )
+                ),
+                account_id=account_id,
+                session_factory=session_factory,
+                publisher=publisher,
+            )
+            new_dialog_pinned = pinned
+            detail["dialog_pinned"] = pinned
+
         else:  # delete_channel — удалить канал/чат целиком + убрать из списка
             await around_telethon_call(
                 lambda: client(DeleteChannelRequest(channel=entity)),
@@ -205,6 +244,14 @@ async def _run(
             if obj is not None:
                 obj.pinned_message_id = new_pinned
                 session.commit()
+
+    # Синхронизируем is_pinned (закрепление канала/чата в диалогах).
+    if new_dialog_pinned is not None:
+        with session_factory() as session:
+            ProjectChannelRepository(session).set_pinned(
+                account_id, payload.channel_tg_id, new_dialog_pinned
+            )
+            session.commit()
 
     return BulkActionResult(ok=True, detail=detail)
 
