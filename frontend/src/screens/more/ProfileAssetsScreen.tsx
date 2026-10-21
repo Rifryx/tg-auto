@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ImagePlus, Trash2, UploadCloud } from "lucide-react";
-import { useRef, useState } from "react";
+import { ImagePlus, Pencil, Trash2, UploadCloud, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ProfileAsset, ProfileAssetKind } from "../../shared/types";
 import { showToast } from "../../shared/toast";
@@ -64,6 +64,7 @@ export function ProfileAssetsScreen() {
   const [tags, setTags] = useState("");
   const [description, setDescription] = useState("");
   const [toDelete, setToDelete] = useState<ProfileAsset | null>(null);
+  const [toEdit, setToEdit] = useState<ProfileAsset | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const list = useQuery({
@@ -248,13 +249,22 @@ export function ProfileAssetsScreen() {
                     )}
                   </span>
                 </figcaption>
-                <button
-                  onClick={() => setToDelete(a)}
-                  aria-label="Удалить изображение"
-                  className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-bg-elevated/85 text-text-secondary shadow-sm backdrop-blur active:text-status-critical"
-                >
-                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
-                </button>
+                <div className="absolute right-1.5 top-1.5 flex gap-1">
+                  <button
+                    onClick={() => setToEdit(a)}
+                    aria-label="Редактировать"
+                    className="flex h-7 w-7 items-center justify-center rounded-full bg-bg-elevated/85 text-text-secondary shadow-sm backdrop-blur active:text-accent"
+                  >
+                    <Pencil className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
+                  </button>
+                  <button
+                    onClick={() => setToDelete(a)}
+                    aria-label="Удалить изображение"
+                    className="flex h-7 w-7 items-center justify-center rounded-full bg-bg-elevated/85 text-text-secondary shadow-sm backdrop-blur active:text-status-critical"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
+                  </button>
+                </div>
               </figure>
             ))}
           </div>
@@ -272,6 +282,13 @@ export function ProfileAssetsScreen() {
                   </p>
                 </div>
                 <button
+                  onClick={() => setToEdit(a)}
+                  aria-label="Редактировать"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-text-secondary active:text-accent"
+                >
+                  <Pencil className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                </button>
+                <button
                   onClick={() => setToDelete(a)}
                   aria-label="Удалить"
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-text-secondary active:text-status-critical"
@@ -284,6 +301,17 @@ export function ProfileAssetsScreen() {
         )}
       </Section>
 
+      {toEdit && (
+        <EditAssetDialog
+          asset={toEdit}
+          onClose={() => setToEdit(null)}
+          onSaved={() => {
+            setToEdit(null);
+            invalidate();
+          }}
+        />
+      )}
+
       <ConfirmDialog
         open={toDelete != null}
         title="Удалить ассет?"
@@ -294,6 +322,100 @@ export function ProfileAssetsScreen() {
         onConfirm={() => toDelete && remove.mutate(toDelete.id)}
         onCancel={() => setToDelete(null)}
       />
+    </div>
+  );
+}
+
+/* Диалог редактирования ассета пула: значение (для текстовых), теги, описание. */
+function EditAssetDialog({
+  asset,
+  onClose,
+  onSaved,
+}: {
+  asset: ProfileAsset;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isAvatar = asset.kind === "avatar";
+  const [value, setValue] = useState(asset.value ?? "");
+  const [tags, setTags] = useState((asset.tags ?? []).join(", "));
+  const [description, setDescription] = useState(asset.description ?? "");
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const save = useMutation({
+    mutationFn: () =>
+      profileAssetsApi.update(asset.id, {
+        ...(isAvatar ? {} : { value: value.trim() }),
+        tags: tags.split(/[,\s]+/).map((t) => t.trim()).filter(Boolean),
+        description: description.trim() || null,
+      }),
+    onSuccess: () => {
+      showToast("Сохранено", "success");
+      onSaved();
+    },
+    onError: () => showToast("Не удалось сохранить", "error"),
+  });
+
+  const canSave = (isAvatar || value.trim().length > 0) && !save.isPending;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-t-card bg-bg-elevated p-5 sm:rounded-card"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-[16px] font-semibold text-text-primary">
+            Редактировать ассет
+          </h3>
+          <button
+            onClick={onClose}
+            aria-label="Закрыть"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-text-secondary active:text-text-primary"
+          >
+            <X className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          {!isAvatar && (
+            <Field label="Значение">
+              <TextInput value={value} onChange={(e) => setValue(e.target.value)} />
+            </Field>
+          )}
+          <Field label="Описание (опц.)">
+            <TextInput
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Напр.: мужские, нейтральный фон"
+            />
+          </Field>
+          <Field label="Теги (через запятую)">
+            <TextInput
+              value={tags}
+              onChange={(e) => setTags(e.target.value)}
+              placeholder="ru, мужское"
+            />
+          </Field>
+        </div>
+
+        <div className="mt-4 flex gap-2">
+          <CapsuleButton variant="secondary" onClick={onClose}>
+            Отмена
+          </CapsuleButton>
+          <CapsuleButton variant="accent" disabled={!canSave} onClick={() => save.mutate()}>
+            {save.isPending ? "Сохраняем…" : "Сохранить"}
+          </CapsuleButton>
+        </div>
+      </div>
     </div>
   );
 }

@@ -11,7 +11,11 @@ from sqlalchemy.orm import Session
 from api.deps.auth import require_user
 from api.deps.db import get_session
 from core.repositories.profile_asset import ProfileAssetRepository
-from core.schemas.profile_asset import ProfileAssetCreate, ProfileAssetRead
+from core.schemas.profile_asset import (
+    ProfileAssetCreate,
+    ProfileAssetRead,
+    ProfileAssetUpdate,
+)
 
 router = APIRouter(
     prefix="/profile-assets",
@@ -73,6 +77,37 @@ def create_asset(
     )
     session.commit()
     return _serialize(obj)
+
+
+@router.patch("/{asset_id}", response_model=ProfileAssetRead)
+def update_asset(
+    asset_id: int,
+    body: ProfileAssetUpdate,
+    user_id: str = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Редактировать ассет пула: теги, описание и (для текстовых) значение."""
+    repo = ProfileAssetRepository(session)
+    obj = repo.get(asset_id)
+    if obj is None or obj.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "asset not found")
+
+    fields = body.model_dump(exclude_unset=True)
+    if "value" in fields and obj.kind == "avatar":
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "avatar asset has no text value to edit",
+        )
+    updated = repo.update(
+        asset_id,
+        value=body.value,
+        tags=body.tags,
+        description=body.description,
+        touch_value="value" in fields,
+        touch_description="description" in fields,
+    )
+    session.commit()
+    return _serialize(updated)
 
 
 @router.get("/{asset_id}/blob")

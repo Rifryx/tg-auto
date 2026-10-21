@@ -45,6 +45,34 @@ class ProfileAssetRepository(BaseRepository[ProfileAsset]):
         stmt = stmt.order_by(ProfileAsset.created_at.desc())
         return list(self.session.execute(stmt).scalars().all())
 
+    def update(
+        self,
+        asset_id: int,
+        *,
+        value: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        description: Optional[str] = None,
+        touch_value: bool = False,
+        touch_description: bool = False,
+    ) -> Optional[ProfileAsset]:
+        """Частично обновить ассет пула.
+
+        ``touch_*`` отличает «не передавали поле» от «передали None/пусто»:
+        напр. описание можно очистить, передав description=None и
+        touch_description=True.
+        """
+        obj = self.get(asset_id)
+        if obj is None:
+            return None
+        if tags is not None:
+            obj.tags = list(tags)
+        if touch_value and value is not None:
+            obj.value = value
+        if touch_description:
+            obj.description = description or None
+        self.session.flush()
+        return obj
+
     def delete(self, asset_id: int) -> bool:
         obj = self.get(asset_id)
         if obj is None:
