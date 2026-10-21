@@ -20,12 +20,15 @@ from modules.parsing.repositories import (
     ParsedCommunityItemRepository,
     ParsedListRepository,
     ParsedListTargetRepository,
+    ParsingJobRepository,
 )
 from modules.parsing.schemas import (
     ListOpRequest,
     ParsedCommunityItemRead,
     ParsedListRead,
     ParsedListTargetRead,
+    ParsingJobControl,
+    ParsingJobRead,
     RunChannelCommentersRequest,
     RunChatMembersRequest,
     RunChatMessagesRequest,
@@ -65,6 +68,30 @@ _FILTER_KEYS = (
 
 def _filter_payload(body) -> dict:
     return {k: getattr(body, k) for k in _FILTER_KEYS}
+
+
+async def _start_job(
+    *,
+    session: Session,
+    task_queue: TaskQueue,
+    user_id: str,
+    kind: str,
+    name: str,
+    payload: dict,
+) -> dict:
+    """Создаёт запись parsing.jobs и ставит задачу в очередь.
+
+    Возвращает ``{"job_id": <id записи>}`` — UI поллит прогресс по нему.
+    В payload воркеру кладём ``job_id``, чтобы он вёл живой прогресс/управление.
+    """
+    owner = _owner_id(user_id)
+    job = ParsingJobRepository(session).create(
+        owner_user_id=owner, kind=kind, name=name, params=payload
+    )
+    session.commit()
+    full_payload = {**payload, "owner_user_id": owner, "name": name, "job_id": job.id}
+    await task_queue.enqueue(TaskName.PRIMING_PARSER_RUN, kind, full_payload)
+    return {"job_id": job.id}
 
 
 @router.get("/lists", response_model=list[ParsedListRead])
@@ -123,16 +150,15 @@ def delete_list(list_id: int, session: Session = Depends(get_session)):
 @router.post("/lists/run/chat-messages")
 async def run_chat_messages(
     body: RunChatMessagesRequest,
+    session: Session = Depends(get_session),
     task_queue: TaskQueue = Depends(get_task_queue),
     user_id: str = Depends(require_user),
 ):
-    """Enqueue parser-job. Возвращает job_id — фронт поллит /parse-jobs."""
-    job_id = await task_queue.enqueue(
-        TaskName.PRIMING_PARSER_RUN,
-        "chat_messages",
-        {
-            "owner_user_id": _owner_id(user_id),
-            "name": body.name,
+    """Создаёт задачу парсинга и возвращает её job_id — фронт поллит прогресс."""
+    return await _start_job(
+        session=session, task_queue=task_queue, user_id=user_id,
+        kind="chat_messages", name=body.name,
+        payload={
             "collector_account_id": body.collector_account_id,
             "chat_ref": body.chat_ref,
             "days_window": body.days_window,
@@ -140,43 +166,39 @@ async def run_chat_messages(
             **_filter_payload(body),
         },
     )
-    return {"job_id": job_id}
 
 
 @router.post("/lists/run/chat-members")
 async def run_chat_members(
     body: RunChatMembersRequest,
+    session: Session = Depends(get_session),
     task_queue: TaskQueue = Depends(get_task_queue),
     user_id: str = Depends(require_user),
 ):
-    job_id = await task_queue.enqueue(
-        TaskName.PRIMING_PARSER_RUN,
-        "chat_members",
-        {
-            "owner_user_id": _owner_id(user_id),
-            "name": body.name,
+    return await _start_job(
+        session=session, task_queue=task_queue, user_id=user_id,
+        kind="chat_members", name=body.name,
+        payload={
             "collector_account_id": body.collector_account_id,
             "chat_ref": body.chat_ref,
             "only_recently_seen": body.only_recently_seen,
             **_filter_payload(body),
         },
     )
-    return {"job_id": job_id}
 
 
 @router.post("/lists/run/channel-commenters")
 async def run_channel_commenters(
     body: RunChannelCommentersRequest,
+    session: Session = Depends(get_session),
     task_queue: TaskQueue = Depends(get_task_queue),
     user_id: str = Depends(require_user),
 ):
     """Комментаторы канала (из его linked discussion chat)."""
-    job_id = await task_queue.enqueue(
-        TaskName.PRIMING_PARSER_RUN,
-        "channel_commenters",
-        {
-            "owner_user_id": _owner_id(user_id),
-            "name": body.name,
+    return await _start_job(
+        session=session, task_queue=task_queue, user_id=user_id,
+        kind="channel_commenters", name=body.name,
+        payload={
             "collector_account_id": body.collector_account_id,
             "chat_ref": body.chat_ref,
             "days_window": body.days_window,
@@ -184,22 +206,20 @@ async def run_channel_commenters(
             **_filter_payload(body),
         },
     )
-    return {"job_id": job_id}
 
 
 @router.post("/lists/run/post-reactors")
 async def run_post_reactors(
     body: RunPostReactorsRequest,
+    session: Session = Depends(get_session),
     task_queue: TaskQueue = Depends(get_task_queue),
     user_id: str = Depends(require_user),
 ):
     """Пользователи, ставившие реакции на последние посты канала/чата."""
-    job_id = await task_queue.enqueue(
-        TaskName.PRIMING_PARSER_RUN,
-        "post_reactors",
-        {
-            "owner_user_id": _owner_id(user_id),
-            "name": body.name,
+    return await _start_job(
+        session=session, task_queue=task_queue, user_id=user_id,
+        kind="post_reactors", name=body.name,
+        payload={
             "collector_account_id": body.collector_account_id,
             "chat_ref": body.chat_ref,
             "posts_limit": body.posts_limit,
@@ -208,22 +228,20 @@ async def run_post_reactors(
             **_filter_payload(body),
         },
     )
-    return {"job_id": job_id}
 
 
 @router.post("/lists/run/communities")
 async def run_communities(
     body: RunCommunitiesRequest,
+    session: Session = Depends(get_session),
     task_queue: TaskQueue = Depends(get_task_queue),
     user_id: str = Depends(require_user),
 ):
     """Discovery сообществ: обогащение переданных ссылок (каналы/чаты) + фильтры."""
-    job_id = await task_queue.enqueue(
-        TaskName.PRIMING_PARSER_RUN,
-        "communities",
-        {
-            "owner_user_id": _owner_id(user_id),
-            "name": body.name,
+    return await _start_job(
+        session=session, task_queue=task_queue, user_id=user_id,
+        kind="communities", name=body.name,
+        payload={
             "collector_account_id": body.collector_account_id,
             "refs": body.refs,
             "kind": body.kind,
@@ -238,24 +256,22 @@ async def run_communities(
             "username_regex": body.username_regex,
         },
     )
-    return {"job_id": job_id}
 
 
 @router.post("/lists/run/discover")
 async def run_discover(
     body: RunDiscoverRequest,
+    session: Session = Depends(get_session),
     task_queue: TaskQueue = Depends(get_task_queue),
     user_id: str = Depends(require_user),
 ):
     """Бесплатный нативный discovery сообществ: глобальный поиск + «похожие
     каналы» Telegram + snowball (рекомендации/форварды/упоминания) → обогащение
     и фильтрация. Без внешних сервисов."""
-    job_id = await task_queue.enqueue(
-        TaskName.PRIMING_PARSER_RUN,
-        "discover_communities",
-        {
-            "owner_user_id": _owner_id(user_id),
-            "name": body.name,
+    return await _start_job(
+        session=session, task_queue=task_queue, user_id=user_id,
+        kind="discover_communities", name=body.name,
+        payload={
             "collector_account_id": body.collector_account_id,
             "seeds": body.seeds,
             "term": body.term,
@@ -277,7 +293,56 @@ async def run_discover(
             "username_regex": body.username_regex,
         },
     )
-    return {"job_id": job_id}
+
+
+# ── Задачи парсинга: прогресс и управление (пауза/стоп) ──────────────────────
+
+
+@router.get("/jobs", response_model=list[ParsingJobRead])
+def list_jobs(
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+):
+    rows = ParsingJobRepository(session).list_by_owner(_owner_id(user_id))
+    return [ParsingJobRead.model_validate(r) for r in rows]
+
+
+@router.get("/jobs/{job_id}", response_model=ParsingJobRead)
+def get_job(
+    job_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+):
+    job = ParsingJobRepository(session).get(job_id)
+    if job is None or job.owner_user_id != _owner_id(user_id):
+        raise HTTPException(status_code=404, detail={
+            "error": "not_found", "message": f"parsing job {job_id} not found",
+        })
+    return ParsingJobRead.model_validate(job)
+
+
+@router.post("/jobs/{job_id}/control", response_model=ParsingJobRead)
+def control_job(
+    job_id: int,
+    body: ParsingJobControl,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+):
+    """Управление задачей: pause | resume | stop. Воркер читает флаг по ходу."""
+    repo = ParsingJobRepository(session)
+    job = repo.get(job_id)
+    if job is None or job.owner_user_id != _owner_id(user_id):
+        raise HTTPException(status_code=404, detail={
+            "error": "not_found", "message": f"parsing job {job_id} not found",
+        })
+    control = {"pause": "pause", "resume": "run", "stop": "stop"}.get(body.action)
+    if control is None:
+        raise HTTPException(status_code=422, detail={
+            "error": "bad_action", "message": "action must be pause|resume|stop",
+        })
+    repo.set_control(job_id, control)
+    session.commit()
+    return ParsingJobRead.model_validate(repo.get(job_id))
 
 
 @router.get("/lists/{list_id}/communities", response_model=list[ParsedCommunityItemRead])

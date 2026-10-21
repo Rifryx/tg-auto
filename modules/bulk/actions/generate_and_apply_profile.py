@@ -27,6 +27,7 @@ from modules.profiles.generator import (
     ProfileGenerationError,
     ProfileGenerator,
     default_generator,
+    username_variants,
 )
 from worker.profiles.apply import apply_profile_to_telegram
 
@@ -68,7 +69,14 @@ async def _run(
     except ProfileGenerationError as exc:
         return BulkActionResult(ok=False, detail={"reason": "generation_failed", "error": str(exc)})
 
-    username_candidates = generated.username_candidates if payload.apply_username else None
+    username_candidates = None
+    if payload.apply_username:
+        # LLM-кандидаты + алгоритмические варианты: если все заняты, подбираем
+        # свободный «пока не подойдёт», а не оставляем аккаунт без username.
+        seeds = generated.username_candidates or [generated.first_name]
+        username_candidates = generated.username_candidates + username_variants(
+            seeds, 12
+        )
     bio = generated.bio if payload.apply_bio else None
 
     result = await apply_profile_to_telegram(

@@ -160,6 +160,14 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
         risk_snapshot = BanRiskRepository(session).get(account_id)
         ban_risk = risk_snapshot.risk_score if risk_snapshot is not None else None
         scenario = WarmingScenario.from_meta(account.meta)
+        # Таймзона/окно активности из настроек (Settings) — фолбэк, если у
+        # персоны нет своего окна. Так прогрев уважает выбранную пользователем TZ.
+        try:
+            from core.content import get_activity
+
+            activity_defaults = get_activity(session)
+        except Exception:  # noqa: BLE001 — настройки не критичны для tick
+            activity_defaults = None
 
     if status not in _ACTIVE_WARMING_STATUSES:
         log.info("warming.tick.skipped", account_id=account_id, reason="status", status=status)
@@ -174,7 +182,7 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
         )
         return "skipped"
 
-    if not is_within_active_window(now, persona=persona):
+    if not is_within_active_window(now, persona=persona, defaults=activity_defaults):
         # Вне окна активности действие не выполняется и НЕ записывается (§3).
         log.info("warming.tick.skipped", account_id=account_id, reason="inactive_window")
         return "skipped"

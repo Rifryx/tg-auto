@@ -35,6 +35,7 @@ _ACCOUNT_STATUS_CHANNEL = "account_status"
 _BAN_RISK_CHANNEL = "health.ban_risk_updated"
 _AUTOPILOT_CHANNEL = "autopilot.events"
 _COMMENTING_ALERTS_CHANNEL = "commenting.alerts"
+_SUPPORT_NEW_MESSAGE_CHANNEL = "support.new_message"
 
 
 def _fmt_account_status(payload: dict[str, Any]) -> Optional[str]:
@@ -153,6 +154,44 @@ async def _send_to_all(bot: Bot, chat_ids: list[str], text: str) -> None:
             )
 
 
+async def _handle_support_new_message(
+    bot: Bot, payload: dict[str, Any], admin_ids: list[str]
+) -> None:
+    """Пересылает обращение в поддержку менеджерам (админам) и запоминает связку
+    «сообщение бота → user_id», чтобы ответ реплаем вернулся нужному человеку."""
+    from api.deps.db import _session_factory
+    from core.repositories.support import SupportRepository
+
+    user_id = str(payload.get("user_id") or "")
+    username = payload.get("username")
+    text = str(payload.get("text") or "")
+    if not user_id or not text:
+        return
+    who = f"@{username}" if username else f"id {user_id}"
+    body = (
+        f"💬 <b>Поддержка от {html.escape(who)}</b>\n"
+        f"user_id: <code>{html.escape(user_id)}</code>\n\n"
+        f"{html.escape(text)}\n\n"
+        f"<i>Ответьте реплаем на это сообщение — ответ придёт пользователю.</i>"
+    )
+    for chat_id in admin_ids:
+        try:
+            sent = await bot.send_message(int(chat_id), body, parse_mode="HTML")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("bot.support.forward_failed chat_id=%s: %r", chat_id, exc)
+            continue
+        try:
+            with _session_factory()() as session:
+                SupportRepository(session).add_relay(
+                    chat_id=str(chat_id),
+                    message_id=int(sent.message_id),
+                    user_id=user_id,
+                )
+                session.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("bot.support.relay_store_failed: %r", exc)
+
+
 async def run_notifier(bot: Bot) -> None:
     """Фоновая задача-слушатель. Пришедшие события форматирует и рассылает."""
     settings = get_settings()
@@ -166,7 +205,7 @@ async def run_notifier(bot: Bot) -> None:
 
     redis = aioredis.from_url(settings.redis_url)
     pubsub = redis.pubsub()
-    await pubsub.subscribe(*_HANDLERS.keys())
+    await pubsub.subscribe(*_HANDLERS.keys(), _SUPPORT_NEW_MESSAGE_CHANNEL)
     logger.info(
         "bot.notifier.started admins=%d channels=%s",
         len(settings.admin_ids),
@@ -185,6 +224,13 @@ async def run_notifier(bot: Bot) -> None:
             try:
                 payload = json.loads(raw)
             except (TypeError, ValueError):
+                continue
+
+            # Поддержка: особый путь — пересылаем менеджерам + пишем релей.
+            if channel == _SUPPORT_NEW_MESSAGE_CHANNEL:
+                await _handle_support_new_message(
+                    bot, payload, list(settings.admin_ids)
+                )
                 continue
 
             handler = _HANDLERS.get(channel)

@@ -21,5 +21,8 @@ async def execute(
 ):
     rng = rng or random.Random()
     target = pick_target(rng, persona, "channel", DISCOVERY_CHANNELS)
-    await client.get_messages(target, limit=rng.randint(5, 15))
-    return target
+    count = rng.randint(5, 15)
+    messages = await client.get_messages(target, limit=count)
+    viewed = len(messages) if messages is not None else count
+    # meta: где (target) и сколько сообщений «просмотрено».
+    return target, {"viewed": int(viewed)}

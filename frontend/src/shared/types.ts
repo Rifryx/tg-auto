@@ -117,6 +117,7 @@ export interface WarmingActivity {
   target: string | null;
   status: WarmingActivityStatus;
   meta: Record<string, unknown> | null;
+  detail?: string | null;
   created_at: string;
 }
 
@@ -159,6 +160,7 @@ export interface ProjectChannel {
   invite_link: string | null;
   is_megagroup: boolean;
   pinned_message_id: number | null;
+  is_pinned: boolean;
   created_at: string;
 }
 

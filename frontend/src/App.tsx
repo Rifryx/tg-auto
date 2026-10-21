@@ -15,6 +15,7 @@ import { ProjectsScreen } from "./screens/more/ProjectsScreen";
 import { ProfileAssetsScreen } from "./screens/more/ProfileAssetsScreen";
 import { ProxiesScreen } from "./screens/more/ProxiesScreen";
 import { SettingsScreen } from "./screens/more/SettingsScreen";
+import { SupportScreen } from "./screens/more/SupportScreen";
 import { CampaignDetailScreen } from "./modules/commenting/CampaignDetailScreen";
 import { CampaignsScreen } from "./modules/commenting/CampaignsScreen";
 import { NewCampaignScreen } from "./modules/commenting/NewCampaignScreen";
@@ -32,6 +33,7 @@ import { DiscoverScreen } from "./modules/parsing/DiscoverScreen";
 import { CommunityListScreen } from "./modules/parsing/CommunityListScreen";
 import { ListOpsScreen } from "./modules/parsing/ListOpsScreen";
 import { RunParsingScreen } from "./modules/parsing/RunParsingScreen";
+import { ParsingRunScreen } from "./modules/parsing/ParsingRunScreen";
 import { AdminScreen } from "./screens/admin/AdminScreen";
 import { BillingScreen } from "./screens/billing/BillingScreen";
 
@@ -59,6 +61,7 @@ export function App() {
         <Route path="/modules/priming/campaigns/:id/logs" element={<PrimingCampaignLogs />} />
         <Route path="/modules/parsing" element={<ParsingListsScreen />} />
         <Route path="/modules/parsing/run" element={<RunParsingScreen />} />
+        <Route path="/modules/parsing/run/:jobId" element={<ParsingRunScreen />} />
         <Route path="/modules/parsing/ops" element={<ListOpsScreen />} />
         <Route path="/modules/parsing/communities" element={<CommunitiesScreen />} />
         <Route path="/modules/parsing/discover" element={<DiscoverScreen />} />
@@ -72,6 +75,7 @@ export function App() {
         <Route path="/more/audit" element={<AuditScreen />} />
         <Route path="/more/autopilot" element={<AutopilotScreen />} />
         <Route path="/more/settings" element={<SettingsScreen />} />
+        <Route path="/more/support" element={<SupportScreen />} />
         <Route path="/more/about" element={<AboutScreen />} />
         <Route path="/billing" element={<BillingScreen />} />
         <Route path="/admin" element={<AdminScreen />} />

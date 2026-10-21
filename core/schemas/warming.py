@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from core.enums import WarmingActionType, WarmingActivityKind, WarmingActivityStatus
 from core.schemas.base import ORMModel
@@ -32,4 +32,25 @@ class WarmingActivityRead(ORMModel):
     target: Optional[str]
     status: WarmingActivityStatus
     meta: Optional[dict[str, Any]]
+    # Человекочитаемое описание действия (где/что/какая реакция и т.п.).
+    detail: Optional[str] = None
     created_at: datetime
+
+    @model_validator(mode="after")
+    def _fill_detail(self) -> "WarmingActivityRead":
+        if self.detail is None:
+            from core.warming_detail import warming_detail
+
+            self.detail = warming_detail(
+                self.action_type.value
+                if hasattr(self.action_type, "value")
+                else str(self.action_type),
+                target=self.target,
+                meta=self.meta,
+                status=(
+                    self.status.value
+                    if hasattr(self.status, "value")
+                    else str(self.status)
+                ),
+            )
+        return self

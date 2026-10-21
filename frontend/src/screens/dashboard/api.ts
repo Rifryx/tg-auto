@@ -32,7 +32,10 @@ export interface ActivityItem {
   account_id: number;
   phone: string | null;
   display_name: string | null;
+  action_type?: string;
   summary: string;
+  detail?: string;
+  status?: string;
   timestamp: string | null;
 }
 

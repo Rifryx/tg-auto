@@ -154,17 +154,22 @@ def _compute_weights(
 
 
 def is_within_active_window(
-    now: datetime, settings: Settings | None = None, persona=None
+    now: datetime,
+    settings: Settings | None = None,
+    persona=None,
+    defaults: dict | None = None,
 ) -> bool:
     """Попадает ли ``now`` в окно активности.
 
-    Если у ``persona`` есть свои ``timezone`` / ``active_hours_start`` /
-    ``active_hours_end`` — берём их (это делает акки «жителями» своих часовых
-    поясов и естественно распределяет активность по суткам). Иначе фолбэк на
-    глобальный config.
+    Приоритет источников окна/таймзоны:
+    1) собственные поля персоны (``timezone`` / ``active_hours_*``) — акки
+       «живут» в своих часовых поясах;
+    2) ``defaults`` — настройки активности пользователя (таймзона + окно),
+       сохранённые в Settings, если переданы;
+    3) глобальный env-config как последний фолбэк.
     """
     settings = settings or get_settings()
-    tz_name, start, end = _window(persona, settings)
+    tz_name, start, end = _window(persona, settings, defaults)
     try:
         tz = ZoneInfo(tz_name)
     except Exception:  # pragma: no cover
@@ -176,14 +181,39 @@ def is_within_active_window(
     return local_time >= start or local_time <= end
 
 
-def _window(persona, settings: Settings) -> tuple[str, time, time]:
+def _parse_hhmm(value, fallback: time) -> time:
+    """'HH:MM' → time; при ошибке — fallback."""
+    if isinstance(value, time):
+        return value
+    if isinstance(value, str) and ":" in value:
+        try:
+            h, m = value.split(":", 1)
+            return time(int(h), int(m))
+        except (ValueError, TypeError):
+            return fallback
+    return fallback
+
+
+def _window(persona, settings: Settings, defaults: dict | None = None) -> tuple[str, time, time]:
     tz = getattr(persona, "timezone", None) if persona else None
     start = getattr(persona, "active_hours_start", None) if persona else None
     end = getattr(persona, "active_hours_end", None) if persona else None
+    defaults = defaults or {}
+    default_tz = defaults.get("timezone") or settings.default_active_hours_tz
+    default_start = (
+        _parse_hhmm(defaults.get("window_start"), settings.default_active_hours_start)
+        if defaults.get("window_start")
+        else settings.default_active_hours_start
+    )
+    default_end = (
+        _parse_hhmm(defaults.get("window_end"), settings.default_active_hours_end)
+        if defaults.get("window_end")
+        else settings.default_active_hours_end
+    )
     return (
-        tz or settings.default_active_hours_tz,
-        start or settings.default_active_hours_start,
-        end or settings.default_active_hours_end,
+        tz or default_tz,
+        start or default_start,
+        end or default_end,
     )
 
 

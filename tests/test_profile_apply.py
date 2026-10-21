@@ -154,6 +154,39 @@ async def test_apply_profile_gives_up_when_all_candidates_taken(session):
     assert len(result.errors) == 2
 
 
+async def test_apply_profile_action_picks_fallback_variant(session):
+    """apply_profile: все переданные кандидаты заняты → экшн подбирает
+    свободный алгоритмический вариант (auto_username_variants)."""
+    from core.enums import BulkActionType
+    from modules.bulk.actions import ACTION_REGISTRY
+    from modules.bulk.actions.apply_profile import ApplyProfilePayload
+
+    _clean(session)
+    account_id = _make_account(session)
+    # Оба запрошенных заняты; алгоритмические варианты (anutka<digits>) свободны.
+    client = _FakeClient(occupied={"anutka", "anutka_official"})
+
+    action = ACTION_REGISTRY[BulkActionType.APPLY_PROFILE.value]
+    payload = ApplyProfilePayload(
+        first_name="Anna",
+        username_candidates=["anutka", "anutka_official"],
+    )
+    result = await action.run(
+        account_id=account_id,
+        payload=payload,
+        session_factory=_factory(session),
+        publisher=None,
+        client=client,
+    )
+    assert result.ok is True
+    applied = result.detail["applied_username"]
+    assert applied is not None
+    assert applied not in {"anutka", "anutka_official"}
+    # В БД записан подобранный username.
+    session.expire_all()
+    assert AccountRepository(session).get(account_id).username == applied
+
+
 async def test_apply_profile_noop_when_all_fields_none(session):
     _clean(session)
     account_id = _make_account(session)

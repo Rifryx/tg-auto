@@ -156,16 +156,26 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
-export function ActivityRow({ item }: { item: ActivityItem }) {
+export function ActivityRow({ item, tz }: { item: ActivityItem; tz?: string }) {
   const who =
     item.display_name?.trim() || (item.phone ? maskPhone(item.phone) : `Аккаунт #${item.account_id}`);
+  // Основная строка — развёрнутая деталь (что, где, какая реакция и т.п.);
+  // fallback на summary для старых записей без detail.
+  const primary = item.detail?.trim() || item.summary;
+  const failed = item.status === "failed";
   return (
     <div className="flex items-center gap-3 px-4 py-3.5">
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2">
-        <Activity className="h-4 w-4 text-text-tertiary" strokeWidth={1.6} aria-hidden />
+        <Activity
+          className={`h-4 w-4 ${failed ? "text-status-critical" : "text-text-tertiary"}`}
+          strokeWidth={1.6}
+          aria-hidden
+        />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[14px] text-text-primary">{item.summary}</p>
+        <p className={`truncate text-[14px] ${failed ? "text-status-critical" : "text-text-primary"}`}>
+          {primary}
+        </p>
         <p className="truncate text-[12px] text-text-tertiary">{who}</p>
       </div>
       <span className="shrink-0 text-[12px] text-text-tertiary nums">
@@ -173,6 +183,7 @@ export function ActivityRow({ item }: { item: ActivityItem }) {
           ? new Date(item.timestamp).toLocaleTimeString("ru-RU", {
               hour: "2-digit",
               minute: "2-digit",
+              ...(tz ? { timeZone: tz } : {}),
             })
           : ""}
       </span>

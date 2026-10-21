@@ -85,7 +85,8 @@ export function RunParsingScreen() {
         });
       return parsingApi.runChatMembers({ ...base, only_recently_seen: onlyRecentlySeen });
     },
-    onSuccess: () => navigate("/modules/parsing"),
+    // Открываем окно прогресса с живым логом (вместо «тихого» возврата к спискам).
+    onSuccess: (res) => navigate(`/modules/parsing/run/${res.job_id}`),
   });
 
   const problems: string[] = [];
@@ -214,36 +215,24 @@ export function RunParsingScreen() {
             <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">Аккаунт-парсер</div>
           </div>
           <p className="mb-3 text-[12px] text-text-tertiary">
-            Отдельный от рабочих аккаунт для чтения.
+            Отдельный от рабочих аккаунт для чтения — выберите из списка.
           </p>
-          <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
-            {collectors.map((a) => (
-              <button
-                key={a.id}
-                type="button"
-                aria-pressed={collectorId === a.id}
-                onClick={() => setCollectorId(collectorId === a.id ? null : a.id)}
-                className={[
-                  "flex items-center justify-between rounded-xl border p-3 text-left transition-colors",
-                  collectorId === a.id ? "border-strong bg-surface-2" : "border-hairline bg-surface-1 active:bg-surface-2",
-                ].join(" ")}
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-[14px] font-medium text-text-primary">
-                    {a.username ? `@${a.username}` : a.phone}
-                  </div>
-                </div>
-                {collectorId === a.id && (
-                  <span className="rounded-pill bg-status-active/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-status-active">
-                    выбран
-                  </span>
-                )}
-              </button>
-            ))}
-            {collectors.length === 0 && (
-              <p className="text-[13px] text-text-tertiary">Нет свободных аккаунтов в пуле.</p>
-            )}
-          </div>
+          {collectors.length === 0 ? (
+            <p className="text-[13px] text-text-tertiary">Нет свободных аккаунтов в пуле.</p>
+          ) : (
+            <select
+              value={collectorId ?? ""}
+              onChange={(e) => setCollectorId(e.target.value ? Number(e.target.value) : null)}
+              className="w-full rounded-xl border border-hairline bg-surface-2 p-3 text-[15px] text-text-primary outline-none focus:border-strong"
+            >
+              <option value="">— выберите аккаунт —</option>
+              {collectors.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.username ? `@${a.username}` : a.phone}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         <div className="card p-5">

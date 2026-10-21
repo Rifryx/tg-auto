@@ -18,6 +18,8 @@ from modules.parsing.parser.community_enrich import enrich_communities
 from modules.parsing.parser.community_filters import CommunityFilterOptions
 from modules.parsing.parser.filters import FilterOptions
 from modules.parsing.parser.post_reactors import parse_post_reactors
+from modules.parsing.repositories.job import ParsingJobRepository
+from modules.parsing.worker.progress import ParsingProgress, ParsingStopped
 
 get_logger = structlog.get_logger
 
@@ -48,9 +50,92 @@ async def parser_run(
 
     ``kind`` — chat_messages | chat_members | channel_commenters | post_reactors
     (см. API /modules/parsing/lists/run/*). ``payload`` — сериализованный запрос.
+
+    Если в payload есть ``job_id`` — ведём живой прогресс в parsing.jobs:
+    статус/лог/счётчики пишутся по ходу, управление (пауза/стоп) читается из той
+    же записи. Так UI видит реальный ход, а не «молчаливый» запуск.
     """
     log = get_logger()
+    session_factory = ctx.get("session_factory")
+    job_id = payload.get("job_id")
 
+    # Готовим прогресс-задачу (если задан job_id и есть session_factory).
+    progress: Optional[ParsingProgress] = None
+    if job_id is not None and session_factory is not None:
+        job_id = int(job_id)
+        progress = ParsingProgress(session_factory, job_id)
+        ctx = {**ctx, "parsing_progress": progress}
+        with session_factory() as session:
+            repo = ParsingJobRepository(session)
+            if repo.read_control(job_id) == "stop":
+                repo.finish(job_id, status="stopped", error="Остановлено до запуска")
+                session.commit()
+                return {"stopped": True}
+            repo.set_status(job_id, "running")
+            repo.append_log(job_id, f"Запуск парсинга ({kind})…")
+            session.commit()
+
+    try:
+        result = await _dispatch_kind(ctx, kind, payload)
+    except ParsingStopped:
+        log.info("parsing.parser_run.stopped", kind=kind, job_id=job_id)
+        if progress is not None and session_factory is not None:
+            with session_factory() as session:
+                ParsingJobRepository(session).finish(
+                    int(job_id), status="stopped", error="Остановлено пользователем"
+                )
+                ParsingJobRepository(session).append_log(
+                    int(job_id), "⏹ Парсинг остановлен пользователем"
+                )
+                session.commit()
+        return {"stopped": True}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("parsing.parser_run.failed", kind=kind, error=repr(exc))
+        if progress is not None and session_factory is not None:
+            with session_factory() as session:
+                ParsingJobRepository(session).finish(
+                    int(job_id), status="failed", error=repr(exc)
+                )
+                ParsingJobRepository(session).append_log(
+                    int(job_id), f"✖ Ошибка: {exc!r}"
+                )
+                session.commit()
+        return {"error": repr(exc)}
+
+    # Финализируем задачу по результату.
+    if progress is not None and session_factory is not None:
+        with session_factory() as session:
+            repo = ParsingJobRepository(session)
+            if result is None:
+                repo.finish(int(job_id), status="done")
+                repo.append_log(int(job_id), "Готово (ничего не собрано/пропущено).")
+            else:
+                repo.finish(
+                    int(job_id),
+                    status="done",
+                    list_id=result.list_id,
+                    raw=result.raw_count,
+                    inserted=result.inserted,
+                )
+                repo.append_log(
+                    int(job_id),
+                    f"✓ Готово: собрано {result.raw_count}, добавлено {result.inserted}.",
+                )
+            session.commit()
+
+    if result is None:
+        return {"skipped": True}
+    return {
+        "list_id": result.list_id,
+        "raw_count": result.raw_count,
+        "inserted": result.inserted,
+        "filters_breakdown": result.filters_breakdown,
+    }
+
+
+async def _dispatch_kind(ctx: dict, kind: str, payload: dict[str, Any]):
+    """Выбор парсера по ``kind``. Возвращает ParseResult-подобный объект/None."""
+    log = get_logger()
     filter_options = _filter_options(payload)
 
     if kind == "chat_messages":
@@ -146,13 +231,6 @@ async def parser_run(
         )
     else:
         log.warning("parsing.parser_run.unknown_kind", kind=kind)
-        return {"error": f"unknown kind {kind!r}"}
+        raise ValueError(f"unknown kind {kind!r}")
 
-    if result is None:
-        return {"skipped": True}
-    return {
-        "list_id": result.list_id,
-        "raw_count": result.raw_count,
-        "inserted": result.inserted,
-        "filters_breakdown": result.filters_breakdown,
-    }
+    return result

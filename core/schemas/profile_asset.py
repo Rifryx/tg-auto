@@ -35,6 +35,19 @@ class ProfileAssetCreate(BaseModel):
         return self
 
 
+class ProfileAssetUpdate(BaseModel):
+    """Частичное редактирование ассета пула. Любое поле опционально.
+
+    ``value`` редактируется только у текстовых ассетов (не у аватара). ``tags``
+    при передаче заменяет весь список. ``description`` можно очистить (пустая
+    строка).
+    """
+
+    value: Optional[str] = Field(default=None, max_length=512)
+    tags: Optional[list[str]] = None
+    description: Optional[str] = Field(default=None, max_length=512)
+
+
 class ProfileAssetRead(BaseModel):
     id: int
     kind: str

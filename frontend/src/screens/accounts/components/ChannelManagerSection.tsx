@@ -451,6 +451,41 @@ function CreateChannelForm({
   );
 }
 
+/* Копируемая ссылка (публичная t.me/… или пригласительная). */
+function CopyLink({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div>
+      <p className="mb-1 px-1 text-[12px] text-text-tertiary">{label}</p>
+      <button
+        type="button"
+        onClick={() => {
+          navigator.clipboard
+            ?.writeText(value)
+            .then(() => {
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1500);
+            })
+            .catch(() => {});
+        }}
+        className="flex w-full items-center gap-2 rounded-chip border border-hairline bg-surface-2 px-3 py-2 text-left active:bg-surface-1"
+      >
+        <span className="min-w-0 flex-1 truncate text-[13px] text-text-primary nums">
+          {value}
+        </span>
+        <Copy
+          className={`h-3.5 w-3.5 shrink-0 ${copied ? "text-status-active" : "text-text-tertiary"}`}
+          strokeWidth={1.8}
+          aria-hidden
+        />
+      </button>
+      {copied && (
+        <p className="mt-0.5 px-1 text-[11px] text-status-active">Скопировано</p>
+      )}
+    </div>
+  );
+}
+
 /* Карточка одного созданного канала + управление его постами. */
 function ChannelCard({
   accountId,
@@ -509,10 +544,14 @@ function ChannelCard({
             )}
           </p>
           <p className="truncate text-[12px] text-text-tertiary">
-            {channel.username ? `@${channel.username}` : "приватный"}
-            {channel.pinned_message_id != null && (
+            {channel.username
+              ? `@${channel.username}`
+              : channel.invite_link
+                ? "приватный · есть ссылка"
+                : "приватный"}
+            {channel.is_pinned && (
               <span className="ml-1.5 inline-flex items-center gap-0.5">
-                · <Pin className="inline h-3 w-3" strokeWidth={1.8} aria-hidden /> закреплён
+                · <Pin className="inline h-3 w-3" strokeWidth={1.8} aria-hidden /> в списке
               </span>
             )}
           </p>
@@ -556,25 +595,37 @@ function ChannelCard({
             </p>
           )}
 
-          {!channel.username && channel.invite_link && (
-            <div className="mb-3">
-              <p className="mb-1 px-1 text-[12px] text-text-tertiary">
-                Пригласительная ссылка
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard?.writeText(channel.invite_link!).catch(() => {});
-                }}
-                className="flex w-full items-center gap-2 rounded-chip border border-hairline bg-surface-2 px-3 py-2 text-left active:bg-surface-1"
-              >
-                <span className="min-w-0 flex-1 truncate text-[13px] text-text-primary nums">
-                  {channel.invite_link}
-                </span>
-                <Copy className="h-3.5 w-3.5 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
-              </button>
+          {(channel.username || channel.invite_link) && (
+            <div className="mb-3 flex flex-col gap-2">
+              {channel.username && (
+                <CopyLink
+                  label="Публичная ссылка"
+                  value={`https://t.me/${channel.username}`}
+                />
+              )}
+              {channel.invite_link && (
+                <CopyLink label="Пригласительная ссылка" value={channel.invite_link} />
+              )}
             </div>
           )}
+
+          <div className="mb-3 flex items-center justify-between rounded-chip border border-hairline bg-surface-2 px-3 py-2">
+            <span className="inline-flex items-center gap-1.5 text-[13px] text-text-secondary">
+              <Pin className="h-3.5 w-3.5 text-text-tertiary" strokeWidth={1.8} aria-hidden />
+              Закрепить {channel.is_megagroup ? "чат" : "канал"} в списке
+            </span>
+            <Toggle
+              checked={channel.is_pinned}
+              disabled={busy}
+              onChange={(next) =>
+                job.run("manage_channel_post", [accountId], {
+                  ...base,
+                  mode: next ? "pin_dialog" : "unpin_dialog",
+                })
+              }
+              label="Закрепить в списке диалогов"
+            />
+          </div>
 
           <Field label="Новый пост">
             <TextArea value={post} onChange={(e) => setPost(e.target.value)} placeholder="Текст поста" />

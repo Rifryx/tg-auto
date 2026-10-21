@@ -4,6 +4,7 @@ import {
   FolderKanban,
   Images,
   Info,
+  LifeBuoy,
   ScrollText,
   Shield,
   SlidersHorizontal,
@@ -33,6 +34,7 @@ const TOOLS: Entry[] = [
 const SYSTEM: Entry[] = [
   { to: "/billing", icon: CreditCard, label: "Тариф и лимиты" },
   { to: "/more/settings", icon: SlidersHorizontal, label: "Настройки" },
+  { to: "/more/support", icon: LifeBuoy, label: "Поддержка" },
   { to: "/more/about", icon: Info, label: "О приложении" },
 ];
 

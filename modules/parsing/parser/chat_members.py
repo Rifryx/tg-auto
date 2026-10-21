@@ -16,6 +16,7 @@ from modules.parsing.repositories import (
     ParsedListRepository,
     ParsedListTargetRepository,
 )
+from modules.parsing.worker.progress import NullProgress
 from modules.priming.repositories import BlacklistRepository
 from modules.priming.schemas.enums import ParserSourceKind, TargetLastSeen
 
@@ -47,6 +48,7 @@ async def parse_chat_members(
     pool = ctx["client_pool"]
     governor = ctx["governor"]
     now = ctx.get("now") or datetime.now(timezone.utc)
+    progress = ctx.get("parsing_progress") or NullProgress()
 
     if not await governor.check_and_reserve(
         collector_account_id, PARSER_ACTION_TYPE,
@@ -65,11 +67,14 @@ async def parse_chat_members(
         list_id = parsed_list.id
         session.commit()
 
+    progress.log(f"Открываю {chat_ref} и читаю участников…")
     client = await pool.get(collector_account_id)
     raw_rows: list[dict[str, Any]] = []
     try:
         entity = await client.get_entity(chat_ref)
+        seen = 0
         async for participant in client.iter_participants(entity):
+            seen += 1
             snap = _snapshot(participant, now)
             if only_recently_seen and snap["last_seen_bucket"] not in {
                 TargetLastSeen.RECENTLY.value,
@@ -77,8 +82,13 @@ async def parse_chat_members(
             }:
                 continue
             raw_rows.append(snap)
+            # Каждые 50 — прогресс + реакция на паузу/стоп.
+            if seen % 50 == 0:
+                progress.log(f"Просмотрено {seen}, собрано {len(raw_rows)}…")
+                await progress.heartbeat(raw=len(raw_rows))
     finally:
         await pool.release(collector_account_id)
+    progress.log(f"Сбор завершён: собрано {len(raw_rows)}. Применяю фильтры…")
 
     options = filter_options or FilterOptions()
     options.owner_user_id = owner_user_id
@@ -117,6 +127,8 @@ async def parse_chat_members(
         })
         session.commit()
 
+    progress.set_counts(raw=len(raw_rows), inserted=inserted)
+    progress.log(f"Фильтры применены: добавлено {inserted} из {len(raw_rows)}.")
     log.info(
         "parsing.chat_members.done", list_id=list_id,
         raw=len(raw_rows), inserted=inserted, breakdown=breakdown,

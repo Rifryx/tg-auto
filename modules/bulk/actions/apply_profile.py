@@ -16,7 +16,12 @@ from core.enums import BulkActionType
 from core.repositories.account import AccountRepository
 from core.schemas.account import AccountUpdate
 from modules.bulk.actions.registry import BulkAction, BulkActionResult, register
-from modules.profiles.generator import BIO_MAX, NAME_MAX, USERNAME_RE
+from modules.profiles.generator import (
+    BIO_MAX,
+    NAME_MAX,
+    USERNAME_RE,
+    username_variants,
+)
 from worker.profiles.apply import apply_profile_to_telegram
 
 
@@ -27,6 +32,9 @@ class ApplyProfilePayload(BaseModel):
     last_name: Optional[str] = None
     bio: Optional[str] = None
     username_candidates: list[str] = []
+    # Если все кандидаты заняты — автоматически подбирать свободный username
+    # (алгоритмические варианты), «пока не подойдёт». По умолчанию включено.
+    auto_username_variants: bool = True
 
     @field_validator("first_name", "last_name")
     @classmethod
@@ -68,6 +76,13 @@ async def _run(
             not payload.username_candidates:
         return BulkActionResult(ok=False, skipped=True, detail={"reason": "empty_payload"})
 
+    # Расширяем список кандидатов алгоритмическими вариантами — чтобы при
+    # занятом username подобрать свободный, а не падать на первом же занятом.
+    candidates = list(payload.username_candidates)
+    if candidates and payload.auto_username_variants:
+        seeds = candidates + ([payload.first_name] if payload.first_name else [])
+        candidates += username_variants(seeds, 12)
+
     result = await apply_profile_to_telegram(
         client,
         account_id=account_id,
@@ -76,7 +91,7 @@ async def _run(
         first_name=payload.first_name,
         last_name=payload.last_name,
         bio=payload.bio,
-        username_candidates=payload.username_candidates or None,
+        username_candidates=candidates or None,
     )
 
     # Синхронизируем нашу БД с реальным состоянием (то, что действительно

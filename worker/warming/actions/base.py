@@ -84,8 +84,22 @@ def _categorize_error(exc: BaseException) -> str:
     return "unknown"
 
 
-# Тело действия возвращает целевой объект (str) или None; исключения ловит обёртка.
-_ActionBody = Callable[..., Awaitable[Union[str, None]]]
+# Тело действия возвращает target (str), (target, meta) или None; обёртка ловит
+# исключения и распаковывает результат через _split_result.
+_ActionBody = Callable[..., Awaitable[Union[str, tuple, None]]]
+
+
+def _split_result(raw: Any) -> tuple[Optional[str], Optional[dict]]:
+    """Разбирает возврат тела действия в (target, meta)."""
+    if isinstance(raw, tuple):
+        target = raw[0] if len(raw) > 0 else None
+        meta = raw[1] if len(raw) > 1 else None
+        target = str(target) if target is not None else None
+        meta = dict(meta) if isinstance(meta, dict) else None
+        return target, meta
+    if raw is None:
+        return None, None
+    return str(raw), None
 
 
 def action(action_type: WarmingActionType) -> Callable[[_ActionBody], _ActionBody]:
@@ -126,17 +140,20 @@ def action(action_type: WarmingActionType) -> Callable[[_ActionBody], _ActionBod
             try:
                 if session_factory is None:
                     # Без ctx (напр. прямой вызов в старых тестах) — без health-обёртки.
-                    target = await body(client, account, **call_kwargs)
+                    raw = await body(client, account, **call_kwargs)
                 else:
-                    target = await around_telethon_call(
+                    raw = await around_telethon_call(
                         lambda: body(client, account, **call_kwargs),
                         account_id=account.id,
                         session_factory=session_factory,
                         publisher=publisher,
                         now=now,
                     )
+                # Тело может вернуть target (str) или (target, meta) — meta хранит
+                # детали действия (эмодзи реакции, кол-во просмотренных и т.п.).
+                target, meta = _split_result(raw)
                 return WarmingActionResult(
-                    action_type, WarmingActivityStatus.DONE, target=target
+                    action_type, WarmingActivityStatus.DONE, target=target, meta=meta
                 )
             except Exception as exc:  # noqa: BLE001 - действие изолировано
                 category = _categorize_error(exc)

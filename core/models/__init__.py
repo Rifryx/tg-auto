@@ -1,7 +1,9 @@
 from core.models.account import Account
 from core.models.account_health import AccountHealth
 from core.models.account_status_history import AccountStatusHistory
+from core.models.app_setting import AppSetting
 from core.models.app_user import AppUser
+from core.models.support import SupportMessage, SupportRelay
 from core.models.autopilot import AutopilotAction, AutopilotGoal
 from core.models.ban_risk import BanRiskSnapshot
 from core.models.base import (
@@ -27,6 +29,7 @@ from core.models.project_channel import ProjectChannel
 from core.models.parsing import (
     ParsedList,
     ParsedListTarget,
+    ParsingJob,
 )
 from core.models.priming import (
     PrimingAnchorChannel,
@@ -60,7 +63,10 @@ __all__ = [
     "Account",
     "AccountHealth",
     "AccountStatusHistory",
+    "AppSetting",
     "AppUser",
+    "SupportMessage",
+    "SupportRelay",
     "AutopilotAction",
     "AutopilotGoal",
     "BanRiskSnapshot",
@@ -78,6 +84,7 @@ __all__ = [
     "HealthEvent",
     "ParsedList",
     "ParsedListTarget",
+    "ParsingJob",
     "MediaAsset",
     "Persona",
     "ProfileAsset",

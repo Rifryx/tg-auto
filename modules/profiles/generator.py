@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+import random as _random
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -187,6 +188,46 @@ def _as_str(value: object) -> str:
 
 def _clip(value: str, limit: int) -> str:
     return value[:limit] if len(value) > limit else value
+
+
+def username_variants(
+    seeds: list[str], count: int = 10, *, rng: Optional[_random.Random] = None
+) -> list[str]:
+    """Алгоритмические варианты username на случай, когда все кандидаты заняты.
+
+    Из каждого seed берём «основу» (без хвостовых цифр) и добавляем случайный
+    числовой суффикс. Результат — валидные (``USERNAME_RE``), уникальные,
+    начинающиеся с буквы username'ы. Нужны, чтобы подбирать свободный «пока не
+    подойдёт», не тратя лишние вызовы LLM. Чистая функция (без сети).
+    """
+    rng = rng or _random.Random()
+    bases: list[str] = []
+    seen_base: set[str] = set()
+    for s in seeds or []:
+        cleaned = _clean_username(_as_str(s))
+        stem = re.sub(r"\d+$", "", cleaned).strip("_") or cleaned
+        stem = stem[:24]
+        if stem and stem[0].isalpha() and stem.lower() not in seen_base:
+            seen_base.add(stem.lower())
+            bases.append(stem)
+    if not bases:
+        bases = ["user"]
+
+    out: list[str] = []
+    seen: set[str] = set()
+    attempts = 0
+    while len(out) < count and attempts < count * 25:
+        attempts += 1
+        base = rng.choice(bases)
+        sep = rng.choice(["", "_", ""])
+        suffix = str(rng.randint(2, 99999))
+        cand = f"{base}{sep}{suffix}"[:32]
+        if len(cand) < 5:
+            cand = (base + "_" + suffix.zfill(4))[:32]
+        if USERNAME_RE.match(cand) and cand.lower() not in seen:
+            seen.add(cand.lower())
+            out.append(cand)
+    return out
 
 
 def _clean_username(value: str) -> str:

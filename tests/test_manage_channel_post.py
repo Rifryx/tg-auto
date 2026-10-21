@@ -133,6 +133,51 @@ def test_set_photo_requires_media_id():
         ManageChannelPostPayload(channel_tg_id=1, mode="set_photo")
 
 
+async def test_pin_dialog_sets_is_pinned(session):
+    """pin_dialog → ToggleDialogPinRequest + project_channels.is_pinned=True."""
+    _clean(session)
+    account = _make_account(session)
+    repo = ProjectChannelRepository(session)
+    repo.create(
+        account_id=account.id, project_id=None, channel_tg_id=777,
+        channel_access_hash=5, title="C", username=None, is_megagroup=False,
+    )
+    session.commit()
+
+    class _PinClient(_Client):
+        async def get_input_entity(self, _e):
+            return SimpleNamespace(channel_id=777, access_hash=5)
+
+    client = _PinClient()
+    action = ACTION_REGISTRY[BulkActionType.MANAGE_CHANNEL_POST.value]
+
+    result = await action.run(
+        account_id=account.id,
+        payload=ManageChannelPostPayload(
+            channel_tg_id=777, channel_access_hash=5, mode="pin_dialog"
+        ),
+        session_factory=lambda: _Ctx(session), publisher=None, client=client,
+    )
+    assert result.ok is True
+    assert "ToggleDialogPinRequest" in client.requests
+    assert result.detail["dialog_pinned"] is True
+    session.expire_all()
+    assert repo.find_by_account_tg(account.id, 777).is_pinned is True
+
+    # unpin → is_pinned=False
+    result2 = await action.run(
+        account_id=account.id,
+        payload=ManageChannelPostPayload(
+            channel_tg_id=777, channel_access_hash=5, mode="unpin_dialog"
+        ),
+        session_factory=lambda: _Ctx(session), publisher=None, client=client,
+    )
+    assert result2.ok is True
+    assert result2.detail["dialog_pinned"] is False
+    session.expire_all()
+    assert repo.find_by_account_tg(account.id, 777).is_pinned is False
+
+
 async def test_sync_prunes_only_inaccessible(session):
     """sync_project_channels удаляет лишь каналы с ChannelPrivateError (покинут/
     удалён); доступные и неоднозначные (ошибка сети) — оставляет."""

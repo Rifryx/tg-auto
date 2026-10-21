@@ -155,14 +155,22 @@ export function AiProfileSection({
             <CapsuleButton
               variant="accent"
               disabled={apply.state.phase === "running"}
-              onClick={() =>
+              onClick={() => {
+                // Шлём выбранный username первым, затем остальных ИИ-кандидатов.
+                // Если все заняты — сервер подберёт свободный вариант сам
+                // (auto_username_variants), поэтому аккаунт не останется без @.
+                const chosen = username.trim();
+                const ordered = [
+                  ...(chosen ? [chosen] : []),
+                  ...draft.username_candidates.filter((u) => u !== chosen),
+                ];
                 apply.run("apply_profile", [accountId], {
                   first_name: draft.first_name || null,
                   last_name: draft.last_name || null,
                   bio: draft.bio || null,
-                  username_candidates: username.trim() ? [username.trim()] : [],
-                })
-              }
+                  username_candidates: ordered,
+                });
+              }}
             >
               {apply.state.phase === "running" ? "Применяем…" : "Применить к Telegram"}
             </CapsuleButton>

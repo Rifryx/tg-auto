@@ -17,6 +17,22 @@ export interface ProxyBody {
   login?: string | null;
 }
 
+export interface SupportMessage {
+  id: number;
+  direction: "user" | "manager";
+  text: string;
+  created_at: string | null;
+}
+
+export const supportApi = {
+  thread: () =>
+    api.get<{ in_app_enabled: boolean; messages: SupportMessage[] }>(
+      "/app/support/messages",
+    ),
+  send: (text: string) =>
+    api.post<SupportMessage>("/app/support/messages", { text }),
+};
+
 export const personasApi = {
   list: () => api.get<Persona[]>("/personas"),
   create: (body: PersonaBody) => api.post<Persona>("/personas", body),
@@ -75,6 +91,10 @@ export const profileAssetsApi = {
   list: (kind?: ProfileAssetKind) =>
     api.get<ProfileAsset[]>(`/profile-assets${kind ? `?kind=${kind}` : ""}`),
   create: (body: ProfileAssetBody) => api.post<ProfileAsset>("/profile-assets", body),
+  update: (
+    id: number,
+    body: { value?: string; tags?: string[]; description?: string | null },
+  ) => api.patch<ProfileAsset>(`/profile-assets/${id}`, body),
   remove: (id: number) => api.del<void>(`/profile-assets/${id}`),
   // Байты аватара для превью-галереи (как media-assets: fetch → blob → ObjectURL).
   blob: (id: number) => apiBlob(`/profile-assets/${id}/blob`),

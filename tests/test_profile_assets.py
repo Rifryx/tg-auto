@@ -64,6 +64,64 @@ def test_pick_random_returns_none_when_empty(session):
     assert got is None
 
 
+def test_update_edits_value_tags_description(session):
+    _clean(session)
+    repo = ProfileAssetRepository(session)
+    obj = repo.create(user_id="u1", kind="bio", value="old", tags=["ru"], description="d")
+    session.commit()
+
+    repo.update(
+        obj.id,
+        value="new bio",
+        tags=["en", "male"],
+        description="",
+        touch_value=True,
+        touch_description=True,
+    )
+    session.commit()
+    session.expire_all()
+    got = repo.get(obj.id)
+    assert got.value == "new bio"
+    assert got.tags == ["en", "male"]
+    assert got.description is None  # очищено
+
+
+def test_patch_endpoint_edits_asset(session):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.deps.auth import require_user
+    from api.deps.db import get_session
+    from api.routers import profile_assets as pa_router
+
+    _clean(session)
+    obj = ProfileAssetRepository(session).create(
+        user_id="user-1", kind="first_name", value="Ann", tags=[]
+    )
+    session.commit()
+
+    app = FastAPI()
+    app.include_router(pa_router.router)
+    app.dependency_overrides[get_session] = lambda: session
+    app.dependency_overrides[require_user] = lambda: "user-1"
+    client = TestClient(app)
+
+    r = client.patch(
+        f"/profile-assets/{obj.id}",
+        json={"value": "Anna", "tags": ["ru"], "description": "жен."},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["value"] == "Anna"
+    assert body["tags"] == ["ru"]
+    assert body["description"] == "жен."
+
+    # Чужой пользователь не видит/не правит.
+    app.dependency_overrides[require_user] = lambda: "other"
+    r2 = TestClient(app).patch(f"/profile-assets/{obj.id}", json={"value": "X"})
+    assert r2.status_code == 404
+
+
 def test_pick_random_by_kind(session):
     _clean(session)
     session.add(ProfileAsset(user_id="u1", kind="first_name", value="Alice", tags=[]))

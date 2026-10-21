@@ -426,8 +426,10 @@ export function AccountDetailScreen() {
                 key={a.id}
                 className={`flex items-center justify-between py-2 ${i > 0 ? "border-t border-hairline" : ""}`}
               >
-                <span className="text-[13px] text-text-primary">{a.action_type}</span>
-                <span className="flex items-center gap-2 text-[12px] text-text-tertiary">
+                <span className="min-w-0 flex-1 truncate pr-2 text-[13px] text-text-primary">
+                  {a.detail?.trim() || a.action_type}
+                </span>
+                <span className="flex shrink-0 items-center gap-2 text-[12px] text-text-tertiary">
                   {timeAgo(a.created_at)}
                   <span
                     className={`h-1.5 w-1.5 rounded-full ${a.status === "done" ? "bg-status-active" : a.status === "failed" ? "bg-status-critical" : "bg-status-neutral"}`}

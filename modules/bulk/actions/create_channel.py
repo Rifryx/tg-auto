@@ -224,19 +224,22 @@ async def _run(
         except Exception:  # noqa: BLE001 — фото не критично для create
             pass
 
-    # 1.8) Инвайт-ссылка для приватных (у публичных есть @username).
+    # 1.8) Инвайт-ссылка — экспортируем ВСЕГДА, включая публичные каналы.
+    # Причина: если запрошенный @username занят/невалиден, публичный канал
+    # фактически остаётся без ссылки t.me/<username>, и инвайт-ссылка — тогда
+    # единственный способ попасть в него. Без этого UI не мог показать ссылку
+    # на только что созданный канал/чат.
     invite_link: Optional[str] = None
-    if not payload.is_public:
-        try:
-            inv = await around_telethon_call(
-                lambda: client(ExportChatInviteRequest(peer=peer_input)),
-                account_id=account_id,
-                session_factory=session_factory,
-                publisher=publisher,
-            )
-            invite_link = getattr(inv, "link", None)
-        except Exception:  # noqa: BLE001
-            pass
+    try:
+        inv = await around_telethon_call(
+            lambda: client(ExportChatInviteRequest(peer=peer_input)),
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+        )
+        invite_link = getattr(inv, "link", None)
+    except Exception:  # noqa: BLE001
+        pass
 
     # 2) Дедуп: если такой канал у аккаунта уже есть — пишем возвращённые
     # поля, но новую строку не создаём.

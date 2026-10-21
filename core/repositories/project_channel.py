@@ -39,6 +39,17 @@ class ProjectChannelRepository(BaseRepository[ProjectChannel]):
         )
         return self._add(obj)
 
+    def set_pinned(
+        self, account_id: int, channel_tg_id: int, is_pinned: bool
+    ) -> bool:
+        """Отметить канал/чат как (от)закреплённый в диалогах аккаунта."""
+        obj = self.find_by_account_tg(account_id, channel_tg_id)
+        if obj is None:
+            return False
+        obj.is_pinned = is_pinned
+        self.session.flush()
+        return True
+
     def delete_by_account_tg(self, account_id: int, channel_tg_id: int) -> bool:
         """Удалить строку канала аккаунта. True, если что-то удалили."""
         obj = self.find_by_account_tg(account_id, channel_tg_id)
