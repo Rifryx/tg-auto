@@ -156,12 +156,37 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
+// Русские подписи типов действий — на случай, если сервер не прислал detail
+// (старый кэш/запись): интерфейс не должен показывать английские action_type.
+const ACTION_RU: Record<string, string> = {
+  subscribe_channel: "Подписка на канал",
+  read_history: "Чтение истории",
+  reaction: "Реакция на пост",
+  view_media: "Просмотр медиа",
+  join_group: "Вступление в группу",
+  idle_online: "Был онлайн",
+  update_profile: "Обновление профиля",
+  interact_with_peer: "Взаимодействие",
+  comment: "Комментарий",
+};
+const STATUS_RU: Record<string, string> = {
+  done: "выполнено",
+  failed: "ошибка",
+  skipped: "пропущено",
+};
+
 export function ActivityRow({ item, tz }: { item: ActivityItem; tz?: string }) {
   const who =
     item.display_name?.trim() || (item.phone ? maskPhone(item.phone) : `Аккаунт #${item.account_id}`);
-  // Основная строка — развёрнутая деталь (что, где, какая реакция и т.п.);
-  // fallback на summary для старых записей без detail.
-  const primary = item.detail?.trim() || item.summary;
+  // Основная строка — развёрнутая деталь (что, где, какая реакция и т.п.).
+  // Если detail нет — собираем русскую подпись из action_type/status, чтобы
+  // не показывать английское «read_history (done)».
+  const fallback = item.action_type
+    ? `${ACTION_RU[item.action_type] ?? item.action_type}${
+        item.status && item.status !== "done" ? ` · ${STATUS_RU[item.status] ?? item.status}` : ""
+      }`
+    : item.summary;
+  const primary = item.detail?.trim() || fallback;
   const failed = item.status === "failed";
   return (
     <div className="flex items-center gap-3 px-4 py-3.5">

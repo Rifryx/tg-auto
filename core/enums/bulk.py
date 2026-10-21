@@ -44,3 +44,6 @@ class BulkActionType(str, Enum):
     SEND_REACTIONS = "send_reactions"
     CREATE_CHANNEL = "create_channel"
     MANAGE_CHANNEL_POST = "manage_channel_post"
+    # Закрепить/открепить ПРОИЗВОЛЬНЫЙ канал/чат (по @username или ссылке) в
+    # списке диалогов аккаунта — не только созданный приложением.
+    PIN_CHANNEL_REF = "pin_channel_ref"

@@ -12,6 +12,7 @@ import type { MonitoredChannel, MonitoredChannelStatus, WarmingProfile } from ".
 import { Field, TextArea, Toggle } from "../../modules/commenting/components/ui";
 import { AccountLogsSection } from "./components/AccountLogsSection";
 import { AiProfileSection } from "./components/AiProfileSection";
+import { PinChannelSection } from "./components/PinChannelSection";
 import { BanRiskCard } from "./components/BanRiskCard";
 import { ChannelManagerSection } from "./components/ChannelManagerSection";
 import { DialogsSection } from "./components/DialogsSection";
@@ -219,6 +220,9 @@ export function AccountDetailScreen() {
           />
         </TgGroup>
       </Section>
+
+      {/* Закрепить произвольный канал/чат в списке диалогов аккаунта. */}
+      <PinChannelSection accountId={accountId} />
 
       {/* ИИ-оформление профиля (генерация по персоне + применение к Telegram). */}
       <AiProfileSection accountId={accountId} hasPersona={acc.persona_id != null} />
