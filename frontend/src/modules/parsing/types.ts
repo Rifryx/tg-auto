@@ -57,6 +57,35 @@ export interface ParsedListTarget {
   created_at: string;
 }
 
+export type ParsingJobStatus =
+  | "pending"
+  | "running"
+  | "paused"
+  | "done"
+  | "failed"
+  | "stopped";
+
+export interface ParsingJobLogLine {
+  ts: string;
+  msg: string;
+}
+
+export interface ParsingJob {
+  id: number;
+  owner_user_id: number;
+  kind: string;
+  name: string;
+  status: ParsingJobStatus;
+  control: "run" | "pause" | "stop";
+  log: ParsingJobLogLine[];
+  raw_count: number;
+  inserted_count: number;
+  list_id: number | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RunChatMessagesBody extends AudienceFilters {
   name: string;
   collector_account_id: number;

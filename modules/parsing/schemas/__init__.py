@@ -19,6 +19,26 @@ class _ParsingBase(BaseModel):
     )
 
 
+class ParsingJobRead(_ParsingBase):
+    id: int
+    owner_user_id: int
+    kind: str
+    name: str
+    status: str
+    control: str
+    log: list = Field(default_factory=list)
+    raw_count: int
+    inserted_count: int
+    list_id: Optional[int] = None
+    error: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ParsingJobControl(BaseModel):
+    action: str  # pause | resume | stop
+
+
 class ParsedListRead(_ParsingBase):
     id: int
     owner_user_id: int

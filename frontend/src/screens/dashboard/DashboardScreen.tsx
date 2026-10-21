@@ -25,7 +25,6 @@ export function DashboardScreen() {
     queryFn: dashboardApi.get,
     refetchInterval: 30_000,
   });
-  const tz = useAppContent().data?.activity?.timezone;
 
   const onLive = useCallback(() => {
     qc.invalidateQueries({ queryKey: ["dashboard"] });
@@ -62,6 +61,7 @@ export function DashboardScreen() {
 }
 
 function DashboardContent({ data }: { data: Dashboard }) {
+  const tz = useAppContent().data?.activity?.timezone;
   const total = Object.values(data.accounts_summary).reduce((a, b) => a + b, 0);
   const activeModules = data.modules_summary.filter((m) => m.active_now > 0).length;
 

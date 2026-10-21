@@ -28,6 +28,7 @@ from core.models.project_channel import ProjectChannel
 from core.models.parsing import (
     ParsedList,
     ParsedListTarget,
+    ParsingJob,
 )
 from core.models.priming import (
     PrimingAnchorChannel,
@@ -80,6 +81,7 @@ __all__ = [
     "HealthEvent",
     "ParsedList",
     "ParsedListTarget",
+    "ParsingJob",
     "MediaAsset",
     "Persona",
     "ProfileAsset",

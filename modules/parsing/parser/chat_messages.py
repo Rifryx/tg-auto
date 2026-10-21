@@ -17,6 +17,7 @@ from modules.parsing.repositories import (
     ParsedListRepository,
     ParsedListTargetRepository,
 )
+from modules.parsing.worker.progress import NullProgress
 from modules.priming.repositories import BlacklistRepository
 from modules.priming.schemas.enums import ParserSourceKind, TargetLastSeen
 
@@ -49,6 +50,7 @@ async def parse_chat_messages(
     pool = ctx["client_pool"]
     governor = ctx["governor"]
     now = ctx.get("now") or datetime.now(timezone.utc)
+    progress = ctx.get("parsing_progress") or NullProgress()
 
     if not await governor.check_and_reserve(
         collector_account_id, PARSER_ACTION_TYPE,
@@ -71,15 +73,18 @@ async def parse_chat_messages(
         session.commit()
 
     # 2. Читаем чат.
+    progress.log(f"Открываю {chat_ref}, читаю сообщения за {days_window} дн…")
     client = await pool.get(collector_account_id)
     try:
         entity = await client.get_entity(chat_ref)
         min_dt = now - timedelta(days=days_window)
         raw_senders: dict[int, dict[str, Any]] = {}
+        scanned = 0
         async for message in client.iter_messages(entity, offset_date=None):
             msg_dt = getattr(message, "date", None)
             if msg_dt is not None and _to_utc(msg_dt) < min_dt:
                 break
+            scanned += 1
             sender_id = getattr(message, "sender_id", None)
             if sender_id is None:
                 continue
@@ -88,8 +93,17 @@ async def parse_chat_messages(
             sender = getattr(message, "sender", None)
             if sender is not None and "sender" not in info:
                 info["sender"] = _sender_snapshot(sender)
+            # Каждые 200 сообщений — прогресс + реакция на паузу/стоп.
+            if scanned % 200 == 0:
+                progress.log(
+                    f"Просмотрено {scanned} сообщ., уникальных авторов {len(raw_senders)}…"
+                )
+                await progress.heartbeat(raw=len(raw_senders))
     finally:
         await pool.release(collector_account_id)
+    progress.log(
+        f"Сбор завершён: {len(raw_senders)} авторов из {scanned} сообщений. Фильтрую…"
+    )
 
     # 3. Отбор + фильтры.
     picked_rows: list[dict[str, Any]] = []
@@ -157,6 +171,8 @@ async def parse_chat_messages(
         })
         session.commit()
 
+    progress.set_counts(raw=len(raw_senders), inserted=inserted)
+    progress.log(f"Фильтры применены: добавлено {inserted} из {len(raw_senders)}.")
     log.info(
         "parsing.chat_messages.done", list_id=list_id,
         raw=len(raw_senders), inserted=inserted, breakdown=breakdown,

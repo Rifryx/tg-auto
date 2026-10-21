@@ -4,6 +4,6 @@
 чтобы Alembic и общий ``core.models`` видели таблицы.
 """
 
-from modules.parsing.models import ParsedList, ParsedListTarget
+from modules.parsing.models import ParsedList, ParsedListTarget, ParsingJob
 
-__all__ = ["ParsedList", "ParsedListTarget"]
+__all__ = ["ParsedList", "ParsedListTarget", "ParsingJob"]

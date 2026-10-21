@@ -32,6 +32,7 @@ import { DiscoverScreen } from "./modules/parsing/DiscoverScreen";
 import { CommunityListScreen } from "./modules/parsing/CommunityListScreen";
 import { ListOpsScreen } from "./modules/parsing/ListOpsScreen";
 import { RunParsingScreen } from "./modules/parsing/RunParsingScreen";
+import { ParsingRunScreen } from "./modules/parsing/ParsingRunScreen";
 import { AdminScreen } from "./screens/admin/AdminScreen";
 import { BillingScreen } from "./screens/billing/BillingScreen";
 
@@ -59,6 +60,7 @@ export function App() {
         <Route path="/modules/priming/campaigns/:id/logs" element={<PrimingCampaignLogs />} />
         <Route path="/modules/parsing" element={<ParsingListsScreen />} />
         <Route path="/modules/parsing/run" element={<RunParsingScreen />} />
+        <Route path="/modules/parsing/run/:jobId" element={<ParsingRunScreen />} />
         <Route path="/modules/parsing/ops" element={<ListOpsScreen />} />
         <Route path="/modules/parsing/communities" element={<CommunitiesScreen />} />
         <Route path="/modules/parsing/discover" element={<DiscoverScreen />} />
