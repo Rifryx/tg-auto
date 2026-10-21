@@ -42,6 +42,29 @@ def test_activity_settings_default_then_edit(session):
     assert got["window_end"] == "22:00"
 
 
+def test_plans_default_then_edit(session):
+    client = TestClient(_app(session))
+
+    # Дефолт присутствует.
+    r = client.get("/app/content")
+    assert r.status_code == 200
+    assert r.json()["plans"]["pro"]["tagline"]
+
+    # Админ правит витрину тарифов.
+    r2 = client.put(
+        "/admin/app-content/plans",
+        json={
+            "free": {"tagline": "Бесплатно", "bullets": ["1 аккаунт"]},
+            "pro": {"tagline": "Всё включено", "bullets": ["Безлимит", "Поддержка 24/7"]},
+        },
+    )
+    assert r2.status_code == 200, r2.text
+
+    plans = client.get("/app/content").json()["plans"]
+    assert plans["free"]["tagline"] == "Бесплатно"
+    assert plans["pro"]["bullets"] == ["Безлимит", "Поддержка 24/7"]
+
+
 def test_activity_rejects_bad_timezone(session):
     client = TestClient(_app(session))
     r = client.put(

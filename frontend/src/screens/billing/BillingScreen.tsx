@@ -5,6 +5,7 @@ import { hapticSelection } from "../../shared/tg";
 import { useCurrentPlan, usePricing, useUiStore } from "../../shared/store";
 import type { PricingInfo } from "../../shared/billing";
 import { PLANS, type Plan } from "../../shared/plans";
+import { useAppContent } from "../more/AboutScreen";
 import { PaymentSheet } from "./PaymentSheet";
 
 /* Экран выбора тарифа.
@@ -16,6 +17,20 @@ export function BillingScreen() {
   const pricing = usePricing();
   const setPlan = useUiStore((s) => s.setPlan);
   const [payFor, setPayFor] = useState<Plan | null>(null);
+
+  // Витрина (tagline + буллеты) редактируется из админки — накладываем поверх
+  // кодовых значений, лимиты остаются из PLANS.
+  const content = useAppContent();
+  const plans: Plan[] = PLANS.map((p) => {
+    const info = content.data?.plans?.[p.id];
+    return info
+      ? {
+          ...p,
+          tagline: info.tagline?.trim() || p.tagline,
+          bullets: info.bullets?.length ? info.bullets : p.bullets,
+        }
+      : p;
+  });
 
   return (
     <div className="min-h-full">
@@ -40,7 +55,7 @@ export function BillingScreen() {
       </p>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {PLANS.map((plan) =>
+        {plans.map((plan) =>
           plan.id === "pro" ? (
             <ProCard
               key={plan.id}

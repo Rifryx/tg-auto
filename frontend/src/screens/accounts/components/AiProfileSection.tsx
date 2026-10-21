@@ -24,9 +24,16 @@ export function AiProfileSection({
   const qc = useQueryClient();
   const [draft, setDraft] = useState<ProfilePreview | null>(null);
   const [username, setUsername] = useState("");
+  // Источник генерации: по персоне аккаунта или по свободному промпту.
+  const [mode, setMode] = useState<"persona" | "prompt">(hasPersona ? "persona" : "prompt");
+  const [prompt, setPrompt] = useState("");
 
   const generate = useMutation({
-    mutationFn: () => accountsApi.generateProfilePreview(accountId),
+    mutationFn: () =>
+      accountsApi.generateProfilePreview(
+        accountId,
+        mode === "prompt" ? { custom_prompt: prompt.trim() } : undefined,
+      ),
     onSuccess: (p) => {
       setDraft(p);
       setUsername(p.username_candidates[0] ?? "");
@@ -46,18 +53,59 @@ export function AiProfileSection({
         <div className="card p-4">
           <p className="mb-3 flex items-start gap-2 text-[13px] text-text-secondary">
             <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-accent" strokeWidth={1.8} aria-hidden />
-            Сгенерируем имя, фамилию, «о себе» и варианты @username по персоне
-            аккаунта. Результат можно отредактировать перед применением.
+            Сгенерируем имя, фамилию, «о себе» и варианты @username. Результат
+            можно отредактировать перед применением.
           </p>
-          {!hasPersona && (
-            <p className="mb-3 text-[12px] text-text-tertiary">
-              У аккаунта нет персоны — привяжите её в разделе «Персона» ниже,
-              иначе генерировать не из чего.
-            </p>
+
+          {/* Выбор источника: персона аккаунта или свободный промпт. */}
+          <div className="mb-3 flex gap-2">
+            {(
+              [
+                ["persona", "По персоне"],
+                ["prompt", "По промпту"],
+              ] as const
+            ).map(([v, lbl]) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setMode(v)}
+                className={`flex-1 rounded-pill py-2 text-[13px] font-semibold ${
+                  mode === v
+                    ? "bg-surface-2 text-text-primary"
+                    : "border border-hairline bg-surface-1 text-text-secondary"
+                }`}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
+
+          {mode === "persona" ? (
+            !hasPersona && (
+              <p className="mb-3 text-[12px] text-text-tertiary">
+                У аккаунта нет персоны — привяжите её в разделе «Персона» ниже,
+                либо переключитесь на «По промпту».
+              </p>
+            )
+          ) : (
+            <div className="mb-3">
+              <TextArea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={3}
+                maxLength={2000}
+                placeholder="Опишите персонажа: пол, возраст, интересы, тон. Напр.: девушка 24, крипто-трейдер, дружелюбная, лёгкий юмор."
+              />
+              <p className="mt-1 px-1 text-[11px] text-text-tertiary">
+                Персона не требуется — ИИ сгенерирует имя/фамилию/bio/username по
+                описанию (с подбором свободного username).
+              </p>
+            </div>
           )}
-          {noPersona && (
+
+          {noPersona && mode === "persona" && (
             <p className="mb-2 text-[12px] text-status-critical">
-              Нужна персона — привяжите её перед генерацией.
+              Нужна персона — привяжите её или используйте «По промпту».
             </p>
           )}
           {generate.isError && !noPersona && (
@@ -65,16 +113,23 @@ export function AiProfileSection({
               Не удалось сгенерировать. Попробуйте ещё раз.
             </p>
           )}
-          <CapsuleButton
-            variant={hasPersona ? "accent" : "secondary"}
-            disabled={!hasPersona || generate.isPending}
-            onClick={() => generate.mutate()}
-          >
-            <span className="inline-flex items-center gap-2">
-              <Sparkles className="h-4 w-4" strokeWidth={2} aria-hidden />
-              {generate.isPending ? "Генерируем…" : "Сгенерировать профиль"}
-            </span>
-          </CapsuleButton>
+          {(() => {
+            const canGenerate =
+              !generate.isPending &&
+              (mode === "persona" ? hasPersona : prompt.trim().length > 0);
+            return (
+              <CapsuleButton
+                variant={canGenerate ? "accent" : "secondary"}
+                disabled={!canGenerate}
+                onClick={() => generate.mutate()}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  {generate.isPending ? "Генерируем…" : "Сгенерировать профиль"}
+                </span>
+              </CapsuleButton>
+            );
+          })()}
         </div>
       )}
 

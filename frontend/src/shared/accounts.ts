@@ -117,8 +117,11 @@ export const accountsApi = {
   exportSessions: (account_ids: number[]) =>
     api.post<ExportedSession[]>("/accounts/export-sessions", { account_ids }),
   // ИИ-превью профиля по персоне (без применения к Telegram).
-  generateProfilePreview: (id: number, llm_provider = "deepseek") =>
-    api.post<ProfilePreview>(`/accounts/${id}/profile/generate-preview`, { llm_provider }),
+  generateProfilePreview: (id: number, opts?: { custom_prompt?: string; llm_provider?: string }) =>
+    api.post<ProfilePreview>(`/accounts/${id}/profile/generate-preview`, {
+      llm_provider: opts?.llm_provider ?? "deepseek",
+      ...(opts?.custom_prompt ? { custom_prompt: opts.custom_prompt } : {}),
+    }),
   // 2FA-пароль одного/нескольких аккаунтов (plaintext шифруется на сервере).
   set2fa: (body: {
     account_ids: number[];

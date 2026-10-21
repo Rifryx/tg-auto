@@ -94,7 +94,24 @@ class ProfileGenerator:
         self._temperature = temperature
 
     async def generate(self, persona: Persona) -> GeneratedProfile:
-        user_prompt = _persona_to_user_prompt(persona)
+        return await self._run(_persona_to_user_prompt(persona))
+
+    async def generate_from_prompt(self, prompt: str) -> GeneratedProfile:
+        """Сгенерировать профиль по свободному промпту пользователя (без персоны).
+
+        Нужно, чтобы можно было оформить аккаунт без привязки персоны —
+        достаточно описать желаемого персонажа текстом.
+        """
+        text = (prompt or "").strip()
+        if not text:
+            raise ProfileGenerationError("empty prompt")
+        user_prompt = (
+            "Пожелания пользователя к персонажу (свободный текст). Соблюдай тот же "
+            "строгий JSON-формат ответа:\n" + text
+        )
+        return await self._run(user_prompt)
+
+    async def _run(self, user_prompt: str) -> GeneratedProfile:
         raw = await self._provider.generate(
             system=SYSTEM_PROMPT,
             messages=[Message(role="user", content=user_prompt)],

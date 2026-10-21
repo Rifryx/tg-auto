@@ -194,9 +194,45 @@ class SupportBody(BaseModel):
 
 @router.get("/app-content")
 def get_app_content(session: Session = Depends(get_session)) -> dict[str, object]:
-    from core.content import get_about, get_support
+    from core.content import get_about, get_plans, get_support
 
-    return {"about": get_about(session), "support": get_support(session)}
+    return {
+        "about": get_about(session),
+        "support": get_support(session),
+        "plans": get_plans(session),
+    }
+
+
+class PlanInfo(BaseModel):
+    tagline: str = Field(default="", max_length=200)
+    bullets: list[str] = Field(default_factory=list)
+
+
+class PlansBody(BaseModel):
+    free: PlanInfo
+    pro: PlanInfo
+
+
+@router.put("/app-content/plans")
+def put_plans(
+    body: PlansBody,
+    admin_id: str = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """Редактировать витрину тарифов (tagline + буллеты). Лимиты — в коде."""
+    from core.content import set_plans
+
+    plans = set_plans(
+        session,
+        {
+            "free": body.free.model_dump(),
+            "pro": body.pro.model_dump(),
+        },
+        updated_by=admin_id,
+    )
+    session.commit()
+    admin_action(admin_id, "set_plans")
+    return plans
 
 
 @router.put("/app-content/about")

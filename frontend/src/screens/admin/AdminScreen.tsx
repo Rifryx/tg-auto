@@ -760,6 +760,10 @@ function AppContentSection() {
   const [managerUrl, setManagerUrl] = useState("");
   const [inAppEnabled, setInAppEnabled] = useState(true);
   const [intro, setIntro] = useState("");
+  const [freeTagline, setFreeTagline] = useState("");
+  const [freeBullets, setFreeBullets] = useState("");
+  const [proTagline, setProTagline] = useState("");
+  const [proBullets, setProBullets] = useState("");
   const [loaded, setLoaded] = useState(false);
 
   // Инициализируем поля один раз, когда пришли данные.
@@ -771,6 +775,10 @@ function AppContentSection() {
     setManagerUrl(data.support.manager_url);
     setInAppEnabled(data.support.in_app_enabled);
     setIntro(data.support.intro);
+    setFreeTagline(data.plans.free.tagline);
+    setFreeBullets(data.plans.free.bullets.join("\n"));
+    setProTagline(data.plans.pro.tagline);
+    setProBullets(data.plans.pro.bullets.join("\n"));
     setLoaded(true);
   }
 
@@ -789,6 +797,19 @@ function AppContentSection() {
         manager_url: managerUrl.trim(),
         in_app_enabled: inAppEnabled,
         intro,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "app-content"] });
+      qc.invalidateQueries({ queryKey: ["app", "content"] });
+    },
+  });
+  const toBullets = (s: string) =>
+    s.split("\n").map((b) => b.trim()).filter(Boolean);
+  const savePlans = useMutation({
+    mutationFn: () =>
+      adminApi.setPlans({
+        free: { tagline: freeTagline.trim(), bullets: toBullets(freeBullets) },
+        pro: { tagline: proTagline.trim(), bullets: toBullets(proBullets) },
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin", "app-content"] });
@@ -881,6 +902,45 @@ function AppContentSection() {
           {saveSupport.isPending ? "Сохраняем…" : "Сохранить «Поддержку»"}
         </button>
         {saveSupport.isSuccess && <p className="text-[12px] text-status-active">Обновлено.</p>}
+      </div>
+
+      <div className="card mt-3 flex flex-col gap-3 p-4">
+        <p className="text-[13px] font-semibold text-text-secondary">Тарифы (витрина)</p>
+        <p className="-mt-1 text-[12px] text-text-tertiary">
+          Текст на экране тарифов. Сами лимиты задаются в коде.
+        </p>
+        {(
+          [
+            ["Free", freeTagline, setFreeTagline, freeBullets, setFreeBullets] as const,
+            ["Pro", proTagline, setProTagline, proBullets, setProBullets] as const,
+          ]
+        ).map(([label, tag, setTag, bul, setBul]) => (
+          <div key={label} className="rounded-chip border border-hairline p-3">
+            <p className="mb-2 text-[12px] font-semibold text-text-secondary">{label}</p>
+            <label className="flex flex-col gap-1">
+              <span className={lblCls}>Подзаголовок</span>
+              <input value={tag} onChange={(e) => setTag(e.target.value)} className={inputCls} />
+            </label>
+            <label className="mt-2 flex flex-col gap-1">
+              <span className={lblCls}>Пункты (по одному в строке)</span>
+              <textarea
+                value={bul}
+                onChange={(e) => setBul(e.target.value)}
+                rows={5}
+                className="min-h-[110px] resize-y rounded-chip border border-hairline bg-surface-2 px-3 py-2 text-[14px] text-text-primary outline-none focus:border-strong"
+              />
+            </label>
+          </div>
+        ))}
+        <button
+          type="button"
+          disabled={savePlans.isPending}
+          onClick={() => savePlans.mutate()}
+          className="mt-1 rounded-pill bg-accent px-4 py-3 text-[14px] font-semibold text-accent-on disabled:opacity-50"
+        >
+          {savePlans.isPending ? "Сохраняем…" : "Сохранить тарифы"}
+        </button>
+        {savePlans.isSuccess && <p className="text-[12px] text-status-active">Обновлено.</p>}
       </div>
     </section>
   );

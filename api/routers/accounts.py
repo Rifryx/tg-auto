@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
@@ -798,6 +798,8 @@ class ProfilePreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     llm_provider: str = "deepseek"
+    # Свободный промпт: если задан — генерируем по нему, персона не требуется.
+    custom_prompt: Optional[str] = Field(default=None, max_length=2000)
 
 
 class ProfilePreviewResponse(BaseModel):
@@ -822,21 +824,27 @@ async def generate_profile_preview(
     что LLM выдал по одному акку, и запускает bulk (или редактирует и
     применяет через ``apply_profile``)."""
     account = _get_account_or_404(session, account_id)
-    if account.persona_id is None:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "account has no persona — attach one before generating profile",
-        )
-    persona = PersonaRepository(session).get(account.persona_id)
-    if persona is None:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            f"persona {account.persona_id} not found",
-        )
+    generator = default_generator(body.llm_provider)
+
+    custom = (body.custom_prompt or "").strip()
     try:
-        generated: GeneratedProfile = await default_generator(body.llm_provider).generate(
-            persona
-        )
+        if custom:
+            # Генерация по свободному промпту — персона не требуется.
+            generated: GeneratedProfile = await generator.generate_from_prompt(custom)
+        else:
+            # По персоне (как раньше) — требуется привязанная персона.
+            if account.persona_id is None:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    "account has no persona — attach one or provide custom_prompt",
+                )
+            persona = PersonaRepository(session).get(account.persona_id)
+            if persona is None:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    f"persona {account.persona_id} not found",
+                )
+            generated = await generator.generate(persona)
     except ProfileGenerationError as exc:
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
