@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { accountsApi } from "../../shared/accounts";
+import { accountWorkWarning, sortForWork } from "../../shared/status";
 import { parsingApi } from "./api";
 import { Checkbox } from "./components/Checkbox";
 
@@ -38,7 +39,7 @@ export function DiscoverScreen() {
 
   const accountsQuery = useQuery({ queryKey: ["accounts", "pool"], queryFn: () => accountsApi.list() });
   const collectors = useMemo(
-    () => (accountsQuery.data ?? []).filter((a) => a.status === "pool"),
+    () => sortForWork(accountsQuery.data ?? []),
     [accountsQuery.data],
   );
 
@@ -148,16 +149,22 @@ export function DiscoverScreen() {
             <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">Аккаунт-парсер</div>
           </div>
           <div className="flex max-h-48 flex-col gap-1.5 overflow-y-auto">
-            {collectors.map((a) => (
-              <button key={a.id} type="button" aria-pressed={collectorId === a.id}
-                onClick={() => setCollectorId(collectorId === a.id ? null : a.id)}
-                className={["flex items-center justify-between rounded-xl border p-3 text-left transition-colors",
-                  collectorId === a.id ? "border-strong bg-surface-2" : "border-hairline bg-surface-1 active:bg-surface-2"].join(" ")}>
-                <span className="truncate text-[14px] font-medium text-text-primary">{a.username ? `@${a.username}` : a.phone}</span>
-                {collectorId === a.id && <span className="rounded-pill bg-status-active/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-status-active">выбран</span>}
-              </button>
-            ))}
-            {collectors.length === 0 && <p className="text-[13px] text-text-tertiary">Нет свободных аккаунтов в пуле.</p>}
+            {collectors.map((a) => {
+              const warn = accountWorkWarning(a.status);
+              return (
+                <button key={a.id} type="button" aria-pressed={collectorId === a.id}
+                  onClick={() => setCollectorId(collectorId === a.id ? null : a.id)}
+                  className={["flex items-center justify-between gap-2 rounded-xl border p-3 text-left transition-colors",
+                    collectorId === a.id ? "border-strong bg-surface-2" : "border-hairline bg-surface-1 active:bg-surface-2"].join(" ")}>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[14px] font-medium text-text-primary">{a.username ? `@${a.username}` : a.phone}</span>
+                    {warn && <span className="block truncate text-[11px] text-status-warning">{warn}</span>}
+                  </span>
+                  {collectorId === a.id && <span className="shrink-0 rounded-pill bg-status-active/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-status-active">выбран</span>}
+                </button>
+              );
+            })}
+            {collectors.length === 0 && <p className="text-[13px] text-text-tertiary">Аккаунтов пока нет.</p>}
           </div>
         </div>
 

@@ -1,9 +1,10 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertCircle, ArrowLeft, Filter, Link2, Play, UserCheck } from "lucide-react";
+import { AlertCircle, AlertTriangle, ArrowLeft, Filter, Link2, Play, UserCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { accountsApi } from "../../shared/accounts";
+import { accountWorkWarning, sortForWork } from "../../shared/status";
 import { parsingApi } from "./api";
 import type { AudienceFilters } from "./types";
 import { Checkbox } from "./components/Checkbox";
@@ -55,10 +56,15 @@ export function RunParsingScreen() {
     queryKey: ["accounts", "pool"],
     queryFn: () => accountsApi.list(),
   });
+  // Аккаунт-парсер можно выбрать в любом статусе — «не идеальные» помечаем.
   const collectors = useMemo(
-    () => (accountsQuery.data ?? []).filter((a) => a.status === "pool"),
+    () => sortForWork(accountsQuery.data ?? []),
     [accountsQuery.data],
   );
+  const collectorWarning = useMemo(() => {
+    const c = collectors.find((a) => a.id === collectorId);
+    return c ? accountWorkWarning(c.status) : null;
+  }, [collectors, collectorId]);
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -218,20 +224,30 @@ export function RunParsingScreen() {
             Отдельный от рабочих аккаунт для чтения — выберите из списка.
           </p>
           {collectors.length === 0 ? (
-            <p className="text-[13px] text-text-tertiary">Нет свободных аккаунтов в пуле.</p>
+            <p className="text-[13px] text-text-tertiary">Аккаунтов пока нет.</p>
           ) : (
-            <select
-              value={collectorId ?? ""}
-              onChange={(e) => setCollectorId(e.target.value ? Number(e.target.value) : null)}
-              className="w-full rounded-xl border border-hairline bg-surface-2 p-3 text-[15px] text-text-primary outline-none focus:border-strong"
-            >
-              <option value="">— выберите аккаунт —</option>
-              {collectors.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.username ? `@${a.username}` : a.phone}
-                </option>
-              ))}
-            </select>
+            <>
+              <select
+                value={collectorId ?? ""}
+                onChange={(e) => setCollectorId(e.target.value ? Number(e.target.value) : null)}
+                className="w-full rounded-xl border border-hairline bg-surface-2 p-3 text-[15px] text-text-primary outline-none focus:border-strong"
+              >
+                <option value="">— выберите аккаунт —</option>
+                {collectors.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {(a.username ? `@${a.username}` : a.phone) +
+                      (accountWorkWarning(a.status) ? ` · ${accountWorkWarning(a.status)}` : "")}
+                  </option>
+                ))}
+              </select>
+              {collectorWarning && (
+                <p className="mt-2 flex items-start gap-1.5 text-[12px] text-status-warning">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                  Не идеальный аккаунт для парсинга ({collectorWarning}) — выше риск
+                  ошибок/бана. Лучше взять аккаунт из пула.
+                </p>
+              )}
+            </>
           )}
         </div>
 

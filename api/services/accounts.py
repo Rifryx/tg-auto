@@ -206,22 +206,51 @@ def _tdata_dir_to_string(tdata_dir: str) -> str:
     return asyncio.run(_convert())
 
 
-def tdata_zip_to_string(zip_bytes: bytes) -> str:
-    """Конвертирует ZIP с папкой TData (Telegram Desktop) в StringSession.
+def _extract_archive(archive_bytes: bytes, dest_dir: str) -> None:
+    """Распаковывает ZIP или RAR-архив в ``dest_dir``.
+
+    Формат определяется по содержимому (сигнатуре), а не по расширению. Для RAR
+    нужен системный распаковщик (``unar``/``unrar``/``bsdtar``), который вызывает
+    библиотека ``rarfile``; при его отсутствии — понятная ошибка."""
+    import io
+    import zipfile
+
+    if zipfile.is_zipfile(io.BytesIO(archive_bytes)):
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as zf:
+            zf.extractall(dest_dir)
+        return
+
+    # RAR: сигнатура "Rar!\x1a\x07".
+    if archive_bytes[:4] == b"Rar!":
+        try:
+            import rarfile
+        except ImportError as exc:  # pragma: no cover — зависит от окружения
+            raise SessionImportError(
+                "RAR-архивы не поддерживаются в этой сборке (нет пакета rarfile)"
+            ) from exc
+        try:
+            with rarfile.RarFile(io.BytesIO(archive_bytes)) as rf:
+                rf.extractall(dest_dir)
+        except rarfile.RarCannotExec as exc:
+            raise SessionImportError(
+                "для RAR нужен системный распаковщик (unar/unrar). "
+                "Загрузите tdata в ZIP."
+            ) from exc
+        return
+
+    raise SessionImportError("файл не является ZIP или RAR-архивом")
+
+
+def tdata_archive_to_string(archive_bytes: bytes) -> str:
+    """Конвертирует ZIP/RAR с папкой TData (Telegram Desktop) в StringSession.
 
     Поддерживается только tdata без локального passcode-пароля (у защищённого
     ``isLoaded()`` вернёт False → понятная ошибка)."""
-    import io
     import tempfile
-    import zipfile
 
     try:
         with tempfile.TemporaryDirectory() as d:
-            try:
-                with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-                    zf.extractall(d)
-            except zipfile.BadZipFile as exc:
-                raise SessionImportError("файл не является ZIP-архивом") from exc
+            _extract_archive(archive_bytes, d)
             tdata_dir = _find_tdata_dir(d)
             if tdata_dir is None:
                 raise SessionImportError(
@@ -234,11 +263,16 @@ def tdata_zip_to_string(zip_bytes: bytes) -> str:
         raise SessionImportError(f"не удалось разобрать tdata: {exc}") from exc
 
 
+# Обратная совместимость: старое имя оставляем как алиас (ZIP всё ещё работает).
+def tdata_zip_to_string(zip_bytes: bytes) -> str:
+    return tdata_archive_to_string(zip_bytes)
+
+
 def import_account_from_session(
     session: Session,
     *,
     phone: str,
-    proxy_id: int,
+    proxy_id: Optional[int],
     persona_id: Optional[int],
     warming_profile: WarmingProfile,
     session_string: str,
@@ -246,16 +280,25 @@ def import_account_from_session(
     """Создаёт аккаунт из готовой (авторизованной) StringSession.
 
     Сессия шифруется (``session_enc``); аккаунт сразу попадает в пул — логин по
-    коду не нужен. Валидность сессии проверит воркер при первом использовании."""
+    коду не нужен. Валидность сессии проверит воркер при первом использовании.
+
+    ``proxy_id`` можно опустить только при ``ALLOW_NO_PROXY=true`` (режим тестов
+    без прокси) — как и при обычной регистрации по коду."""
     phone = normalize_phone(phone)
-    proxy = ProxyRepository(session).get(proxy_id)
-    if proxy is None:
-        raise ProxyNotFoundError(f"proxy {proxy_id} not found")
+    proxy = None
+    if proxy_id is not None:
+        proxy = ProxyRepository(session).get(proxy_id)
+        if proxy is None:
+            raise ProxyNotFoundError(f"proxy {proxy_id} not found")
+    elif not get_settings().allow_no_proxy:
+        raise ProxyNotFoundError(
+            "proxy is required (set ALLOW_NO_PROXY=true to import without proxy)"
+        )
 
     accounts = AccountRepository(session)
     if accounts.get_by_phone(phone) is not None:
         raise PhoneAlreadyExistsError(phone)
-    fingerprint = FingerprintGenerator(accounts).generate(proxy.geo)
+    fingerprint = FingerprintGenerator(accounts).generate(proxy.geo if proxy else None)
     try:
         account = accounts.create(
             AccountCreate(

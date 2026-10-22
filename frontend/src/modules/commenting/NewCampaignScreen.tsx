@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Bookmark, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bookmark, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { StickyActionBar } from "../../components/StickyActionBar";
@@ -8,6 +8,7 @@ import { humanizeError } from "../../shared/api";
 import { accountsApi, catalogApi } from "../../shared/accounts";
 import { useLimit } from "../../shared/limits";
 import { projectsApi } from "../../shared/projects";
+import { accountWorkWarning, sortForWork } from "../../shared/status";
 import { Select } from "../../shared/Select";
 import { haptic } from "../../shared/tg";
 import { commentingApi, delayPresetsApi } from "./api";
@@ -123,10 +124,11 @@ export function NewCampaignScreen() {
   const [verifyAfterPost, setVerifyAfterPost] = useState(false);
   const [verifyDelaySec, setVerifyDelaySec] = useState(300);
 
-  const pool = useQuery({ queryKey: ["accounts", "pool"], queryFn: () => accountsApi.list("pool") });
+  // Показываем аккаунты в ЛЮБОМ статусе — «не идеальные» помечаем. Для
+  // «добавить всю группу» дальше берём только свободных (pool).
   const groups = useQuery({ queryKey: ["projects"], queryFn: projectsApi.list });
-  // Все аккаунты (не только pool) — чтобы сказать, сколько из группы сейчас заняты.
   const allAccounts = useQuery({ queryKey: ["accounts", "all"], queryFn: () => accountsApi.list() });
+  const pool = allAccounts;
   const personas = useQuery({ queryKey: ["personas"], queryFn: catalogApi.personas });
   const delayPresets = useQuery({ queryKey: ["delay-presets"], queryFn: delayPresetsApi.list });
 
@@ -145,6 +147,10 @@ export function NewCampaignScreen() {
         .map((s) => s.trim())
         .filter(Boolean),
     [channelLinksText],
+  );
+
+  const anyNonIdealSelected = (allAccounts.data ?? []).some(
+    (a) => selected.has(a.id) && accountWorkWarning(a.status) != null,
   );
 
   const valid =
@@ -565,10 +571,10 @@ export function NewCampaignScreen() {
         </div>
       </Section>
 
-      <Section title="Аккаунты из пула">
+      <Section title="Аккаунты">
         <AddGroupBar
           groups={groups.data ?? []}
-          pool={pool.data ?? []}
+          pool={(pool.data ?? []).filter((a) => a.status === "pool")}
           all={allAccounts.data ?? []}
           onAdd={(ids) =>
             setSelected((s) => {
@@ -578,15 +584,26 @@ export function NewCampaignScreen() {
             })
           }
         />
+        {anyNonIdealSelected && (
+          <div className="mt-3 flex items-start gap-2 rounded-chip border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-[12px] text-status-warning">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+            <span>
+              Выбраны не идеальные аккаунты (не из пула): они могут быть не
+              прогреты, заняты или на паузе. Кампания сможет взять в работу только
+              свободные (в пуле) — остальные подключатся, когда освободятся.
+            </span>
+          </div>
+        )}
         {pool.data && pool.data.length > 0 ? (
           <div className="mt-3 flex flex-col gap-2">
-            {pool.data.map((a) => {
+            {sortForWork(pool.data).map((a) => {
               const isSelected = selected.has(a.id);
               return (
                 <div key={a.id}>
                   <AccountPickRow
                     account={a}
                     selected={isSelected}
+                    note={accountWorkWarning(a.status) ?? undefined}
                     onToggle={() =>
                       setSelected((s) => {
                         const n = new Set(s);
@@ -638,7 +655,7 @@ export function NewCampaignScreen() {
             })}
           </div>
         ) : (
-          <p className="mt-3 text-[13px] text-text-tertiary">В пуле нет свободных аккаунтов.</p>
+          <p className="mt-3 text-[13px] text-text-tertiary">Аккаунтов пока нет.</p>
         )}
       </Section>
 

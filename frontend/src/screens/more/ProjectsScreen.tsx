@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { accountsApi } from "../../shared/accounts";
 import { ApiError } from "../../shared/api";
 import { projectsApi } from "../../shared/projects";
+import { AccountAvatar } from "../../shared/AccountAvatar";
 import type { Project } from "../../shared/types";
 import {
   CapsuleButton,
@@ -155,6 +156,10 @@ export function ProjectsScreen() {
                         >
                           {checked && <Check className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />}
                         </span>
+                        <AccountAvatar
+                          avatarUrl={a.avatar_url}
+                          fallback={a.first_name || a.username || a.phone}
+                        />
                         <span className="min-w-0 flex-1 truncate text-[14px] text-text-primary">
                           {a.username ? `@${a.username}` : a.phone}
                         </span>

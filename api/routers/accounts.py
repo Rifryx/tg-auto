@@ -275,7 +275,8 @@ async def create_account(
 )
 async def import_session_account(
     phone: str = Form(...),
-    proxy_id: int = Form(...),
+    # proxy_id можно опустить только при ALLOW_NO_PROXY=true (сервис проверит).
+    proxy_id: Optional[int] = Form(None),
     persona_id: Optional[int] = Form(None),
     warming_profile: WarmingProfile = Form(WarmingProfile.MEDIUM),
     session_string: Optional[str] = Form(None),
@@ -332,17 +333,18 @@ async def import_session_account(
 )
 async def import_tdata_account(
     phone: str = Form(...),
-    proxy_id: int = Form(...),
+    # proxy_id можно опустить только при ALLOW_NO_PROXY=true (сервис проверит).
+    proxy_id: Optional[int] = Form(None),
     persona_id: Optional[int] = Form(None),
     warming_profile: WarmingProfile = Form(WarmingProfile.MEDIUM),
-    tdata_zip: UploadFile = File(..., description="ZIP с папкой tdata"),
+    tdata_zip: UploadFile = File(..., description="ZIP или RAR с папкой tdata"),
     session: Session = Depends(get_session),
     _limit: None = Depends(enforce_limit("accounts_max")),
 ) -> AccountRead:
-    """Импорт аккаунта из TData (Telegram Desktop): ZIP конвертируется офлайн в
-    StringSession, шифруется и сохраняется. Аккаунт сразу попадает в пул."""
+    """Импорт аккаунта из TData (Telegram Desktop): ZIP/RAR конвертируется офлайн
+    в StringSession, шифруется и сохраняется. Аккаунт сразу попадает в пул."""
     try:
-        string = accounts_service.tdata_zip_to_string(await tdata_zip.read())
+        string = accounts_service.tdata_archive_to_string(await tdata_zip.read())
     except accounts_service.SessionImportError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 

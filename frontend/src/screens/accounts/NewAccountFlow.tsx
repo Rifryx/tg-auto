@@ -142,7 +142,7 @@ export function NewAccountFlow() {
     mutationFn: () =>
       accountsApi.importSession({
         phone: phone.trim(),
-        proxy_id: proxyId!,
+        proxy_id: proxyId,
         warming_profile: profile,
         session_string: sessionString.trim() || undefined,
         session_file: sessionFile ?? undefined,
@@ -159,7 +159,7 @@ export function NewAccountFlow() {
     mutationFn: () =>
       accountsApi.importTData({
         phone: phone.trim(),
-        proxy_id: proxyId!,
+        proxy_id: proxyId,
         warming_profile: profile,
         tdata_zip: tdataZip!,
       }),
@@ -277,9 +277,9 @@ export function NewAccountFlow() {
             onSelect={setProxyId}
             phone={phone}
             onRefetch={() => proxies.refetch()}
-            required={!(allowNoProxy && method === "code")}
+            required={!allowNoProxy}
           />
-          {allowNoProxy && method === "code" && (
+          {allowNoProxy && (
             <p className="mt-2 px-1 text-[12px] text-text-tertiary">
               Режим без прокси включён (ALLOW_NO_PROXY): прокси можно не выбирать —
               подключение пойдёт напрямую. Только для тестов.
@@ -385,7 +385,7 @@ export function NewAccountFlow() {
             disabled={
               !phone.trim() ||
               phoneExists ||
-              proxyId == null ||
+              (!allowNoProxy && proxyId == null) ||
               (!sessionFile && !sessionString.trim()) ||
               importSession.isPending
             }
@@ -397,7 +397,11 @@ export function NewAccountFlow() {
         {step === 1 && method === "tdata" && (
           <CapsuleButton
             disabled={
-              !phone.trim() || phoneExists || proxyId == null || !tdataZip || importTData.isPending
+              !phone.trim() ||
+              phoneExists ||
+              (!allowNoProxy && proxyId == null) ||
+              !tdataZip ||
+              importTData.isPending
             }
             onClick={() => {
               setError(null);
@@ -1063,21 +1067,21 @@ function TDataSourceCard({
   return (
     <div className="mb-4 rounded-card border border-hairline bg-surface-1 p-4">
       <p className="mb-3 text-[13px] font-semibold text-text-primary">Папка TData</p>
-      <Field label="ZIP-архив папки tdata">
+      <Field label="ZIP или RAR-архив папки tdata">
         <label className="flex min-h-[48px] cursor-pointer items-center gap-2 rounded-chip border border-dashed border-hairline bg-surface-1 px-4 text-[14px] text-text-secondary active:border-strong">
           <Upload className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
-          <span className="truncate">{tdataZip ? tdataZip.name : "Выбрать .zip с tdata"}</span>
+          <span className="truncate">{tdataZip ? tdataZip.name : "Выбрать .zip или .rar с tdata"}</span>
           <input
             type="file"
-            accept=".zip,application/zip"
+            accept=".zip,.rar,application/zip,application/vnd.rar,application/x-rar-compressed"
             onChange={(e) => setTdataZip(e.target.files?.[0] ?? null)}
             className="hidden"
           />
         </label>
       </Field>
       <InfoNote>
-        Запакуйте папку <b>tdata</b> из Telegram Desktop в ZIP. Конвертация в
-        сессию происходит офлайн; аккаунт сразу попадёт в пул. TData с локальным
+        Запакуйте папку <b>tdata</b> из Telegram Desktop в ZIP или RAR. Конвертация
+        в сессию происходит офлайн; аккаунт сразу попадёт в пул. TData с локальным
         паролем (passcode) не поддерживается.
       </InfoNote>
     </div>

@@ -47,6 +47,40 @@ export const STATUS_LABEL: Record<AccountStatus, string> = {
   banned: "Бан",
 };
 
+/* Для любой работы (парсинг, кампании, прогрев-кампании, шиллинг) можно выбрать
+ * аккаунт в ЛЮБОМ статусе — но «не идеальные» помечаем предупреждением, чтобы
+ * пользователь понимал риск. «Идеальный» = в пуле (прогрет, свободен). */
+export const IDEAL_WORK_STATUS: AccountStatus = "pool";
+
+const WORK_WARNING: Partial<Record<AccountStatus, string>> = {
+  created: "не залогинен / не прогрет",
+  warming: "ещё на прогреве",
+  assigned: "уже занят в работе",
+  cooldown: "на паузе (риск/флуд)",
+  banned: "забанен",
+  retired: "выведен из работы",
+};
+
+/** Короткое предупреждение для «не идеального» аккаунта, или null если ок. */
+export function accountWorkWarning(status: AccountStatus): string | null {
+  return WORK_WARNING[status] ?? null;
+}
+
+/** Сортировка: идеальные (pool) — вверх, затем прочие в порядке «полезности». */
+const WORK_ORDER: Record<AccountStatus, number> = {
+  pool: 0,
+  assigned: 1,
+  warming: 2,
+  cooldown: 3,
+  created: 4,
+  retired: 5,
+  banned: 6,
+};
+
+export function sortForWork<T extends { status: AccountStatus }>(items: T[]): T[] {
+  return [...items].sort((a, b) => WORK_ORDER[a.status] - WORK_ORDER[b.status]);
+}
+
 export function statusTone(status: AccountStatus): StatusTone {
   return STATUS_TONE[status];
 }

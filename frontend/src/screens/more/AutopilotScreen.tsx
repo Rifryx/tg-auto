@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Play, Power, Trash2, X } from "lucide-react";
+import { Check, HelpCircle, Play, Power, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -104,6 +104,8 @@ export function AutopilotScreen() {
   return (
     <div className="pb-6 pt-1">
       <BackHeader title="Автопилот" onBack={() => navigate("/more")} />
+
+      <HowItWorks />
 
       <Section title="Новая цель">
         <div className="card flex flex-col gap-4 p-4">
@@ -221,6 +223,67 @@ export function AutopilotScreen() {
         onConfirm={() => toDelete && remove.mutate(toDelete.id)}
         onCancel={() => setToDelete(null)}
       />
+    </div>
+  );
+}
+
+/* Объяснение логики автопилота — отвечает на «а как это вообще работает».
+ * Свёрнуто по умолчанию, разворачивается тапом. */
+function HowItWorks() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mb-4 rounded-card border border-hairline bg-surface-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+      >
+        <span className="flex items-center gap-2 text-[14px] font-semibold text-text-primary">
+          <HelpCircle className="h-4 w-4 text-accent" strokeWidth={2} aria-hidden />
+          Как работает автопилот
+        </span>
+        <span className="text-text-tertiary">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="space-y-3 border-t border-hairline px-4 py-3 text-[13px] leading-relaxed text-text-secondary">
+          <p>
+            Автопилот следит за <b>всем вашим парком аккаунтов</b> (не за
+            отдельной кампанией). Каждые <b>10 минут</b> он смотрит на состояние
+            парка и, если какая-то цель нарушена, выполняет точечные действия,
+            чтобы её вернуть.
+          </p>
+          <div>
+            <p className="mb-1 font-semibold text-text-primary">Цели — это правила:</p>
+            <ul className="ml-1 space-y-1">
+              <li>
+                • <b>{GOAL_LABEL.maintain_pool_size}</b> — если готовых аккаунтов
+                в пуле меньше нормы, берёт <i>созданные</i> аккаунты и запускает
+                им прогрев.
+              </li>
+              <li>
+                • <b>{GOAL_LABEL.keep_low_risk}</b> — если средний риск бана выше
+                порога, выводит критически рискованные (≥0.8) и сбавляет темп
+                высокорискованным (≥0.6). Здоровые аккаунты не трогает.
+              </li>
+              <li>
+                • <b>{GOAL_LABEL.warmup_pipeline}</b> — держит заданное число
+                аккаунтов одновременно в прогреве, доливая из созданных.
+              </li>
+            </ul>
+          </div>
+          <p>
+            Можно включить <b>несколько целей сразу</b> — они не конфликтуют:
+            один аккаунт за тик получает максимум одно действие, а вывод из
+            работы (ретайр) всегда приоритетнее прогрева и снижения темпа.
+            На каждую цель — не больше <b>10 действий за тик</b>, так что бури
+            не будет: парк меняется плавно.
+          </p>
+          <p className="text-text-tertiary">
+            Итог каждого тика виден ниже, в «Последних решениях». Выключенные
+            цели не выполняются.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

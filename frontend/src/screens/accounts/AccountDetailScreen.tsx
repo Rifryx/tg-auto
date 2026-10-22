@@ -20,6 +20,7 @@ import { ProjectRoleTagsSection } from "./components/ProjectRoleTagsSection";
 import { SubscriptionsSection } from "./components/SubscriptionsSection";
 import { TwoFactorPasswordCard } from "./components/TwoFactorPasswordCard";
 import { TwoFactorSection } from "./components/TwoFactorSection";
+import { useBulkJob } from "./components/useBulkJob";
 import { WarmingScenarioSection } from "./components/WarmingScenarioSection";
 import { CapsuleButton, ConfirmDialog, Section, SegmentedControl, StatusBadge } from "./components/ui";
 
@@ -130,6 +131,45 @@ export function AccountDetailScreen() {
     },
   });
 
+  // Редактируемый профиль (имя/фамилия/@/bio). Раньше поля «молча» сохранялись
+  // onBlur только в нашу БД и в Telegram не уходили — пользователь менял
+  // username, а по факту ничего не менялось. Теперь это контролируемая форма с
+  // явной кнопкой «Применить к Telegram».
+  const [pForm, setPForm] = useState({ first_name: "", last_name: "", username: "", bio: "" });
+  useEffect(() => {
+    if (acc)
+      setPForm({
+        first_name: acc.first_name ?? "",
+        last_name: acc.last_name ?? "",
+        username: acc.username ?? "",
+        bio: acc.bio ?? "",
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [acc?.id, acc?.first_name, acc?.last_name, acc?.username, acc?.bio]);
+  const applyProfile = useBulkJob(() => {
+    qc.invalidateQueries({ queryKey: ["account", accountId] });
+  });
+  const profileDirty = acc
+    ? pForm.first_name !== (acc.first_name ?? "") ||
+      pForm.last_name !== (acc.last_name ?? "") ||
+      pForm.username.replace(/^@/, "") !== (acc.username ?? "") ||
+      pForm.bio !== (acc.bio ?? "")
+    : false;
+  const applyTgProfile = () => {
+    const username = pForm.username.trim().replace(/^@/, "");
+    const names = {
+      first_name: pForm.first_name.trim() || null,
+      last_name: pForm.last_name.trim() || null,
+      bio: pForm.bio.trim() || null,
+    };
+    // Локальную витрину обновляем сразу, затем применяем в Telegram.
+    patchProfile.mutate({ ...names, username: username || null });
+    applyProfile.run("apply_profile", [accountId], {
+      ...names,
+      username_candidates: username ? [username] : [],
+    });
+  };
+
   if (account.isLoading) return <DetailSkeleton />;
   if (account.isError || !acc)
     return (
@@ -187,15 +227,15 @@ export function AccountDetailScreen() {
         <TgGroup caption="Имя и фамилия отображаются в Telegram у собеседников.">
           <TgField
             label="Имя"
-            value={acc.first_name ?? ""}
+            value={pForm.first_name}
             placeholder="Имя"
-            onSave={(v) => patchProfile.mutateAsync({ first_name: v || null })}
+            onChange={(v) => setPForm((f) => ({ ...f, first_name: v }))}
           />
           <TgField
             label="Фамилия"
-            value={acc.last_name ?? ""}
+            value={pForm.last_name}
             placeholder="Фамилия (необязательно)"
-            onSave={(v) => patchProfile.mutateAsync({ last_name: v || null })}
+            onChange={(v) => setPForm((f) => ({ ...f, last_name: v }))}
           />
         </TgGroup>
 
@@ -203,22 +243,52 @@ export function AccountDetailScreen() {
           <TgField
             label="@"
             mono
-            value={acc.username ?? ""}
+            value={pForm.username}
             placeholder="username"
-            onSave={(v) => patchProfile.mutateAsync({ username: v.replace(/^@/, "") || null })}
+            onChange={(v) => setPForm((f) => ({ ...f, username: v.replace(/^@/, "") }))}
           />
         </TgGroup>
 
-        <TgGroup caption={`О себе — коротко. ${70 - (acc.bio?.length ?? 0)} симв.`}>
+        <TgGroup caption={`О себе — коротко. ${70 - pForm.bio.length} симв.`}>
           <TgField
             label="О себе"
-            value={acc.bio ?? ""}
+            value={pForm.bio}
             placeholder="Немного о себе"
             textarea
             maxLength={70}
-            onSave={(v) => patchProfile.mutateAsync({ bio: v || null })}
+            onChange={(v) => setPForm((f) => ({ ...f, bio: v }))}
           />
         </TgGroup>
+
+        {/* Явное применение: пишет в Telegram (UpdateProfile/username) + витрину. */}
+        <div className="mb-2">
+          {applyProfile.state.phase === "done" && (
+            <p className="mb-2 flex items-center gap-1.5 text-[12px] text-status-active">
+              <Check className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+              Профиль применён к Telegram.
+            </p>
+          )}
+          {applyProfile.state.phase === "failed" && (
+            <p className="mb-2 text-[12px] text-status-critical">
+              {applyProfile.state.error ?? "Не удалось применить профиль к Telegram."}
+            </p>
+          )}
+          <CapsuleButton
+            variant={profileDirty && applyProfile.state.phase !== "running" ? "accent" : "secondary"}
+            disabled={!profileDirty || applyProfile.state.phase === "running"}
+            onClick={applyTgProfile}
+          >
+            {applyProfile.state.phase === "running"
+              ? "Применяем…"
+              : profileDirty
+                ? "Применить к Telegram"
+                : "Изменений нет"}
+          </CapsuleButton>
+          <p className="mt-1.5 px-1 text-[11px] text-text-tertiary">
+            Изменения отправляются в Telegram только по этой кнопке. Если @username
+            занят — он не применится, остальное сохранится.
+          </p>
+        </div>
       </Section>
 
       {/* Закрепить произвольный канал/чат в списке диалогов аккаунта. */}
@@ -626,7 +696,8 @@ function TgGroup({ caption, children }: { caption?: string; children: React.Reac
   );
 }
 
-/* Ряд редактируемого поля: подпись слева, инпут во всю ширину, автосейв onBlur. */
+/* Ряд редактируемого поля: подпись слева, инпут во всю ширину. Контролируемое —
+   значение и изменения живут в родителе, применение — явной кнопкой. */
 function TgField({
   label,
   value,
@@ -634,7 +705,7 @@ function TgField({
   textarea,
   mono,
   maxLength,
-  onSave,
+  onChange,
 }: {
   label: string;
   value: string;
@@ -642,19 +713,8 @@ function TgField({
   textarea?: boolean;
   mono?: boolean;
   maxLength?: number;
-  onSave: (v: string) => Promise<unknown>;
+  onChange: (v: string) => void;
 }) {
-  const [v, setV] = useState(value);
-  const [saved, setSaved] = useState(false);
-  useEffect(() => setV(value), [value]);
-
-  const commit = async () => {
-    if (v.trim() === value.trim()) return;
-    await onSave(v.trim());
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1200);
-  };
-
   const inputCls = `min-h-[24px] flex-1 bg-transparent text-[16px] text-text-primary placeholder:text-text-tertiary outline-none ${mono ? "font-mono" : ""}`;
 
   return (
@@ -662,25 +722,22 @@ function TgField({
       <span className="mt-0.5 w-[76px] shrink-0 text-[15px] text-text-secondary">{label}</span>
       {textarea ? (
         <textarea
-          value={v}
+          value={value}
           maxLength={maxLength}
-          onChange={(e) => setV(e.target.value)}
-          onBlur={commit}
+          onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           rows={2}
           className={`${inputCls} resize-none`}
         />
       ) : (
         <input
-          value={v}
+          value={value}
           maxLength={maxLength}
-          onChange={(e) => setV(e.target.value)}
-          onBlur={commit}
+          onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           className={inputCls}
         />
       )}
-      {saved && <Check className="mt-1 h-4 w-4 shrink-0 text-status-active" strokeWidth={2} aria-hidden />}
     </div>
   );
 }

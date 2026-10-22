@@ -64,14 +64,15 @@ export const accountsApi = {
   }) => api.post<Account>("/accounts", body),
   importSession: (body: {
     phone: string;
-    proxy_id: number;
+    proxy_id: number | null;
     warming_profile: WarmingProfile;
     session_string?: string;
     session_file?: File;
   }) => {
     const fd = new FormData();
     fd.append("phone", body.phone);
-    fd.append("proxy_id", String(body.proxy_id));
+    // proxy_id опускаем при режиме без прокси (ALLOW_NO_PROXY) — сервер проверит.
+    if (body.proxy_id != null) fd.append("proxy_id", String(body.proxy_id));
     fd.append("warming_profile", body.warming_profile);
     if (body.session_string) fd.append("session_string", body.session_string);
     if (body.session_file) fd.append("session_file", body.session_file);
@@ -79,14 +80,14 @@ export const accountsApi = {
   },
   importTData: (body: {
     phone: string;
-    proxy_id: number;
+    proxy_id: number | null;
     warming_profile: WarmingProfile;
     persona_id?: number | null;
     tdata_zip: File;
   }) => {
     const fd = new FormData();
     fd.append("phone", body.phone);
-    fd.append("proxy_id", String(body.proxy_id));
+    if (body.proxy_id != null) fd.append("proxy_id", String(body.proxy_id));
     fd.append("warming_profile", body.warming_profile);
     if (body.persona_id != null) fd.append("persona_id", String(body.persona_id));
     fd.append("tdata_zip", body.tdata_zip);
