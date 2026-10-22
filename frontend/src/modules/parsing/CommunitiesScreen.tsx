@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertCircle, ArrowLeft, Filter, Link2, Play, UserCheck } from "lucide-react";
+import { AlertCircle, ArrowLeft, Filter, Link2, Play, Sparkles, UserCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
@@ -8,17 +8,38 @@ import { accountWorkWarning, sortForWork } from "../../shared/status";
 import { parsingApi } from "./api";
 import { Checkbox } from "./components/Checkbox";
 
-/* Discovery сообществ (этап 2): вставить ссылки на каналы/чаты → collector
-   обогащает каждую (участники, linked-чат, последний пост, флаги) и фильтрует. */
+/* Единый экран поиска каналов/чатов (раньше были два почти одинаковых —
+   «Сообщества» и «Найти каналы»). Два режима:
+   - «По ссылкам» — обогащаем и фильтруем уже известные ссылки (runCommunities);
+   - «Найти новые» — находим каналы ниши (похожие/поиск/snowball) и фильтруем
+     (runDiscover).
+   Фильтры результатов общие для обоих режимов. После запуска открываем окно
+   живого прогресса (/modules/parsing/run/:jobId). */
+
+type Mode = "refs" | "discover";
 
 const inputCls =
-  "mt-1 w-full rounded-xl border border-hairline bg-surface-2 p-2 text-[15px] tabular-nums text-text-primary";
+  "mt-1 w-full rounded-xl border border-hairline bg-surface-2 p-2 text-[15px] text-text-primary";
 
 export function CommunitiesScreen() {
   const navigate = useNavigate();
+  const [mode, setMode] = useState<Mode>("refs");
   const [name, setName] = useState("");
-  const [refsText, setRefsText] = useState("");
   const [collectorId, setCollectorId] = useState<number | null>(null);
+
+  // Режим «По ссылкам»
+  const [refsText, setRefsText] = useState("");
+  // Режим «Найти новые»
+  const [seedsText, setSeedsText] = useState("");
+  const [term, setTerm] = useState("");
+  const [useSearch, setUseSearch] = useState(true);
+  const [useRecs, setUseRecs] = useState(true);
+  const [useForwards, setUseForwards] = useState(false);
+  const [useMentions, setUseMentions] = useState(false);
+  const [depth, setDepth] = useState(2);
+  const [maxResults, setMaxResults] = useState(200);
+
+  // Общие фильтры результатов
   const [kind, setKind] = useState<"" | "channel" | "chat">("");
   const [minP, setMinP] = useState("");
   const [maxP, setMaxP] = useState("");
@@ -31,47 +52,77 @@ export function CommunitiesScreen() {
   const [usernameRegex, setUsernameRegex] = useState("");
 
   const accountsQuery = useQuery({ queryKey: ["accounts", "pool"], queryFn: () => accountsApi.list() });
-  const collectors = useMemo(
-    () => sortForWork(accountsQuery.data ?? []),
-    [accountsQuery.data],
-  );
+  const collectors = useMemo(() => sortForWork(accountsQuery.data ?? []), [accountsQuery.data]);
 
   const refs = useMemo(
     () => refsText.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
     [refsText],
   );
+  const seeds = useMemo(
+    () => seedsText.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
+    [seedsText],
+  );
+
+  const commonFilters = {
+    kind: kind || null,
+    min_participants: minP ? Number(minP) : null,
+    max_participants: maxP ? Number(maxP) : null,
+    require_public: requirePublic,
+    require_linked_chat: requireLinked,
+    last_post_max_days: lastPostMaxDays ? Number(lastPostMaxDays) : null,
+    verified_only: verifiedOnly,
+    exclude_scam_fake: excludeScamFake,
+    title_regex: titleRegex.trim() || null,
+    username_regex: usernameRegex.trim() || null,
+  };
 
   const submit = useMutation({
     mutationFn: () => {
       if (!collectorId) throw new Error("no collector");
-      return parsingApi.runCommunities({
+      if (mode === "refs") {
+        return parsingApi.runCommunities({
+          name: name.trim(),
+          collector_account_id: collectorId,
+          refs,
+          ...commonFilters,
+        });
+      }
+      return parsingApi.runDiscover({
         name: name.trim(),
         collector_account_id: collectorId,
-        refs,
-        kind: kind || null,
-        min_participants: minP ? Number(minP) : null,
-        max_participants: maxP ? Number(maxP) : null,
-        require_public: requirePublic,
-        require_linked_chat: requireLinked,
-        last_post_max_days: lastPostMaxDays ? Number(lastPostMaxDays) : null,
-        verified_only: verifiedOnly,
-        exclude_scam_fake: excludeScamFake,
-        title_regex: titleRegex.trim() || null,
-        username_regex: usernameRegex.trim() || null,
+        seeds,
+        term: term.trim() || null,
+        use_search: useSearch,
+        use_recommendations: useRecs,
+        use_forwards: useForwards,
+        use_mentions: useMentions,
+        depth,
+        max_results: maxResults,
+        ...commonFilters,
       });
     },
-    onSuccess: () => navigate("/modules/parsing"),
+    // Открываем окно живого прогресса (раньше возвращались к спискам — казалось,
+    // что «ничего не произошло»).
+    onSuccess: (res) => navigate(`/modules/parsing/run/${res.job_id}`),
   });
 
   const problems: string[] = [];
   if (!name.trim()) problems.push("Укажите имя списка");
-  if (refs.length === 0) problems.push("Вставьте хотя бы одну ссылку на канал/чат");
   if (!collectorId) problems.push("Выберите аккаунт-парсер (collector)");
+  if (mode === "refs") {
+    if (refs.length === 0) problems.push("Вставьте хотя бы одну ссылку на канал/чат");
+  } else {
+    if (!useSearch && !useRecs && !useForwards && !useMentions)
+      problems.push("Выберите хотя бы один метод поиска");
+    if (useRecs && seeds.length === 0) problems.push("Для «похожих каналов» нужны каналы-сиды");
+    if (useSearch && !term.trim() && seeds.length === 0)
+      problems.push("Нужны сиды или ключевое слово для поиска");
+  }
 
   return (
     <div className="min-h-full">
       <ScreenHeader
-        title="Поиск сообществ"
+        title="Каналы и сообщества"
         action={
           <button
             type="button"
@@ -85,34 +136,100 @@ export function CommunitiesScreen() {
       />
 
       <div className="flex flex-col gap-4">
+        {/* Режим */}
+        <div className="flex gap-2 rounded-pill bg-surface-2 p-1">
+          {([
+            ["refs", "По ссылкам", Link2],
+            ["discover", "Найти новые", Sparkles],
+          ] as const).map(([v, lbl, Icon]) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setMode(v)}
+              className={[
+                "flex flex-1 items-center justify-center gap-1.5 rounded-pill py-2 text-[13px] font-semibold transition-colors",
+                mode === v ? "bg-bg-elevated text-text-primary shadow-sm" : "text-text-secondary",
+              ].join(" ")}
+            >
+              <Icon className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+              {lbl}
+            </button>
+          ))}
+        </div>
+        <p className="-mt-2 px-1 text-[12px] text-text-tertiary">
+          {mode === "refs"
+            ? "Обогащаем и фильтруем уже известные ссылки на каналы/чаты."
+            : "Находим новые каналы ниши: похожие (рекомендации Telegram), поиск, форварды и упоминания."}
+        </p>
+
         <div className="card p-5">
           <label className="block text-[13px] font-medium text-text-secondary">Имя списка</label>
           <input
-            value={name} onChange={(e) => setName(e.target.value)}
-            placeholder="Крипто-каналы · 10k+"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={mode === "refs" ? "Крипто-каналы · 10k+" : "Крипто-каналы · похожие"}
             className="mt-2 w-full rounded-xl border border-hairline bg-surface-2 p-3 text-[15px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
           />
         </div>
 
-        <div className="card relative overflow-hidden p-5">
-          <span className="absolute inset-y-0 left-0 w-[3px] bg-accent" aria-hidden />
-          <div className="mb-3 flex items-center gap-2">
-            <Link2 className="h-4 w-4 text-accent" strokeWidth={2.2} aria-hidden />
-            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">
-              Ссылки на каналы/чаты ({refs.length})
+        {mode === "refs" ? (
+          <div className="card relative overflow-hidden p-5">
+            <span className="absolute inset-y-0 left-0 w-[3px] bg-accent" aria-hidden />
+            <div className="mb-3 flex items-center gap-2">
+              <Link2 className="h-4 w-4 text-accent" strokeWidth={2.2} aria-hidden />
+              <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">
+                Ссылки на каналы/чаты ({refs.length})
+              </div>
+            </div>
+            <textarea
+              value={refsText}
+              onChange={(e) => setRefsText(e.target.value)}
+              rows={5}
+              placeholder="@ainews, https://t.me/durov, t.me/+AbCd… — по одной в строке или через запятую"
+              className="w-full rounded-xl border border-hairline bg-surface-2 p-3 text-[14px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
+            />
+          </div>
+        ) : (
+          <div className="card relative overflow-hidden p-5">
+            <span className="absolute inset-y-0 left-0 w-[3px] bg-accent" aria-hidden />
+            <div className="mb-3 flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-accent" strokeWidth={2.2} aria-hidden />
+              <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">Откуда искать</div>
+            </div>
+            <label className="block text-[13px] font-medium text-text-secondary">
+              Каналы-сиды ({seeds.length})
+            </label>
+            <textarea
+              value={seedsText}
+              onChange={(e) => setSeedsText(e.target.value)}
+              rows={3}
+              placeholder="@durov, t.me/telegram — известные каналы ниши для «похожих»"
+              className="mt-1 w-full rounded-xl border border-hairline bg-surface-2 p-3 text-[14px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
+            />
+            <label className="mt-3 block text-[13px] font-medium text-text-secondary">
+              Ключевое слово (для поиска)
+              <input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="crypto, нейросети…" className={inputCls} />
+            </label>
+
+            <div className="mt-4 text-[13px] font-medium text-text-secondary">Методы</div>
+            <Checkbox checked={useRecs} onChange={setUseRecs} label="Похожие каналы (рекомендации Telegram)"
+              description="ML-подборка от Telegram по сидам — основной бесплатный способ." />
+            <Checkbox checked={useSearch} onChange={setUseSearch} label="Глобальный поиск по слову" />
+            <Checkbox checked={useForwards} onChange={setUseForwards} label="Форварды из постов сидов" description="Откуда сиды репостят." />
+            <Checkbox checked={useMentions} onChange={setUseMentions} label="Упоминания (@/ссылки в постах)" />
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <label className="text-[13px] font-medium text-text-secondary">Глубина «похожих»
+                <input type="number" min={1} max={3} value={depth}
+                  onChange={(e) => setDepth(Number(e.target.value))} className={inputCls} />
+              </label>
+              <label className="text-[13px] font-medium text-text-secondary">Макс. каналов
+                <input type="number" min={1} max={1000} value={maxResults}
+                  onChange={(e) => setMaxResults(Number(e.target.value))} className={inputCls} />
+              </label>
             </div>
           </div>
-          <textarea
-            value={refsText} onChange={(e) => setRefsText(e.target.value)}
-            rows={5}
-            placeholder="@ainews, https://t.me/durov, t.me/+AbCd… — по одной в строке или через запятую"
-            className="w-full rounded-xl border border-hairline bg-surface-2 p-3 text-[14px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
-          />
-          <p className="mt-2 text-[12px] text-text-tertiary">
-            Здесь обогащаются известные ссылки. Чтобы НАЙТИ новые каналы ниши
-            (похожие + поиск + snowball) — экран «Найти каналы».
-          </p>
-        </div>
+        )}
 
         <div className="card relative overflow-hidden p-5">
           <span className="absolute inset-y-0 left-0 w-[3px] bg-status-active opacity-80" aria-hidden />
@@ -125,7 +242,7 @@ export function CommunitiesScreen() {
               const warn = accountWorkWarning(a.status);
               return (
                 <button
-                  key={a.id} type="button" onClick={() => setCollectorId(a.id)}
+                  key={a.id} type="button" onClick={() => setCollectorId(collectorId === a.id ? null : a.id)}
                   className={[
                     "flex items-center justify-between gap-2 rounded-xl border p-3 text-left transition-colors",
                     collectorId === a.id ? "border-strong bg-surface-2" : "border-hairline bg-surface-1 active:bg-surface-2",
@@ -150,7 +267,7 @@ export function CommunitiesScreen() {
         <div className="card p-5">
           <div className="mb-3 flex items-center gap-2">
             <Filter className="h-4 w-4 text-text-secondary" strokeWidth={2} aria-hidden />
-            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">Фильтры</div>
+            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">Фильтры результатов</div>
           </div>
 
           <label className="block text-[13px] font-medium text-text-secondary">Тип</label>
@@ -227,7 +344,12 @@ export function CommunitiesScreen() {
               problems.length === 0 ? "bg-accent text-accent-on active:opacity-80" : "bg-surface-2 text-text-tertiary",
             ].join(" ")}
           >
-            {submit.isPending ? "Запуск…" : (<><Play className="h-4 w-4" strokeWidth={2.4} aria-hidden />Обогатить и отфильтровать</>)}
+            {mode === "refs" ? (
+              <Play className="h-4 w-4" strokeWidth={2.4} aria-hidden />
+            ) : (
+              <Sparkles className="h-4 w-4" strokeWidth={2.4} aria-hidden />
+            )}
+            {submit.isPending ? "Запуск…" : mode === "refs" ? "Обогатить и отфильтровать" : "Найти каналы"}
           </button>
         </div>
       </div>

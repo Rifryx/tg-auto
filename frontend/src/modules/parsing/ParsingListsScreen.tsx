@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Combine, Filter, Plus, Radio, Sparkles } from "lucide-react";
+import { ChevronRight, Combine, Filter, Plus, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { EmptyState } from "../../components/EmptyState";
@@ -51,19 +51,11 @@ export function ParsingListsScreen() {
       <div className="-mx-5 mb-4 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <button
           type="button"
-          onClick={() => navigate("/modules/parsing/discover")}
-          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-pill bg-surface-2 px-3.5 text-[14px] font-medium text-text-secondary active:text-text-primary"
-        >
-          <Sparkles className="h-4 w-4" strokeWidth={2.2} aria-hidden />
-          Найти каналы
-        </button>
-        <button
-          type="button"
           onClick={() => navigate("/modules/parsing/communities")}
           className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-pill bg-surface-2 px-3.5 text-[14px] font-medium text-text-secondary active:text-text-primary"
         >
-          <Radio className="h-4 w-4" strokeWidth={2.2} aria-hidden />
-          Сообщества
+          <Sparkles className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+          Каналы и сообщества
         </button>
         <button
           type="button"

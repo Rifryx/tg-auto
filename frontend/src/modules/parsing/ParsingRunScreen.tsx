@@ -56,6 +56,35 @@ export function ParsingRunScreen() {
   const status = data?.status ?? "pending";
   const meta = STATUS_META[status];
   const active = status === "running" || status === "paused" || status === "pending";
+  const terminal = TERMINAL.has(status);
+
+  // Тип результата: discovery каналов/чатов → «сообщества», остальное → аудитория.
+  const isCommunity =
+    data?.kind === "communities" || data?.kind === "discover_communities";
+  const listId = data?.list_id ?? null;
+
+  // Живой список найденного — наполняется по мере парсинга (как просили:
+  // «заполнение спаршенных чатов/каналов»). Поллим, пока задача активна, и
+  // дотягиваем финальный список после завершения.
+  const communities = useQuery({
+    queryKey: ["parsing-job", id, "communities", listId],
+    queryFn: () => parsingApi.communities(listId!),
+    enabled: listId != null && isCommunity,
+    refetchInterval: terminal ? false : 2000,
+  });
+  const targets = useQuery({
+    queryKey: ["parsing-job", id, "targets", listId],
+    queryFn: () => parsingApi.targets(listId!),
+    enabled: listId != null && !isCommunity,
+    refetchInterval: terminal ? false : 2000,
+  });
+  // Финальная подтяжка результатов после завершения (последний тик мог не успеть).
+  useEffect(() => {
+    if (terminal && listId != null) {
+      qc.invalidateQueries({ queryKey: ["parsing-job", id, isCommunity ? "communities" : "targets", listId] });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terminal, listId]);
 
   // Автоскролл лога вниз при новых строках.
   const logRef = useRef<HTMLDivElement>(null);
@@ -155,6 +184,94 @@ export function ParsingRunScreen() {
               Остановить
             </button>
           </div>
+        )}
+
+        {/* Найденное — наполняется в реальном времени */}
+        <div className="card p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">
+              {isCommunity ? "Найденные каналы/чаты" : "Собранная аудитория"}
+            </div>
+            <span className="nums text-[12px] text-text-tertiary">
+              {isCommunity ? communities.data?.length ?? 0 : targets.data?.length ?? 0}
+            </span>
+          </div>
+          <div className="max-h-96 overflow-y-auto">
+            {listId == null ? (
+              <p className="py-4 text-center text-[12px] text-text-tertiary">
+                {active ? "Ждём первые результаты…" : "Результатов нет."}
+              </p>
+            ) : isCommunity ? (
+              (communities.data ?? []).length === 0 ? (
+                <p className="py-4 text-center text-[12px] text-text-tertiary">
+                  {active ? "Ждём первые результаты…" : "Ничего не прошло фильтры."}
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-1.5">
+                  {(communities.data ?? []).map((c) => (
+                    <li
+                      key={c.id}
+                      className="flex items-center justify-between gap-2 rounded-xl border border-hairline bg-surface-1 px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-[14px] font-medium text-text-primary">
+                          {c.title || c.username || c.input_ref}
+                        </p>
+                        <p className="truncate text-[11px] text-text-tertiary">
+                          {c.kind === "chat" ? "чат" : "канал"}
+                          {c.username ? ` · @${c.username}` : ""}
+                          {c.participants_count != null
+                            ? ` · ${c.participants_count.toLocaleString("ru-RU")}`
+                            : ""}
+                          {c.is_verified ? " · ✓" : ""}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )
+            ) : (targets.data ?? []).length === 0 ? (
+              <p className="py-4 text-center text-[12px] text-text-tertiary">
+                {active ? "Ждём первые результаты…" : "Ничего не прошло фильтры."}
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {(targets.data ?? []).map((t) => (
+                  <li
+                    key={t.id}
+                    className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-[13px] odd:bg-surface-1"
+                  >
+                    <span className="truncate text-text-primary">
+                      {t.username ? `@${t.username}` : t.phone || `id ${t.tg_user_id ?? "—"}`}
+                    </span>
+                    {t.has_premium && (
+                      <span className="shrink-0 text-[10px] text-accent">premium</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {!isCommunity && (targets.data?.length ?? 0) >= 100 && (
+            <p className="mt-2 text-center text-[11px] text-text-tertiary">
+              Показаны первые 100; полный список — в собранном списке аудитории.
+            </p>
+          )}
+        </div>
+
+        {/* Перезапустить с другими параметрами (после остановки/завершения). */}
+        {terminal && (
+          <button
+            type="button"
+            onClick={() =>
+              navigate(
+                isCommunity ? "/modules/parsing/communities" : "/modules/parsing/run",
+              )
+            }
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-pill bg-surface-2 text-[14px] font-semibold text-text-primary active:opacity-80"
+          >
+            Новый прогон с другими параметрами
+          </button>
         )}
 
         {/* Лог в реальном времени */}
