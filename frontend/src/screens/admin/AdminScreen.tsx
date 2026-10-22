@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Shield } from "lucide-react";
+import { ArrowLeft, ExternalLink, Shield } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -11,6 +11,7 @@ import {
 import { STATUS_LABEL } from "../../shared/status";
 import type { AccountStatus } from "../../shared/types";
 import { hapticSelection } from "../../shared/tg";
+import { Toggle } from "../../modules/commenting/components/ui";
 import { AreaChart, Bars } from "./charts";
 
 /* Экран владельца. Не пункт меню — попасть только по прямому URL /admin.
@@ -818,8 +819,11 @@ function AppContentSection() {
   });
 
   const inputCls =
-    "min-h-[44px] rounded-chip border border-hairline bg-surface-2 px-3 text-[15px] text-text-primary outline-none focus:border-strong";
+    "min-h-[44px] rounded-chip border border-hairline bg-surface-2 px-3 text-[15px] text-text-primary placeholder:text-text-tertiary/60 outline-none focus:border-strong";
   const lblCls = "text-[12px] text-text-tertiary";
+
+  const managerDmUrl =
+    managerUrl.trim() || (managerUsername.trim() ? `https://t.me/${managerUsername.trim().replace(/^@/, "")}` : "");
 
   return (
     <section className="mb-6">
@@ -862,7 +866,7 @@ function AppContentSection() {
           <input
             value={managerUsername}
             onChange={(e) => setManagerUsername(e.target.value)}
-            placeholder="@manager"
+            placeholder="например: manager_ivan"
             className={inputCls}
           />
         </label>
@@ -871,7 +875,7 @@ function AppContentSection() {
           <input
             value={managerUrl}
             onChange={(e) => setManagerUrl(e.target.value)}
-            placeholder="https://t.me/manager"
+            placeholder="например: https://t.me/manager_ivan"
             className={inputCls}
           />
         </label>
@@ -881,18 +885,32 @@ function AppContentSection() {
             value={intro}
             onChange={(e) => setIntro(e.target.value)}
             rows={2}
-            className="min-h-[64px] resize-y rounded-chip border border-hairline bg-surface-2 px-3 py-2 text-[15px] text-text-primary outline-none focus:border-strong"
+            placeholder="Опишите проблему — менеджер ответит здесь же, в приложении."
+            className="min-h-[64px] resize-y rounded-chip border border-hairline bg-surface-2 px-3 py-2 text-[15px] text-text-primary placeholder:text-text-tertiary/60 outline-none focus:border-strong"
           />
         </label>
-        <label className="flex items-center justify-between">
+        <div className="flex items-center justify-between">
           <span className="text-[14px] text-text-secondary">Чат поддержки внутри приложения</span>
-          <input
-            type="checkbox"
-            checked={inAppEnabled}
-            onChange={(e) => setInAppEnabled(e.target.checked)}
-            className="h-5 w-5 accent-[var(--accent)]"
-          />
-        </label>
+          <Toggle checked={inAppEnabled} onChange={setInAppEnabled} label="Чат поддержки внутри приложения" />
+        </div>
+
+        {/* Живой предпросмотр: именно это (или ничего) увидит пользователь на
+            экране «Поддержка» — чтобы не было вопросов «почему кнопки нет». */}
+        {managerDmUrl ? (
+          <div className="flex items-center gap-2 rounded-chip border border-hairline bg-surface-1 px-3 py-2.5 text-[13px] text-text-secondary">
+            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.8} aria-hidden />
+            <span className="min-w-0 truncate">
+              На экране «Поддержка» появится кнопка «Написать в ЛС» →{" "}
+              <span className="text-text-primary">{managerDmUrl}</span>
+            </span>
+          </div>
+        ) : (
+          <p className="rounded-chip border border-status-warning/30 bg-status-warning/5 px-3 py-2.5 text-[12px] text-status-warning">
+            Username и ссылка пусты — кнопка «Написать в ЛС» на экране «Поддержка» не появится,
+            останется только {inAppEnabled ? "встроенный чат" : "пустой экран без контактов"}.
+          </p>
+        )}
+
         <button
           type="button"
           disabled={saveSupport.isPending}

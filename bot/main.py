@@ -27,9 +27,25 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import func, select
 
 from api.deps.db import _session_factory  # тестируемый и уже настроенный фабрик
+from bot.auth import is_admin as _is_admin
 from bot.notifier import run_notifier
 from bot.payments import on_pre_checkout, on_successful_payment
-from bot.user_commands import cmd_help, cmd_start, cmd_status
+from bot.user_commands import (
+    cmd_atrisk,
+    cmd_broadcast,
+    cmd_campaigns,
+    cmd_find,
+    cmd_flood,
+    cmd_help,
+    cmd_pause_all,
+    cmd_autopilot,
+    cmd_parsing,
+    cmd_plan,
+    cmd_proxies,
+    cmd_start,
+    cmd_status,
+    cmd_support,
+)
 from core.audit import admin_action
 from core.config import get_settings
 from core.models.account import Account
@@ -38,12 +54,6 @@ from core.repositories.subscription import SubscriptionRepository
 
 logger = logging.getLogger("bot")
 ADMIN_MENU_CB = "admin_menu"
-
-
-def _is_admin(user_id: int | None) -> bool:
-    if user_id is None:
-        return False
-    return str(user_id) in get_settings().admin_ids
 
 
 # ---------------------------- /admin26 ---------------------------------------
@@ -189,10 +199,25 @@ async def _amain() -> None:
     dp.message.register(cmd_admin, Command("admin26"))
     dp.callback_query.register(on_admin_callback, F.data.startswith(ADMIN_MENU_CB + ":"))
 
-    # Публичные пользовательские команды (этап 13b).
+    # Публичные пользовательские команды (этап 13b + расширение: 15 команд
+    # для работы прямо из чата бота, без захода в Mini App).
     dp.message.register(cmd_start, Command("start"))
     dp.message.register(cmd_help, Command("help"))
     dp.message.register(cmd_status, Command("status"))
+    dp.message.register(cmd_campaigns, Command("campaigns"))
+    dp.message.register(cmd_parsing, Command("parsing"))
+    dp.message.register(cmd_atrisk, Command("atrisk"))
+    dp.message.register(cmd_proxies, Command("proxies"))
+    dp.message.register(cmd_autopilot, Command("autopilot"))
+    dp.message.register(cmd_plan, Command("plan"))
+    dp.message.register(cmd_flood, Command("flood"))
+    dp.message.register(cmd_support, Command("support"))
+
+    # Админские команды (белый список ADMIN_USER_IDS) — молчим для остальных,
+    # как и /admin26.
+    dp.message.register(cmd_find, Command("find"))
+    dp.message.register(cmd_broadcast, Command("broadcast"))
+    dp.message.register(cmd_pause_all, Command("pause_all"))
 
     # Оплата Telegram Stars: pre-checkout + успешная оплата (идемпотентно).
     dp.pre_checkout_query.register(on_pre_checkout)

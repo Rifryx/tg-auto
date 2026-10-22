@@ -17,6 +17,7 @@ import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { parsingApi } from "../parsing/api";
 import type { ParsedList } from "../parsing/types";
+import { AccountAvatar } from "../../shared/AccountAvatar";
 import { accountsApi } from "../../shared/accounts";
 import { accountWorkWarning, sortForWork } from "../../shared/status";
 import type { Account } from "../../shared/types";
@@ -790,14 +791,21 @@ function AccountRow({
           : "border-hairline bg-surface-1 active:bg-surface-2",
       ].join(" ")}
     >
-      <div className="min-w-0">
-        <div className="truncate text-[14px] font-medium text-text-primary">
-          {account.username ? `@${account.username}` : account.phone}
-        </div>
-        <div className="mt-0.5 truncate text-[12px] text-text-tertiary">
-          {account.first_name || "—"}
-          {account.last_name ? ` ${account.last_name}` : ""}
-          {note && <span className="text-status-warning"> · {note}</span>}
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <AccountAvatar
+          avatarUrl={account.avatar_url}
+          fallback={account.first_name ?? account.username}
+          size={32}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[14px] font-medium text-text-primary">
+            {account.username ? `@${account.username}` : account.phone}
+          </div>
+          <div className="mt-0.5 truncate text-[12px] text-text-tertiary">
+            {account.first_name || "—"}
+            {account.last_name ? ` ${account.last_name}` : ""}
+            {note && <span className="text-status-warning"> · {note}</span>}
+          </div>
         </div>
       </div>
       <span

@@ -15,6 +15,7 @@ import { useState } from "react";
 import { accountsApi, bulkApi } from "../../../shared/accounts";
 import { haptic } from "../../../shared/tg";
 import { showToast } from "../../../shared/toast";
+import { BulkJobsSheet } from "./BulkJobsSheet";
 import { PoolProfileSheet } from "./PoolProfileSheet";
 import { StoriesSheet } from "./StoriesSheet";
 import { ConfirmDialog } from "./ui";
@@ -36,6 +37,7 @@ export function BulkActionBar({
   const [confirm, setConfirm] = useState<null | "retire" | "delete">(null);
   const [poolOpen, setPoolOpen] = useState(false);
   const [storiesOpen, setStoriesOpen] = useState(false);
+  const [watchingJobId, setWatchingJobId] = useState<number | null>(null);
 
   const n = selectedIds.length;
   if (n === 0) return null;
@@ -46,9 +48,14 @@ export function BulkActionBar({
     setBusy(true);
     try {
       const r = await accountsApi.healthCheckBulk(selectedIds, includeSpam);
+      // Health-check НЕ создаёт bulk-job — результат попадает на карточку
+      // аккаунта через ~несколько секунд. Явно про это и говорим, чтобы
+      // пользователь понимал, где искать (жалоба: «написано запущена, но
+      // где смотреть результат — непонятно»).
       showToast(
         `Проверка запущена: ${r.enqueued.length}` +
-          (r.throttled.length ? `, пропущено ${r.throttled.length}` : ""),
+          (r.throttled.length ? `, пропущено ${r.throttled.length}` : "") +
+          " — результат появится на карточке каждого аккаунта.",
         "success",
       );
       haptic("light");
@@ -62,9 +69,15 @@ export function BulkActionBar({
   const runJob = async (action: string, label: string) => {
     setBusy(true);
     try {
-      await bulkApi.create(action, selectedIds, action === "assign_proxy" ? { mode: "pool" } : {});
-      showToast(`${label}: задание запущено для ${n}`, "success");
+      const job = await bulkApi.create(
+        action,
+        selectedIds,
+        action === "assign_proxy" ? { mode: "pool" } : {},
+      );
       haptic("light");
+      // Автоматически открываем окно живого прогресса — пользователь увидит
+      // по каждому аккаунту: ок / ошибка / что именно пошло не так.
+      setWatchingJobId(job.id);
     } catch {
       showToast(`Не удалось: ${label}`, "error");
     } finally {
@@ -75,10 +88,10 @@ export function BulkActionBar({
   const runPool = async (payload: Record<string, unknown>) => {
     setBusy(true);
     try {
-      await bulkApi.create("apply_profile_pool", selectedIds, payload);
-      showToast(`Профиль из пула: задание запущено для ${n}`, "success");
+      const job = await bulkApi.create("apply_profile_pool", selectedIds, payload);
       haptic("light");
       setPoolOpen(false);
+      setWatchingJobId(job.id);
     } catch {
       showToast("Не удалось запустить «Профиль из пула»", "error");
     } finally {
@@ -89,10 +102,10 @@ export function BulkActionBar({
   const runStories = async (payload: Record<string, unknown>) => {
     setBusy(true);
     try {
-      await bulkApi.create("publish_story", selectedIds, payload);
-      showToast(`Stories: задание запущено для ${n}`, "success");
+      const job = await bulkApi.create("publish_story", selectedIds, payload);
       haptic("light");
       setStoriesOpen(false);
+      setWatchingJobId(job.id);
     } catch {
       showToast("Не удалось запустить публикацию Stories", "error");
     } finally {
@@ -260,6 +273,16 @@ export function BulkActionBar({
           busy={busy}
           onApply={runStories}
           onCancel={() => setStoriesOpen(false)}
+        />
+      )}
+      {watchingJobId != null && (
+        <BulkJobsSheet
+          jobId={watchingJobId}
+          onClose={() => {
+            setWatchingJobId(null);
+            invalidate();
+            onClear();
+          }}
         />
       )}
     </>

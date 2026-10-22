@@ -1,0 +1,19 @@
+# Shell scripts and Dockerfiles must have LF line endings — иначе на Linux
+# `#!/usr/bin/env sh\r` → `env: sh\r: No such file or directory`, и
+# docker-контейнер (api/worker/bot) падает в restart-loop. См. багу
+# «не удалось сохранить таймзону» — симптом как раз этот.
+*.sh         text eol=lf
+Dockerfile*  text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+
+# Python/Markdown/HTML/JS/TS — LF, одинаково для всех платформ.
+*.py         text eol=lf
+*.md         text eol=lf
+*.html       text eol=lf
+*.css        text eol=lf
+*.js         text eol=lf
+*.jsx        text eol=lf
+*.ts         text eol=lf
+*.tsx        text eol=lf
+*.json       text eol=lf
