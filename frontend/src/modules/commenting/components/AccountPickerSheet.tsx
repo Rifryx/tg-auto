@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { UserPlus } from "lucide-react";
+import { AlertTriangle, UserPlus } from "lucide-react";
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { accountsApi } from "../../../shared/accounts";
+import { accountWorkWarning, sortForWork } from "../../../shared/status";
 import { CapsuleButton } from "./ui";
 import { AccountPickRow } from "./AccountPickRow";
 
@@ -27,15 +28,22 @@ export function AccountPickerSheet({
   const [dragY, setDragY] = useState(0);
   const startY = useRef<number | null>(null);
 
+  // Показываем аккаунты В ЛЮБОМ статусе (не только пул) — «не идеальные»
+  // помечаются предупреждением в строке и общим баннером под списком.
   const pool = useQuery({
-    queryKey: ["accounts", "pool"],
-    queryFn: () => accountsApi.list("pool"),
+    queryKey: ["accounts", "all"],
+    queryFn: () => accountsApi.list(),
     enabled: open,
   });
 
   if (!open) return null;
 
-  const available = (pool.data ?? []).filter((a) => !excludeIds.includes(a.id));
+  const available = sortForWork(
+    (pool.data ?? []).filter((a) => !excludeIds.includes(a.id)),
+  );
+  const warnSelected = available.some(
+    (a) => selected.has(a.id) && accountWorkWarning(a.status) != null,
+  );
   const toggle = (id: number) =>
     setSelected((s) => {
       const n = new Set(s);
@@ -76,7 +84,7 @@ export function AccountPickerSheet({
           {available.length === 0 ? (
             <div className="flex flex-col items-center gap-4 py-8">
               <p className="text-center text-[13px] text-text-tertiary">
-                Нет свободных аккаунтов в пуле.
+                Нет доступных аккаунтов.
               </p>
               <CapsuleButton onClick={() => navigate("/accounts/new")}>
                 <span className="inline-flex items-center gap-1.5">
@@ -93,11 +101,22 @@ export function AccountPickerSheet({
                   account={a}
                   selected={selected.has(a.id)}
                   onToggle={() => toggle(a.id)}
+                  note={accountWorkWarning(a.status) ?? undefined}
                 />
               ))}
             </div>
           )}
         </div>
+
+        {warnSelected && (
+          <div className="mx-5 mb-1 flex items-start gap-2 rounded-chip border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-[12px] text-status-warning">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+            <span>
+              Выбраны не идеальные аккаунты (не из пула): они могут быть не
+              прогреты, заняты или на паузе — выше риск бана и ошибок.
+            </span>
+          </div>
+        )}
 
         <div
           className="border-t border-hairline px-5 pt-3"

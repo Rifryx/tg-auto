@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowLeft,
   BellRing,
   Check,
@@ -17,6 +18,7 @@ import { ScreenHeader } from "../../app/layout/AppLayout";
 import { parsingApi } from "../parsing/api";
 import type { ParsedList } from "../parsing/types";
 import { accountsApi } from "../../shared/accounts";
+import { accountWorkWarning, sortForWork } from "../../shared/status";
 import type { Account } from "../../shared/types";
 import { primingApi } from "./api";
 import { Checkbox } from "./components/Checkbox";
@@ -128,9 +130,17 @@ export function NewPrimingScreen() {
     queryKey: ["accounts", "pool"],
     queryFn: () => accountsApi.list(),
   });
+  // Показываем аккаунты в любом статусе — «не идеальные» помечаем.
   const availableAccounts = useMemo(
-    () => (accountsQuery.data ?? []).filter((a) => a.status === "pool"),
+    () => sortForWork(accountsQuery.data ?? []),
     [accountsQuery.data],
+  );
+  const anyNonIdealPicked = useMemo(
+    () =>
+      (accountsQuery.data ?? []).some(
+        (a) => pickedAccounts.has(a.id) && accountWorkWarning(a.status) != null,
+      ),
+    [accountsQuery.data, pickedAccounts],
   );
 
   // Парсинг вручную-списка
@@ -339,21 +349,31 @@ export function NewPrimingScreen() {
           accent="secondary"
           icon={<Users className="h-4 w-4 text-status-active" strokeWidth={2.2} aria-hidden />}
           title={`Аккаунты · ${pickedAccounts.size} выбрано`}
-          description="Только аккаунты в статусе pool. Работать одновременно с двумя кампаниями один аккаунт не сможет."
+          description="Можно выбрать аккаунт в любом статусе; не идеальные помечены. Один аккаунт не сможет работать в двух кампаниях одновременно."
         >
           {accountsQuery.isLoading && (
             <div className="h-16 animate-pulse rounded-2xl bg-surface-2" />
           )}
           {availableAccounts.length === 0 && !accountsQuery.isLoading && (
             <p className="text-[13px] text-text-secondary">
-              Нет аккаунтов в пуле. Добавьте или прогрейте сначала.
+              Аккаунтов пока нет. Добавьте сначала.
             </p>
+          )}
+          {anyNonIdealPicked && (
+            <div className="mb-2 flex items-start gap-2 rounded-xl border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-[12px] text-status-warning">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+              <span>
+                Выбраны не идеальные аккаунты (не из пула) — они могут быть не
+                прогреты, заняты или на паузе. Выше риск бана и ошибок.
+              </span>
+            </div>
           )}
           <div className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
             {availableAccounts.map((a) => (
               <AccountRow
                 key={a.id}
                 account={a}
+                note={accountWorkWarning(a.status)}
                 selected={pickedAccounts.has(a.id)}
                 onToggle={() => {
                   const next = new Set(pickedAccounts);
@@ -752,10 +772,12 @@ function AccountRow({
   account,
   selected,
   onToggle,
+  note,
 }: {
   account: Account;
   selected: boolean;
   onToggle: () => void;
+  note?: string | null;
 }) {
   return (
     <button
@@ -775,6 +797,7 @@ function AccountRow({
         <div className="mt-0.5 truncate text-[12px] text-text-tertiary">
           {account.first_name || "—"}
           {account.last_name ? ` ${account.last_name}` : ""}
+          {note && <span className="text-status-warning"> · {note}</span>}
         </div>
       </div>
       <span

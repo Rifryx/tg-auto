@@ -1,8 +1,8 @@
-import { Bell, Menu, Moon, Sun } from "lucide-react";
+import { Bell, Crown, Menu, Moon, Sun } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { hapticSelection } from "../../shared/tg";
-import { useUiStore } from "../../shared/store";
+import { useCurrentPlan, useUiStore } from "../../shared/store";
 import { SideDrawer } from "./SideDrawer";
 
 export function TopBar() {
@@ -10,6 +10,8 @@ export function TopBar() {
   const navigate = useNavigate();
   const theme = useUiStore((s) => s.theme);
   const toggleTheme = useUiStore((s) => s.toggleTheme);
+  const plan = useCurrentPlan();
+  const isPro = plan.id === "pro";
 
   return (
     <>
@@ -27,6 +29,23 @@ export function TopBar() {
         </button>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              hapticSelection();
+              navigate("/billing");
+            }}
+            aria-label={`Тариф: ${plan.name}`}
+            className={`inline-flex h-10 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold active:opacity-70 ${
+              isPro
+                ? "bg-accent/15 text-accent"
+                : "bg-surface-2 text-text-secondary"
+            }`}
+          >
+            <Crown className="h-[15px] w-[15px]" strokeWidth={2} aria-hidden />
+            {isPro ? "Pro" : "Free"}
+          </button>
+
           <button
             type="button"
             onClick={() => {

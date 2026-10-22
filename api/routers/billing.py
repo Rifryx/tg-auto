@@ -66,11 +66,29 @@ def create_invoice(
 
     description = f"Pro подписка на {payment.period_days} дн."
     if body.provider == "crypto":
-        inv = cryptobot.create_invoice(
-            amount=f"{payment.price_usdt}",
-            payload=payment.payload,
-            description=description,
-        )
+        try:
+            inv = cryptobot.create_invoice(
+                amount=f"{payment.price_usdt}",
+                payload=payment.payload,
+                description=description,
+            )
+        except cryptobot.CryptoBotError as exc:
+            # Провайдер недоступен/невалидный токен (напр. 401 UNAUTHORIZED).
+            # Не роняем 500 — отдаём понятную 502, чтобы UI показал нормальный
+            # текст, а не «что-то пошло не так». Платёж остаётся pending без
+            # ссылки, пользователь может попробовать другой способ оплаты.
+            session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "reason": "crypto_provider_unavailable",
+                    "message": (
+                        "Крипто-оплата временно недоступна (ошибка провайдера "
+                        "Crypto Bot). Попробуйте оплату через Telegram Stars или "
+                        "повторите позже."
+                    ),
+                },
+            ) from exc
         payment.provider_invoice_id = inv.invoice_id
         payment.pay_url = inv.pay_url
     else:  # stars
@@ -118,7 +136,16 @@ def check_payment(
         return {"status": "paid", "plan": billing_service.get_user_plan(session, user_id)}
 
     if payment.provider == "crypto":
-        paid = cryptobot.get_paid_invoice_ids([payment.provider_invoice_id or ""])
+        try:
+            paid = cryptobot.get_paid_invoice_ids([payment.provider_invoice_id or ""])
+        except cryptobot.CryptoBotError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "reason": "crypto_provider_unavailable",
+                    "message": "Не удалось проверить оплату у провайдера. Повторите позже.",
+                },
+            ) from exc
         if payment.provider_invoice_id and payment.provider_invoice_id in paid:
             payments_service.confirm_payment(session, payload=payment.payload)
 

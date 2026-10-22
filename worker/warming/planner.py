@@ -89,9 +89,23 @@ def choose_action(
     if not _auto_joins_enabled(scenario):
         for at in (WarmingActionType.SUBSCRIBE_CHANNEL, WarmingActionType.JOIN_GROUP):
             weights[_ACTION_TYPES.index(at)] = 0.0
+    # «Обновлять профиль» убрано из прогрева по умолчанию: смена профиля — это
+    # явное действие пользователя, а не фоновый шум. Остаётся только если
+    # сценарий ЯВНО задал положительный вес (UI это больше не предлагает).
+    if not _explicit_weight(scenario, WarmingActionType.UPDATE_PROFILE):
+        weights[_ACTION_TYPES.index(WarmingActionType.UPDATE_PROFILE)] = 0.0
     if sum(weights) <= 0:  # защита: если вдруг всё обнулилось
         weights = [1.0] * len(_ACTION_TYPES)
     return rng.choices(_ACTION_TYPES, weights=weights, k=1)[0]
+
+
+def _explicit_weight(
+    scenario: Optional[WarmingScenario], action: WarmingActionType
+) -> bool:
+    """Задан ли в сценарии ЯВНЫЙ положительный вес для действия."""
+    if scenario is None or not scenario.action_weights:
+        return False
+    return bool(scenario.action_weights.get(action.value, 0))
 
 
 def _auto_joins_enabled(scenario: Optional[WarmingScenario]) -> bool:

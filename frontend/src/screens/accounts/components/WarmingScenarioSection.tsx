@@ -11,7 +11,12 @@ import type { WarmingProfile, WarmingScenario } from "../../../shared/types";
 import { Field, TextInput } from "../../../modules/commenting/components/ui";
 import { CapsuleButton, Section } from "./ui";
 
-const ACTIONS = Object.keys(WARMING_ACTION_LABEL);
+// «Обновлять профиль» убрано из микса сценария прогрева: смена профиля — это
+// отдельное явное действие (карточка профиля / ИИ-оформление), а не фоновый
+// шум прогрева. Лейбл в WARMING_ACTION_LABEL остаётся для показа истории.
+const ACTIONS = Object.keys(WARMING_ACTION_LABEL).filter(
+  (a) => a !== "update_profile",
+);
 
 type Form = {
   intervalMin: string;
