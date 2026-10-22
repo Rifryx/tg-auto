@@ -30,6 +30,9 @@ export function ProjectsScreen() {
   const [conflict, setConflict] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<Project | null>(null);
   const [membersOf, setMembersOf] = useState<Project | null>(null);
+  // Выбор аккаунтов прямо при создании группы.
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const list = useQuery({ queryKey: ["projects"], queryFn: projectsApi.list });
   const accounts = useQuery({ queryKey: ["accounts", "all"], queryFn: () => accountsApi.list() });
@@ -38,17 +41,34 @@ export function ProjectsScreen() {
     if (a.project_id != null) countByGroup.set(a.project_id, (countByGroup.get(a.project_id) ?? 0) + 1);
   }
 
+  const togglePick = (id: number) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
   const create = useMutation({
-    mutationFn: () =>
-      projectsApi.create({
+    mutationFn: async () => {
+      const project = await projectsApi.create({
         name: name.trim(),
         description: description.trim() || undefined,
-      }),
+      });
+      // Сразу привязываем выбранные аккаунты к новой группе.
+      if (picked.size > 0) {
+        await projectsApi.setAccounts(project.id, [...picked]);
+      }
+      return project;
+    },
     onSuccess: () => {
       setName("");
       setDescription("");
+      setPicked(new Set());
+      setPickerOpen(false);
       setConflict(null);
       qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["accounts"] });
     },
     onError: (e) => {
       if (e instanceof ApiError && e.status === 409) {
@@ -99,6 +119,61 @@ export function ProjectsScreen() {
               maxLength={256}
             />
           </Field>
+
+          <Field label="Аккаунты (необязательно)">
+            <button
+              type="button"
+              onClick={() => setPickerOpen((v) => !v)}
+              className="flex w-full items-center justify-between rounded-chip border border-hairline bg-surface-1 px-4 py-3 text-left text-[15px] text-text-primary active:bg-surface-2"
+            >
+              <span className={picked.size ? "text-text-primary" : "text-text-tertiary"}>
+                {picked.size ? `Выбрано: ${picked.size}` : "Выбрать аккаунты из списка"}
+              </span>
+              <span className="text-text-tertiary">{pickerOpen ? "▲" : "▼"}</span>
+            </button>
+            {pickerOpen && (
+              <div className="mt-2 max-h-56 overflow-y-auto rounded-chip border border-hairline bg-surface-1 p-1.5">
+                {(accounts.data ?? []).length === 0 ? (
+                  <p className="px-2 py-2 text-[13px] text-text-tertiary">Нет аккаунтов.</p>
+                ) : (
+                  (accounts.data ?? []).map((a) => {
+                    const checked = picked.has(a.id);
+                    const inOther = a.project_id != null;
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => togglePick(a.id)}
+                        className="flex w-full items-center gap-2.5 rounded-chip px-2.5 py-2 text-left active:bg-surface-2"
+                      >
+                        <span
+                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                            checked
+                              ? "border-transparent bg-accent text-accent-on"
+                              : "border-hairline bg-surface-2"
+                          }`}
+                        >
+                          {checked && <Check className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-[14px] text-text-primary">
+                          {a.username ? `@${a.username}` : a.phone}
+                        </span>
+                        {inOther && (
+                          <span className="shrink-0 text-[11px] text-text-tertiary">в другой группе</span>
+                        )}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            )}
+            {picked.size > 0 && (
+              <p className="mt-1 px-1 text-[11px] text-text-tertiary">
+                Выбранные аккаунты будут перемещены в эту группу (у аккаунта одна группа).
+              </p>
+            )}
+          </Field>
+
           {conflict && (
             <p className="mb-3 text-[12px] text-danger">{conflict}</p>
           )}

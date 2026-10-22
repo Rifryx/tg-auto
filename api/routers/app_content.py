@@ -17,7 +17,13 @@ from pydantic import BaseModel, Field, field_validator
 from api.deps.auth import require_user
 from api.deps.db import get_session
 from api.deps.queue import get_publisher
-from core.content import get_about, get_activity, get_support, set_activity
+from core.content import (
+    get_about,
+    get_activity,
+    get_plans,
+    get_support,
+    set_activity,
+)
 from core.queue.publisher import Publisher
 from core.repositories.app_user import AppUserRepository
 from core.repositories.support import SupportRepository
@@ -37,6 +43,7 @@ def app_content(
     return {
         "about": get_about(session),
         "activity": get_activity(session),
+        "plans": get_plans(session),
         "support": {
             "manager_username": support.get("manager_username") or "",
             "manager_url": support.get("manager_url") or "",

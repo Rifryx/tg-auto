@@ -1,4 +1,4 @@
-import { CreditCard, Settings, Shield, X } from "lucide-react";
+import { CreditCard, LifeBuoy, Settings, Shield, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -31,6 +31,12 @@ const ITEMS: MenuItem[] = [
     description: "Профиль, персоны, прокси",
     icon: Settings,
     to: "/more",
+  },
+  {
+    label: "Поддержка",
+    description: "Чат с менеджером или сообщение в ЛС",
+    icon: LifeBuoy,
+    to: "/more/support",
   },
 ];
 

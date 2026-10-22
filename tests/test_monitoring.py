@@ -160,6 +160,7 @@ def test_dashboard_matches_direct_sql(session):
             WarmingActivity(
                 account_id=a_pool.id, kind="maintenance",
                 action_type="read_history", status="done",
+                target="durov", meta={"read": 24},
             ),
             WarmingActivity(
                 account_id=a_pool.id, kind="initial",
@@ -223,6 +224,10 @@ def test_dashboard_matches_direct_sql(session):
     assert len(body["recent_activity"]) == 3
     types = {item["type"] for item in body["recent_activity"]}
     assert types == {"warming", "comment"}
+    # detail/action_type/status доходят до клиента (не отрезаются response_model):
+    warming = next(i for i in body["recent_activity"] if i["action_type"] == "read_history")
+    assert warming["detail"] == "прочитал 24 сообщ. в @durov"
+    assert warming["status"] == "done"
     timestamps = [item["timestamp"] for item in body["recent_activity"]]
     assert timestamps == sorted(timestamps, reverse=True)
 

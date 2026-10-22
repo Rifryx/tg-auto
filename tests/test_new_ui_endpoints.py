@@ -153,3 +153,43 @@ def test_profile_asset_blob_404_for_text_asset_and_foreign_owner(session):
     # Чужой пользователь не получает байты.
     other = _assets_client(session, user="u2")
     assert other.get(f"/profile-assets/{img.id}/blob").status_code == 404
+
+
+def test_generate_preview_custom_prompt_without_persona(session, monkeypatch):
+    """generate-preview с custom_prompt работает без персоны."""
+    import api.routers.accounts as accounts_router
+    from modules.profiles.generator import GeneratedProfile
+
+    _clean(session)
+    acc = _make_account(session, "+380999999999")  # без persona_id
+
+    class _FakeGen:
+        async def generate_from_prompt(self, prompt):
+            assert "трейдер" in prompt
+            return GeneratedProfile(
+                first_name="Макс", last_name="", bio="трейдер",
+                username_candidates=["max_tr"],
+            )
+
+        async def generate(self, persona):  # не должно вызваться
+            raise AssertionError("persona path must not run")
+
+    monkeypatch.setattr(accounts_router, "default_generator", lambda _p: _FakeGen())
+    client = _accounts_client(session)
+
+    r = client.post(
+        f"/accounts/{acc.id}/profile/generate-preview",
+        json={"custom_prompt": "крипто-трейдер, дружелюбный"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["first_name"] == "Макс"
+    assert body["username_candidates"] == ["max_tr"]
+
+
+def test_generate_preview_without_persona_or_prompt_422(session):
+    _clean(session)
+    acc = _make_account(session, "+380888888888")
+    client = _accounts_client(session)
+    r = client.post(f"/accounts/{acc.id}/profile/generate-preview", json={})
+    assert r.status_code == 422

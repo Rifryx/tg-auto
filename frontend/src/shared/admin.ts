@@ -181,7 +181,18 @@ export const adminApi = {
   setAbout: (body: AdminAbout) => api.put<AdminAbout>("/admin/app-content/about", body),
   setSupport: (body: AdminSupport) =>
     api.put<AdminSupport>("/admin/app-content/support", body),
+  setPlans: (body: AdminPlans) => api.put<AdminPlans>("/admin/app-content/plans", body),
 };
+
+export interface AdminPlanInfo {
+  tagline: string;
+  bullets: string[];
+}
+
+export interface AdminPlans {
+  free: AdminPlanInfo;
+  pro: AdminPlanInfo;
+}
 
 export interface AdminAbout {
   app_name: string;
@@ -199,4 +210,5 @@ export interface AdminSupport {
 export interface AdminAppContent {
   about: AdminAbout;
   support: AdminSupport;
+  plans: AdminPlans;
 }

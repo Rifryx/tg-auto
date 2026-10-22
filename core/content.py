@@ -21,6 +21,7 @@ from core.repositories.app_setting import AppSettingRepository
 ABOUT_KEY = "about"
 SUPPORT_KEY = "support"
 ACTIVITY_KEY = "activity"
+PLANS_KEY = "plans"
 
 DEFAULT_ABOUT: dict[str, str] = {
     "app_name": "Neuro-Commenting",
@@ -50,6 +51,33 @@ DEFAULT_ACTIVITY: dict[str, str] = {
     # когда у персоны не задано своё окно.
     "window_start": "09:00",
     "window_end": "23:00",
+}
+
+
+# Редактируемая из админки «витрина» тарифов (tagline + буллеты). Сами лимиты
+# остаются в коде (core.billing.plans) — здесь только текст для экрана тарифов.
+DEFAULT_PLANS: dict[str, dict] = {
+    "free": {
+        "tagline": "Попробовать без оплаты",
+        "bullets": [
+            "1 аккаунт, 1 персона",
+            "1 активная кампания",
+            "До 20 комментариев в сутки",
+            "История активности — 3 дня",
+            "Комьюнити-поддержка",
+        ],
+    },
+    "pro": {
+        "tagline": "Весь функционал без ограничений",
+        "bullets": [
+            "Безлимит аккаунтов, персон и прокси",
+            "Безлимит активных кампаний",
+            "До 3000 комментариев в сутки",
+            "Свой ключ модели, приоритет в очереди",
+            "История активности — 365 дней",
+            "Приоритетная поддержка",
+        ],
+    },
 }
 
 
@@ -83,6 +111,18 @@ def set_activity(
 ) -> dict:
     merged = _merged(DEFAULT_ACTIVITY, data)
     AppSettingRepository(session).set(ACTIVITY_KEY, merged, updated_by=updated_by)
+    return merged
+
+
+def get_plans(session: Session) -> dict:
+    return _merged(DEFAULT_PLANS, AppSettingRepository(session).get(PLANS_KEY))
+
+
+def set_plans(
+    session: Session, data: dict, *, updated_by: Optional[str] = None
+) -> dict:
+    merged = _merged(DEFAULT_PLANS, data)
+    AppSettingRepository(session).set(PLANS_KEY, merged, updated_by=updated_by)
     return merged
 
 

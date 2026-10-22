@@ -3,9 +3,15 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../../shared/api";
 import { BackHeader } from "./PersonasScreen";
 
+export interface PlanInfo {
+  tagline: string;
+  bullets: string[];
+}
+
 export interface AppContent {
   about: { app_name: string; version: string; body: string };
   activity: { timezone: string; window_start: string; window_end: string };
+  plans: { free: PlanInfo; pro: PlanInfo };
   support: {
     manager_username: string;
     manager_url: string;

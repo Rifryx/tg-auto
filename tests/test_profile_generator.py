@@ -142,3 +142,25 @@ async def test_generator_includes_persona_tags_in_prompt():
     prompt = messages[0].content
     assert "Trader" in prompt
     assert "en" in prompt and "formal" in prompt
+
+
+# ── генерация по свободному промпту (без персоны) ───────────────────────────
+async def test_generate_from_prompt_no_persona():
+    """generate_from_prompt работает без персоны — по тексту пользователя."""
+    provider = _FakeProvider(
+        '{"first_name": "Аня", "last_name": "", "bio": "люблю кофе",'
+        ' "username_candidates": ["anya_cofe"]}'
+    )
+    gen = ProfileGenerator(provider)
+    result = await gen.generate_from_prompt("девушка 24, любит кофе")
+    assert result.first_name == "Аня"
+    assert result.username_candidates == ["anya_cofe"]
+    # Пользовательский текст попал в промпт.
+    _system, messages = provider.calls[0]
+    assert "кофе" in messages[0].content
+
+
+async def test_generate_from_prompt_empty_raises():
+    gen = ProfileGenerator(_FakeProvider("{}"))
+    with pytest.raises(ProfileGenerationError):
+        await gen.generate_from_prompt("   ")

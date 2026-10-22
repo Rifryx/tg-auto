@@ -8,6 +8,7 @@ import {
   Images,
   Info,
   LayoutGrid,
+  LifeBuoy,
   MessagesSquare,
   Moon,
   ScrollText,
@@ -57,6 +58,7 @@ const TOOLS: Item[] = [
 const SYSTEM: Item[] = [
   { to: "/billing", label: "Тариф и лимиты", icon: CreditCard },
   { to: "/more/settings", label: "Настройки", icon: SlidersHorizontal },
+  { to: "/more/support", label: "Поддержка", icon: LifeBuoy },
   { to: "/more/about", label: "О приложении", icon: Info },
 ];
 
