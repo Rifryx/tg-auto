@@ -1,4 +1,5 @@
 import { Check } from "lucide-react";
+import { AccountAvatar } from "../../../shared/AccountAvatar";
 import { accountDisplay } from "../../../shared/format";
 import { statusDotClass, STATUS_LABEL } from "../../../shared/status";
 import type { Account } from "../../../shared/types";
@@ -20,6 +21,7 @@ export function AccountPickRow({
       onClick={onToggle}
       className={`card flex min-h-[56px] w-full items-center gap-3 px-4 py-3 text-left active:bg-surface-2 ${selected ? "border-strong" : ""}`}
     >
+      <AccountAvatar avatarUrl={account.avatar_url} fallback={account.first_name ?? account.username} size={32} />
       <span className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass(account.status)}`} aria-hidden />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[15px] font-semibold text-text-primary">

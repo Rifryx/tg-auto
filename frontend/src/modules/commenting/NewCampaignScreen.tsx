@@ -10,11 +10,13 @@ import { useLimit } from "../../shared/limits";
 import { projectsApi } from "../../shared/projects";
 import { accountWorkWarning, sortForWork } from "../../shared/status";
 import { Select } from "../../shared/Select";
+import { TimeField } from "../../shared/TimeField";
 import { haptic } from "../../shared/tg";
 import { commentingApi, delayPresetsApi } from "./api";
 import { AccountPickRow } from "./components/AccountPickRow";
 import { AddGroupBar } from "./components/AddGroupBar";
 import { AiProtectionCard } from "./components/AiProtectionCard";
+import { MediaPickerInline } from "./components/MediaPickerInline";
 import {
   CapsuleButton,
   Field,
@@ -120,6 +122,7 @@ export function NewCampaignScreen() {
   const [useEmojis, setUseEmojis] = useState(true);
   const [useStickers, setUseStickers] = useState(false);
   const [attachImage, setAttachImage] = useState(false);
+  const [mediaIds, setMediaIds] = useState<number[]>([]);
   const [writeAsChannel, setWriteAsChannel] = useState(false);
   const [verifyAfterPost, setVerifyAfterPost] = useState(false);
   const [verifyDelaySec, setVerifyDelaySec] = useState(300);
@@ -203,6 +206,13 @@ export function NewCampaignScreen() {
           await commentingApi.addChannels(camp.id, channelLinksList);
         } catch {
           /* некритично: ссылки можно добавить позже в деталях кампании */
+        }
+      }
+      if (attachImage && mediaIds.length > 0) {
+        try {
+          await commentingApi.setMedia(camp.id, mediaIds);
+        } catch {
+          /* некритично: картинки можно прикрепить позже в деталях кампании */
         }
       }
       for (const id of selected) {
@@ -292,19 +302,20 @@ export function NewCampaignScreen() {
           />
           <ToggleRow
             label="Комментировать стикерами"
-            hint="~25% комментариев уйдут стикером из первого пака аккаунта."
+            hint="~25% комментариев уйдут стикером. Выбирать не нужно — берём автоматически первый стикерпак, сохранённый в самом Telegram-аккаунте. Своего пака нет — просто уйдёт текст."
             checked={useStickers}
             onChange={setUseStickers}
           />
           <ToggleRow
             label="Картинка к комментарию"
-            hint="Приложится случайная картинка (~40%). Добавьте картинки к кампании в её деталях."
+            hint="Приложится случайная картинка (~40%) из выбранных ниже. Можно дозагрузить позже в деталях кампании."
             checked={attachImage}
             onChange={setAttachImage}
           />
+          {attachImage && <MediaPickerInline selected={mediaIds} onChange={setMediaIds} />}
           <ToggleRow
             label="Писать от имени канала"
-            hint="Требует права post_messages в канале. Если прав нет — коммент уйдёт от аккаунта."
+            hint="Настраивать некого — на каждую публикацию система сама проверяет права post_messages у аккаунта в этом канале: есть права → коммент от канала, нет → автоматически от аккаунта."
             checked={writeAsChannel}
             onChange={setWriteAsChannel}
           />
@@ -459,10 +470,10 @@ export function NewCampaignScreen() {
       <Section title="Окно активности">
         <div className="flex gap-2">
           <Field label="С">
-            <TextInput type="time" value={start} onChange={(e) => setStart(e.target.value)} className="nums" />
+            <TimeField value={start} onChange={setStart} />
           </Field>
           <Field label="До">
-            <TextInput type="time" value={end} onChange={(e) => setEnd(e.target.value)} className="nums" />
+            <TimeField value={end} onChange={setEnd} />
           </Field>
         </div>
         <Field label="Часовой пояс">
@@ -595,7 +606,8 @@ export function NewCampaignScreen() {
           </div>
         )}
         {pool.data && pool.data.length > 0 ? (
-          <div className="mt-3 flex flex-col gap-2">
+          <div className="mt-3 max-h-[420px] overflow-y-auto rounded-chip border border-hairline bg-surface-1/40 p-2 [scrollbar-width:thin]">
+          <div className="flex flex-col gap-2">
             {sortForWork(pool.data).map((a) => {
               const isSelected = selected.has(a.id);
               return (
@@ -653,6 +665,7 @@ export function NewCampaignScreen() {
                 </div>
               );
             })}
+          </div>
           </div>
         ) : (
           <p className="mt-3 text-[13px] text-text-tertiary">Аккаунтов пока нет.</p>

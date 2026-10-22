@@ -71,7 +71,7 @@ export function DesktopSidebar() {
   return (
     <aside className="sticky top-0 hidden h-screen w-[260px] shrink-0 flex-col border-r border-hairline bg-bg-elevated lg:flex">
       <div className="px-6 pb-4 pt-6">
-        <p className="text-[20px] font-bold tracking-tight text-text-primary">Neuro</p>
+        <p className="text-[20px] font-bold tracking-tight text-text-primary">CAT</p>
         <p className="text-[12px] text-text-tertiary">Управление аккаунтами</p>
       </div>
 

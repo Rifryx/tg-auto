@@ -37,7 +37,7 @@ export function AboutScreen() {
       <BackHeader title="О приложении" onBack={() => navigate("/more")} />
       <div className="card p-5">
         <p className="text-[17px] font-semibold text-text-primary">
-          {about?.app_name ?? "Neuro-Commenting"}
+          {about?.app_name ?? "CAT"}
         </p>
         <p className="mt-1 text-[13px] text-text-secondary">
           Версия {about?.version ?? "0.1.0"}

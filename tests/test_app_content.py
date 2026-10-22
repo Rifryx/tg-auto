@@ -80,7 +80,7 @@ def test_about_defaults_then_edit(session):
     # До правок — дефолт.
     r = client.get("/app/content")
     assert r.status_code == 200
-    assert r.json()["about"]["app_name"] == "Neuro-Commenting"
+    assert r.json()["about"]["app_name"] == "CAT"
 
     # Админ меняет блок «О приложении».
     r2 = client.put(
