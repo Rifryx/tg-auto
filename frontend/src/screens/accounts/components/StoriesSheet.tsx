@@ -71,80 +71,94 @@ export function StoriesSheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center px-4 pb-8 lg:items-center lg:pb-0 bg-[color-mix(in_srgb,var(--bg-base)_72%,transparent)]"
+      className="fixed inset-0 z-50 flex items-end justify-center px-3 pb-4 pt-4 lg:items-center lg:px-4 lg:pb-4 bg-[color-mix(in_srgb,var(--bg-base)_72%,transparent)]"
       onClick={onCancel}
     >
+      {/* flex-col + max-h: шапка/действия закреплены сверху/снизу, тело
+         прокручивается — на коротких экранах диалог раньше выезжал за
+         область видимости (кнопка «Опубликовать» уходила за край). */}
       <div
-        className="w-full max-w-[420px] rounded-card border border-strong bg-bg-elevated p-5"
+        className="flex max-h-[calc(100dvh-32px)] w-full max-w-[420px] flex-col rounded-card border border-strong bg-bg-elevated"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between">
-          <h3 className="text-[18px] font-semibold text-text-primary">Публикация Stories</h3>
-          <button onClick={onCancel} aria-label="Закрыть" className="text-text-tertiary active:text-text-primary">
+        <div className="flex items-start justify-between gap-3 border-b border-hairline px-5 pb-3 pt-5">
+          <div className="min-w-0">
+            <h3 className="text-[18px] font-semibold text-text-primary">Публикация Stories</h3>
+            <p className="mt-0.5 text-[13px] text-text-secondary">
+              Одна история от лица {count} акк. Каждый публикует своим клиентом.
+            </p>
+          </div>
+          <button
+            onClick={onCancel}
+            aria-label="Закрыть"
+            className="shrink-0 text-text-tertiary active:text-text-primary"
+          >
             <X className="h-5 w-5" strokeWidth={1.8} aria-hidden />
           </button>
         </div>
-        <p className="mt-1.5 text-[13px] text-text-secondary">
-          Одна история от лица {count} акк. Каждый публикует своим клиентом.
-        </p>
 
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          onChange={(e) => {
-            onFile(e.target.files?.[0]);
-            e.target.value = "";
-          }}
-          className="hidden"
-        />
+        <div className="flex-1 overflow-y-auto px-5 py-4 [scrollbar-width:thin]">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+              onFile(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+            className="hidden"
+          />
 
-        {previewUrl ? (
-          <button
-            onClick={() => fileRef.current?.click()}
-            className="mt-4 flex w-full justify-center"
-            aria-label="Заменить изображение"
-          >
-            <img
-              src={previewUrl}
-              alt=""
-              className="max-h-[220px] rounded-card border border-hairline object-contain"
-            />
-          </button>
-        ) : (
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-            className="mt-4 flex min-h-[120px] w-full flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed border-hairline bg-surface-1 p-4 text-center active:border-strong disabled:opacity-50"
-          >
-            <ImagePlus className="h-7 w-7 text-accent" strokeWidth={1.5} aria-hidden />
-            <span className="text-[14px] font-semibold text-text-primary">
-              {uploading ? "Загружаем…" : "Выбрать изображение"}
-            </span>
-          </button>
-        )}
-        {uploadError && (
-          <p className="mt-2 text-[12px] text-status-critical">Не удалось загрузить изображение.</p>
-        )}
+          {previewUrl ? (
+            <button
+              onClick={() => fileRef.current?.click()}
+              className="flex w-full justify-center"
+              aria-label="Заменить изображение"
+            >
+              <img
+                src={previewUrl}
+                alt=""
+                className="max-h-[180px] rounded-card border border-hairline object-contain"
+              />
+            </button>
+          ) : (
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              className="flex min-h-[100px] w-full flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed border-hairline bg-surface-1 p-4 text-center active:border-strong disabled:opacity-50"
+            >
+              <ImagePlus className="h-7 w-7 text-accent" strokeWidth={1.5} aria-hidden />
+              <span className="text-[14px] font-semibold text-text-primary">
+                {uploading ? "Загружаем…" : "Выбрать изображение"}
+              </span>
+            </button>
+          )}
+          {uploadError && (
+            <p className="mt-2 text-[12px] text-status-critical">Не удалось загрузить изображение.</p>
+          )}
 
-        <div className="mt-4">
-          <Field label="Подпись (опц.)">
-            <TextArea value={caption} onChange={(e) => setCaption(e.target.value)} rows={2} />
-          </Field>
+          <div className="mt-4">
+            <Field label="Подпись (опц.)">
+              <TextArea value={caption} onChange={(e) => setCaption(e.target.value)} rows={2} />
+            </Field>
+          </div>
+
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">Кто видит</p>
+              <Select value={privacy} onChange={setPrivacy} options={PRIVACY} />
+            </div>
+            <div className="flex-1">
+              <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">Срок</p>
+              <Select value={period} onChange={setPeriod} options={PERIOD} />
+            </div>
+          </div>
         </div>
 
-        <div className="flex gap-2">
-          <div className="flex-1">
-            <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">Кто видит</p>
-            <Select value={privacy} onChange={setPrivacy} options={PRIVACY} />
-          </div>
-          <div className="flex-1">
-            <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">Срок</p>
-            <Select value={period} onChange={setPeriod} options={PERIOD} />
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-col gap-2">
+        <div
+          className="flex flex-col gap-2 border-t border-hairline px-5 pt-3"
+          style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 14px)" }}
+        >
           <CapsuleButton
             variant={canApply ? "accent" : "secondary"}
             disabled={!canApply}

@@ -149,6 +149,10 @@ function ActivityWindowSection() {
   );
 
   const save = useMutation({
+    // meta.silent — чтобы глобальный mutationCache onError не дублировал
+    // тост поверх нашего собственного (симптом был: два красных тоста на один
+    // и тот же fail — «Не удалось выполнить действие» + «Не удалось сохранить»).
+    meta: { silent: true },
     mutationFn: () =>
       api.put("/app/settings/activity", {
         timezone: tzValue,
@@ -159,7 +163,8 @@ function ActivityWindowSection() {
       showToast("Сохранено", "success");
       qc.invalidateQueries({ queryKey: ["app", "content"] });
     },
-    onError: () => showToast("Не удалось сохранить", "error"),
+    onError: (e: Error) =>
+      showToast(e.message || "Не удалось сохранить", "error"),
   });
 
   return (
