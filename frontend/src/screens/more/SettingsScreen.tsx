@@ -9,7 +9,9 @@ import { useCurrentPlan } from "../../shared/store";
 import { hapticSelection } from "../../shared/tg";
 import { showToast } from "../../shared/toast";
 import type { WarmingProfile } from "../../shared/types";
-import { Field, Section, SegmentedControl, TextInput } from "../../modules/commenting/components/ui";
+import { Field, Section, SegmentedControl } from "../../modules/commenting/components/ui";
+import { Select } from "../../shared/Select";
+import { TimeField } from "../../shared/TimeField";
 import { useAppContent } from "./AboutScreen";
 import { BackHeader } from "./PersonasScreen";
 
@@ -164,35 +166,21 @@ function ActivityWindowSection() {
     <Section title="Таймзона и окно активности">
       <div className="card flex flex-col gap-3 p-4">
         <Field label="Таймзона">
-          <select
+          <Select
             value={tzValue}
-            onChange={(e) => setTz(e.target.value)}
-            className="w-full min-h-[48px] rounded-chip border border-hairline bg-surface-1 px-4 text-[16px] text-text-primary outline-none focus:border-strong"
-          >
-            {options.map((z) => (
-              <option key={z} value={z}>
-                {z}
-                {z === detected ? " (ваша)" : ""}
-              </option>
-            ))}
-          </select>
+            onChange={setTz}
+            options={options.map((z) => ({
+              value: z,
+              label: z === detected ? `${z} (ваша)` : z,
+            }))}
+          />
         </Field>
         <div className="flex gap-2">
           <Field label="С">
-            <TextInput
-              type="time"
-              value={startValue}
-              onChange={(e) => setStart(e.target.value)}
-              className="nums"
-            />
+            <TimeField value={startValue} onChange={setStart} />
           </Field>
           <Field label="До">
-            <TextInput
-              type="time"
-              value={endValue}
-              onChange={(e) => setEnd(e.target.value)}
-              className="nums"
-            />
+            <TimeField value={endValue} onChange={setEnd} />
           </Field>
         </div>
         <p className="px-1 text-[12px] text-text-tertiary">

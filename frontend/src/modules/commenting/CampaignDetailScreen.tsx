@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, Plus, X } from "lucide-react";
+import { ArrowLeft, Check, Plus, Settings2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { AccountAvatar } from "../../shared/AccountAvatar";
 import { accountsApi, catalogApi } from "../../shared/accounts";
 import { projectsApi } from "../../shared/projects";
 import { Select } from "../../shared/Select";
@@ -10,6 +11,7 @@ import { statusDotClass } from "../../shared/status";
 import { haptic } from "../../shared/tg";
 import type { Account } from "../../shared/types";
 import { commentingApi } from "./api";
+import { AccountCampaignSettingsSheet } from "./components/AccountCampaignSettingsSheet";
 import { AccountPickerSheet } from "./components/AccountPickerSheet";
 import { AddGroupBar } from "./components/AddGroupBar";
 import { AiProtectionCard } from "./components/AiProtectionCard";
@@ -41,6 +43,7 @@ export function CampaignDetailScreen() {
   const qc = useQueryClient();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [settingsAccountId, setSettingsAccountId] = useState<number | null>(null);
   const [delayMin, setDelayMin] = useState<number | null>(null);
   const [delayMax, setDelayMax] = useState<number | null>(null);
 
@@ -79,6 +82,18 @@ export function CampaignDetailScreen() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["campaign", campaignId, "accounts"] });
       qc.invalidateQueries({ queryKey: ["accounts"] });
+    },
+  });
+  const patchAccount = useMutation({
+    mutationFn: (vars: { accountId: number; override_prompt: string | null; probability_override: number | null }) =>
+      commentingApi.patchAccount(campaignId, vars.accountId, {
+        override_prompt: vars.override_prompt,
+        probability_override: vars.probability_override,
+      }),
+    onSuccess: () => {
+      haptic("light");
+      setSettingsAccountId(null);
+      qc.invalidateQueries({ queryKey: ["campaign", campaignId, "accounts"] });
     },
   });
   const remove = useMutation({
@@ -211,8 +226,11 @@ export function CampaignDetailScreen() {
           <div className="flex flex-col gap-2">
             {attachedIds.map((aid) => {
               const acc = accountById.get(aid);
+              const link = (links.data ?? []).find((l) => l.account_id === aid);
+              const customized = !!link?.override_prompt || link?.probability_override != null;
               return (
                 <div key={aid} className="card flex items-center gap-3 px-4 py-3">
+                  <AccountAvatar avatarUrl={acc?.avatar_url} fallback={acc?.first_name ?? acc?.username} size={32} />
                   <span
                     className={`h-2 w-2 shrink-0 rounded-full ${acc ? statusDotClass(acc.status) : "bg-status-neutral"}`}
                     aria-hidden
@@ -220,6 +238,18 @@ export function CampaignDetailScreen() {
                   <span className="min-w-0 flex-1 truncate text-[15px] text-text-primary nums">
                     {acc ? accountDisplay(acc) : `Аккаунт #${aid}`}
                   </span>
+                  <button
+                    onClick={() => setSettingsAccountId(aid)}
+                    aria-label="Индивидуальные настройки"
+                    className={`relative flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-text-secondary active:text-text-primary ${
+                      customized ? "text-status-active" : ""
+                    }`}
+                  >
+                    <Settings2 className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                    {customized && (
+                      <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-status-active" aria-hidden />
+                    )}
+                  </button>
                   <button
                     onClick={() => detach.mutate(aid)}
                     aria-label="Отвязать"
@@ -245,19 +275,19 @@ export function CampaignDetailScreen() {
           />
           <StyleToggle
             label="Комментировать стикерами"
-            hint="~25% комментариев уйдут стикером из пака аккаунта."
+            hint="~25% комментариев уйдут стикером. Берётся автоматически первый стикерпак, сохранённый в самом Telegram-аккаунте — выбирать не нужно. Своего пака нет — уйдёт текст."
             checked={c.use_stickers}
             onChange={(v) => save.mutate({ use_stickers: v })}
           />
           <StyleToggle
             label="Картинка к комментарию"
-            hint="Приложится случайная картинка (~40%) из добавленных к кампании."
+            hint="Приложится случайная картинка (~40%) из добавленных к кампании — список ниже."
             checked={c.attach_image}
             onChange={(v) => save.mutate({ attach_image: v })}
           />
           <StyleToggle
             label="Писать от имени канала"
-            hint="Требует прав post_messages у аккаунта."
+            hint="Настраивать некого — на каждую публикацию система сама проверяет права post_messages у аккаунта: есть права → от канала, нет → автоматически от аккаунта."
             checked={c.write_as_channel}
             onChange={(v) => save.mutate({ write_as_channel: v })}
           />
@@ -298,6 +328,18 @@ export function CampaignDetailScreen() {
         busy={attach.isPending}
         onClose={() => setSheetOpen(false)}
         onAdd={(ids) => attach.mutate(ids)}
+      />
+      <AccountCampaignSettingsSheet
+        open={settingsAccountId != null}
+        account={settingsAccountId != null ? accountById.get(settingsAccountId) : undefined}
+        link={(links.data ?? []).find((l) => l.account_id === settingsAccountId)}
+        campaignProbability={c.probability_percent}
+        selectionMode={c.post_selection_mode}
+        busy={patchAccount.isPending}
+        onClose={() => setSettingsAccountId(null)}
+        onSave={(patch) =>
+          settingsAccountId != null && patchAccount.mutate({ accountId: settingsAccountId, ...patch })
+        }
       />
       <ConfirmDialog
         open={confirmDelete}

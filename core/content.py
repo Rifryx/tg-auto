@@ -24,7 +24,7 @@ ACTIVITY_KEY = "activity"
 PLANS_KEY = "plans"
 
 DEFAULT_ABOUT: dict[str, str] = {
-    "app_name": "Neuro-Commenting",
+    "app_name": "CAT",
     "version": "0.1.0",
     "body": (
         "Панель управления Telegram-аккаунтами: прогрев, пул и модуль "
