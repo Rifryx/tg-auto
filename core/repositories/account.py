@@ -131,3 +131,20 @@ class AccountRepository(BaseRepository[Account]):
             .order_by(Account.cooldown_until)
         )
         return list(self.session.execute(stmt).scalars().all())
+
+    def delete(self, account_id: int) -> bool:
+        """Полностью удаляет аккаунт. Зависимые строки (история, health,
+        прогрев, каналы, привязка к кампании, логи) снимаются через ON DELETE
+        CASCADE. Коммит — на вызывающей стороне (как и у остальных методов
+        репозитория).
+
+        Живёт в core, а не в api/services — и api, и worker удаляют аккаунты
+        (worker — брошенные недо-логины), а worker не может импортировать
+        пакет api (у него своя сборка образа без него, см. Dockerfile.worker).
+        """
+        account = self.get(account_id)
+        if account is None:
+            return False
+        self.session.delete(account)
+        self.session.flush()
+        return True

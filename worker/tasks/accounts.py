@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from api.services.accounts import delete_account
 from core.enums import AccountStatus
 from core.repositories.account import AccountRepository
 from worker.tasks.logging import get_logger
@@ -37,7 +36,8 @@ async def sweep_abandoned_logins_impl(ctx: dict) -> dict[str, int]:
             if a.created_at is not None and a.created_at < cutoff
         ]
         for account in stale:
-            if delete_account(session, account.id):
+            if repo.delete(account.id):
+                session.commit()
                 removed += 1
     if removed:
         get_logger().info("accounts.sweep_abandoned_logins.done", removed=removed)

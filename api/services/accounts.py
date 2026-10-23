@@ -326,11 +326,10 @@ def import_account_from_session(
 
 
 def delete_account(session: Session, account_id: int) -> bool:
-    """Полностью удаляет аккаунт. Зависимые строки (история, health, прогрев,
-    каналы, привязка к кампании, логи) снимаются через ON DELETE CASCADE."""
-    account = AccountRepository(session).get(account_id)
-    if account is None:
-        return False
-    session.delete(account)
-    session.commit()
-    return True
+    """Полностью удаляет аккаунт (тонкая обёртка над AccountRepository.delete
+    с коммитом — сама логика удаления живёт в core, т.к. ей пользуется и
+    worker, которому api импортировать нельзя, см. core/repositories/account.py)."""
+    ok = AccountRepository(session).delete(account_id)
+    if ok:
+        session.commit()
+    return ok
