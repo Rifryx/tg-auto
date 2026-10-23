@@ -98,7 +98,12 @@ export function ProjectsScreen() {
         кнопкой добавить всю группу в кампанию.
       </p>
 
-      <div className="lg:grid lg:grid-cols-[380px_1fr] lg:items-start lg:gap-8">
+      {/* 2 колонки — только на действительно широком экране. На ноутбучных 1280-
+          1366px после сайдбара (~250px) правой колонке не хватает места на форму
+          редактирования группы (кнопка «Сохранить» обрезалась). Поэтому порог
+          xl: (1280px), и даже тогда правой колонке даём минимум — а не 1fr без
+          защиты от сжатия, чтобы кнопки форм помещались. */}
+      <div className="xl:grid xl:grid-cols-[360px_minmax(0,1fr)] xl:items-start xl:gap-6">
       <Section title="Новая группа">
         <div className="card p-4">
           <Field label="Название">

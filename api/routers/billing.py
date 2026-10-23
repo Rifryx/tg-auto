@@ -73,21 +73,28 @@ def create_invoice(
                 description=description,
             )
         except cryptobot.CryptoBotError as exc:
-            # Провайдер недоступен/невалидный токен (напр. 401 UNAUTHORIZED).
-            # Не роняем 500 — отдаём понятную 502, чтобы UI показал нормальный
-            # текст, а не «что-то пошло не так». Платёж остаётся pending без
-            # ссылки, пользователь может попробовать другой способ оплаты.
+            # Провайдер недоступен / невалидный токен / токен не задан.
+            # Не роняем 500 — отдаём понятную 502 с конкретным текстом ошибки,
+            # чтобы UI показал его прямо в карточке оплаты (а не вводил в
+            # заблуждение «если вы оплатили — активируется»). Платёж остаётся
+            # pending без ссылки, пользователь может выбрать Stars.
             session.rollback()
+            raw = str(exc)
+            # Текст из провайдера на русском (напр. «CRYPTOBOT_API_TOKEN не
+            # задан…») показываем как есть; системные httpx-дампы — заменяем
+            # общим понятным сообщением.
+            friendly = (
+                raw
+                if raw and not raw.startswith(("createInvoice failed:", "createInvoice error:"))
+                else (
+                    "Крипто-оплата временно недоступна (ошибка провайдера "
+                    "Crypto Bot). Попробуйте оплату через Telegram Stars или "
+                    "повторите позже."
+                )
+            )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail={
-                    "reason": "crypto_provider_unavailable",
-                    "message": (
-                        "Крипто-оплата временно недоступна (ошибка провайдера "
-                        "Crypto Bot). Попробуйте оплату через Telegram Stars или "
-                        "повторите позже."
-                    ),
-                },
+                detail={"reason": "crypto_provider_unavailable", "message": friendly},
             ) from exc
         payment.provider_invoice_id = inv.invoice_id
         payment.pay_url = inv.pay_url
