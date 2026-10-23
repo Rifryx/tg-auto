@@ -14,7 +14,12 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from api.deps.auth import require_user
+from fastapi import Header
+
+from api.deps.auth import (
+    extract_profile_from_init_data,
+    require_user,
+)
 from api.deps.db import get_session
 from api.deps.queue import get_publisher
 from core.content import (
@@ -120,12 +125,45 @@ def support_send(
     user_id: str = Depends(require_user),
     session: Session = Depends(get_session),
     publisher: Optional[Publisher] = Depends(get_publisher),
+    x_telegram_init_data: Optional[str] = Header(default=None, alias="X-Telegram-Init-Data"),
 ) -> dict[str, object]:
     """Пользователь пишет в поддержку. Сообщение сохраняется и best-effort
-    публикуется боту, который перешлёт его менеджеру (с @username автора)."""
-    # @username автора — чтобы менеджер видел, кто обратился.
-    prof = AppUserRepository(session).get_many([user_id]).get(user_id)
-    username = prof.username if prof is not None else None
+    публикуется боту, который перешлёт его менеджеру (с @username, именем и id).
+
+    Менеджер должен понимать, КТО обратился — поэтому вытаскиваем профиль
+    (username / first_name / last_name) прямо из подписанного initData здесь
+    (а не ждём, пока ``capture_user`` их когда-нибудь закэширует) и
+    параллельно обновляем кэш ``app_users`` для админки.
+    """
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+
+    # 1) Пытаемся вытащить профиль из подписанного initData (прод-режим).
+    profile = extract_profile_from_init_data(x_telegram_init_data)
+    if profile is not None:
+        username = profile.username
+        first_name = profile.first_name
+        last_name = profile.last_name
+        try:
+            AppUserRepository(session).upsert(
+                profile.user_id,
+                username=username,
+                first_name=first_name,
+                last_name=last_name,
+            )
+            session.commit()
+        except Exception:  # noqa: BLE001 — кэш не критичен для отправки
+            session.rollback()
+
+    # 2) Фолбэк: берём из кэша app_users (DEV_MODE или ранний запрос без
+    # initData — профиль мог быть сохранён другим эндпоинтом через capture_user).
+    if not any([username, first_name, last_name]):
+        prof = AppUserRepository(session).get_many([user_id]).get(user_id)
+        if prof is not None:
+            username = username or prof.username
+            first_name = first_name or prof.first_name
+            last_name = last_name or prof.last_name
 
     repo = SupportRepository(session)
     msg = repo.add_message(
@@ -143,6 +181,8 @@ def support_send(
                     "support_message_id": msg.id,
                     "user_id": user_id,
                     "username": username,
+                    "first_name": first_name,
+                    "last_name": last_name,
                     "text": msg.text,
                 },
             )
