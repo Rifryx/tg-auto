@@ -119,6 +119,22 @@ def test_account_update_non_status_fields(session):
     assert updated.status == AccountStatus.CREATED.value
 
 
+def test_account_delete_removes_row_and_returns_true(session):
+    repo = AccountRepository(session)
+    acc = repo.create(_account_create())
+    session.commit()
+
+    assert repo.delete(acc.id) is True
+    session.commit()
+    session.expire_all()
+    assert repo.get(acc.id) is None
+
+
+def test_account_delete_missing_returns_false(session):
+    repo = AccountRepository(session)
+    assert repo.delete(999_999_999) is False
+
+
 def test_account_list_by_status(session):
     repo = AccountRepository(session)
     a1 = repo.create(_account_create())
