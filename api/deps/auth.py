@@ -139,6 +139,24 @@ async def require_user(
     return user_id
 
 
+def extract_profile_from_init_data(init_data: Optional[str]) -> Optional[UserProfile]:
+    """Публичный профиль из подписанного initData (вне ``capture_user``).
+
+    Нужен эндпоинтам, которым важен ``@username`` отправителя прямо сейчас
+    (напр. поддержка — чтобы менеджер видел, кто написал). Возвращает ``None``
+    в ``DEV_MODE``, без бот-токена, при пустом/невалидном initData.
+    """
+    if not init_data:
+        return None
+    settings = get_settings()
+    if settings.dev_mode or not settings.telegram_bot_token:
+        return None
+    fields = _parse_and_verify(init_data, settings.telegram_bot_token)
+    if fields is None:
+        return None
+    return _extract_user_profile(fields)
+
+
 async def capture_user(
     x_telegram_init_data: Optional[str] = Header(default=None, alias=_INIT_DATA_HEADER),
     x_dev_user: Optional[str] = Header(default=None, alias=_DEV_USER_HEADER),

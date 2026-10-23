@@ -31,8 +31,10 @@ def _app(session, publisher=None):
 
 def test_support_send_and_thread(session):
     pub = _FakePublisher()
-    # Профиль пользователя — чтобы менеджер видел @username.
-    AppUserRepository(session).upsert("777", username="bob", first_name="Bob")
+    # Профиль пользователя — чтобы менеджер видел @username + имя.
+    AppUserRepository(session).upsert(
+        "777", username="bob", first_name="Bob", last_name="Smith"
+    )
     session.commit()
 
     client = TestClient(_app(session, pub))
@@ -41,10 +43,14 @@ def test_support_send_and_thread(session):
     assert r.status_code == 200, r.text
     assert r.json()["direction"] == "user"
 
-    # Опубликовано боту с username для менеджера.
+    # Опубликовано боту со всем профилем — чтобы менеджер видел, кто пишет
+    # (не только числовой user_id).
     assert pub.published and pub.published[0][0] == "support.new_message"
-    assert pub.published[0][1]["username"] == "bob"
-    assert pub.published[0][1]["user_id"] == "777"
+    sent = pub.published[0][1]
+    assert sent["username"] == "bob"
+    assert sent["first_name"] == "Bob"
+    assert sent["last_name"] == "Smith"
+    assert sent["user_id"] == "777"
 
     # Тред содержит сообщение.
     t = client.get("/app/support/messages")

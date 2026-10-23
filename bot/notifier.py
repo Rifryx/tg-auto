@@ -231,17 +231,38 @@ async def _handle_support_new_message(
     from core.repositories.support import SupportRepository
 
     user_id = str(payload.get("user_id") or "")
-    username = payload.get("username")
+    username = (payload.get("username") or "").strip() or None
+    first_name = (payload.get("first_name") or "").strip() or None
+    last_name = (payload.get("last_name") or "").strip() or None
     text = str(payload.get("text") or "")
     if not user_id or not text:
         return
-    who = f"@{username}" if username else f"id {user_id}"
-    body = (
-        f"💬 <b>Поддержка от {html.escape(who)}</b>\n"
-        f"user_id: <code>{html.escape(user_id)}</code>\n\n"
-        f"{html.escape(text)}\n\n"
-        f"<i>Ответьте реплаем на это сообщение — ответ придёт пользователю.</i>"
+
+    # Шапка «Поддержка от …»: ставим на первое место то, что менеджер реально
+    # опознаёт — @username. Остальное (имя+фамилия, id) — поясняющими деталями
+    # в скобках. Любое поле может отсутствовать, минимум — всегда есть id.
+    header_parts: list[str] = []
+    if username:
+        header_parts.append(f"@{username}")
+    full_name = " ".join(x for x in (first_name, last_name) if x).strip()
+    if full_name:
+        header_parts.append(full_name)
+    if not header_parts:
+        header_parts.append(f"id {user_id}")
+    header = html.escape(header_parts[0])
+    rest = ", ".join(html.escape(p) for p in header_parts[1:])
+
+    body_lines = [f"💬 <b>Поддержка от {header}</b>"]
+    if rest:
+        body_lines.append(rest)
+    body_lines.append(f"user_id: <code>{html.escape(user_id)}</code>")
+    body_lines.append("")
+    body_lines.append(html.escape(text))
+    body_lines.append("")
+    body_lines.append(
+        "<i>Ответьте реплаем на это сообщение — ответ придёт пользователю.</i>"
     )
+    body = "\n".join(body_lines)
     for chat_id in admin_ids:
         try:
             sent = await bot.send_message(int(chat_id), body, parse_mode="HTML")
