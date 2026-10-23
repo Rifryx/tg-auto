@@ -21,3 +21,7 @@ dist/
 *.log
 .DS_Store
 PROMPTS-*.md
+
+# Локальные дампы БД (scripts/backup_db.sh) — содержат реальные данные
+# пользователей (телефоны и т.п.), в git не попадают.
+backups/
