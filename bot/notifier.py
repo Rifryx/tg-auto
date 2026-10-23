@@ -38,30 +38,98 @@ _COMMENTING_ALERTS_CHANNEL = "commenting.alerts"
 _SUPPORT_NEW_MESSAGE_CHANNEL = "support.new_message"
 
 
+# Те же русские подписи статусов, что и в UI (frontend/src/shared/status.ts).
+_STATUS_RU = {
+    "created": "Создан",
+    "warming": "Прогрев",
+    "pool": "В пуле",
+    "assigned": "В работе",
+    "cooldown": "Пауза",
+    "retired": "Выведен",
+    "banned": "Бан",
+}
+
+_INITIATOR_RU = {
+    "user": "вручную",
+    "auto": "автоматически (автопилот)",
+    "health": "по показателям здоровья",
+}
+
+# reason — это ``AccountEvent.value`` из core/state_machine/account.py.
+_REASON_RU = {
+    "account.created": "создание аккаунта",
+    "warming.start": "начат прогрев",
+    "warming.completed": "прогрев завершён",
+    "container.attach": "назначен на задачу",
+    "container.detach": "снят с задачи",
+    "health.incident": "сбой/ошибка Telegram (flood/spam/бан прокси)",
+    "cooldown.expired": "пауза закончилась",
+    "account.retire": "ручной вывод",
+    "account.restore": "возврат в пул",
+    "health.ban_detected": "обнаружен бан",
+    "account.acknowledge_ban": "бан подтверждён",
+}
+
+
+def _account_label(payload: dict[str, Any]) -> str:
+    """«@username (+7999…, #64)» / «Имя (#64)» — по тому, что известно."""
+    account_id = payload.get("account_id")
+    username = payload.get("username")
+    phone = payload.get("phone")
+    display_name = payload.get("display_name")
+    primary = f"@{username}" if username else (display_name or phone or f"#{account_id}")
+    extra = phone if phone and primary != phone else None
+    tail = f" ({extra}, #{account_id})" if extra else f" (#{account_id})"
+    return html.escape(f"{primary}{tail}")
+
+
 def _fmt_account_status(payload: dict[str, Any]) -> Optional[str]:
     """Форматирует событие статуса; None — если событие не важно."""
     from_status = payload.get("from")
     to_status = payload.get("to")
-    account_id = payload.get("account_id")
     initiator = payload.get("initiator", "auto")
+    who = _account_label(payload)
+    reason = _REASON_RU.get(payload.get("reason") or "", payload.get("reason") or "—")
+    from_ru = _STATUS_RU.get(from_status or "", from_status or "—")
+    initiator_ru = _INITIATOR_RU.get(initiator, initiator)
 
     # Важные переходы: banned, retired, cooldown.
     if to_status == "banned":
         return (
-            f"🚫 <b>Аккаунт #{account_id} забанен</b>\n"
-            f"Инициатор: <code>{initiator}</code>"
+            f"🚫 <b>Аккаунт {who} забанен</b>\n"
+            f"Причина: {reason}\n"
+            f"Инициатор: {initiator_ru}"
         )
     if to_status == "retired" and initiator != "user":
         return (
-            f"⚠️ <b>Аккаунт #{account_id} выведен из работы</b>\n"
-            f"Из <code>{from_status}</code> инициатор <code>{initiator}</code>"
+            f"⚠️ <b>Аккаунт {who} выведен из работы</b>\n"
+            f"Был в статусе «{from_ru}», инициатор: {initiator_ru}\n"
+            f"Причина: {reason}"
         )
     if to_status == "cooldown":
-        return (
-            f"❄️ <b>Аккаунт #{account_id} на охлаждении</b>\n"
-            f"Пришёл из <code>{from_status}</code>"
-        )
+        lines = [
+            f"❄️ <b>Аккаунт {who} на охлаждении</b>",
+            f"Пришёл из статуса «{from_ru}»",
+            f"Причина: {reason}",
+        ]
+        until = _fmt_until(payload.get("cooldown_until"))
+        if until:
+            lines.append(f"До: {until}")
+        return "\n".join(lines)
     return None
+
+
+def _fmt_until(raw: Optional[str]) -> Optional[str]:
+    """ISO-таймстамп cooldown_until → «22.10 23:40 UTC» для читаемости в чате."""
+    if not raw:
+        return None
+    from datetime import datetime
+
+    try:
+        dt = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return None
+    return dt.strftime("%d.%m %H:%M UTC")
 
 
 def _fmt_ban_risk(payload: dict[str, Any]) -> Optional[str]:

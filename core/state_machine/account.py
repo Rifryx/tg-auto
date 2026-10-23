@@ -253,7 +253,9 @@ class AccountStateMachine:
 
         self._session.commit()
 
-        self._publish(account.id, from_status, rule.to_state.value, event.value, initiator.value)
+        self._publish(
+            account, from_status, rule.to_state.value, event.value, initiator.value, meta
+        )
         return account
 
     # ------------------------------------------------------------------ #
@@ -334,21 +336,32 @@ class AccountStateMachine:
 
     def _publish(
         self,
-        account_id: int,
+        account: Account,
         from_status: Optional[str],
         to_status: str,
         reason: str,
         initiator: str,
+        meta: Mapping[str, Any],
     ) -> None:
         if self._publisher is None:
             return
-        self._publisher.publish(
-            ACCOUNT_STATUS_CHANNEL,
-            {
-                "account_id": account_id,
-                "from": from_status,
-                "to": to_status,
-                "reason": reason,
-                "initiator": initiator,
-            },
-        )
+        payload: dict[str, Any] = {
+            "account_id": account.id,
+            "from": from_status,
+            "to": to_status,
+            "reason": reason,
+            "initiator": initiator,
+            # Детали аккаунта — чтобы уведомление не ограничивалось «#64», а
+            # сразу показывало, какой это аккаунт (телефон/юзернейм/имя).
+            "phone": account.phone,
+            "username": account.username,
+            "display_name": account.display_name,
+        }
+        cooldown_until = meta.get("cooldown_until")
+        if cooldown_until is not None:
+            payload["cooldown_until"] = (
+                cooldown_until.isoformat()
+                if isinstance(cooldown_until, datetime)
+                else cooldown_until
+            )
+        self._publisher.publish(ACCOUNT_STATUS_CHANNEL, payload)

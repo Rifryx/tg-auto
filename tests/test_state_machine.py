@@ -286,11 +286,16 @@ def test_event_published_to_real_pubsub(session):
     assert message is not None
     assert message["type"] == "message"
     payload = json.loads(message["data"])
+    # Детали аккаунта (phone/username/display_name) добавлены для уведомлений
+    # бота — чтобы не показывать голый «#id» (см. core/state_machine/account.py).
     assert payload == {
         "account_id": acc.id,
         "from": AccountStatus.CREATED.value,
         "to": AccountStatus.WARMING.value,
         "reason": AccountEvent.WARMING_START.value,
         "initiator": Initiator.AUTO.value,
+        "phone": acc.phone,
+        "username": acc.username,
+        "display_name": acc.display_name,
     }
     pubsub.close()

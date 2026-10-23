@@ -63,6 +63,52 @@ def test_normal_transitions_ignored():
     }) is None
 
 
+def test_ban_event_shows_username_and_phone_not_just_id():
+    """Детали аккаунта (username/телефон) видны, а не только голый #id."""
+    text = _fmt_account_status({
+        "account_id": 64,
+        "from": "pool",
+        "to": "banned",
+        "initiator": "health",
+        "username": "cool_user",
+        "phone": "+79990001122",
+        "display_name": None,
+    })
+    assert text is not None
+    assert "@cool_user" in text
+    assert "+79990001122" in text
+    assert "#64" in text
+
+
+def test_cooldown_event_shows_reason_and_until_in_russian():
+    """Причина (health.incident) и время окончания — по-русски и читаемо."""
+    text = _fmt_account_status({
+        "account_id": 7,
+        "from": "assigned",
+        "to": "cooldown",
+        "initiator": "health",
+        "reason": "health.incident",
+        "phone": "+79991112233",
+        "cooldown_until": "2026-10-22T23:40:00+00:00",
+    })
+    assert text is not None
+    assert "flood" in text.lower() or "спам" in text.lower() or "бан прокси" in text.lower()
+    assert "22.10 23:40" in text
+    assert "В работе" in text  # from=assigned переведён на русский
+
+
+def test_account_label_falls_back_to_bare_id_without_details():
+    """Без username/телефона/имени — остаётся прежний #id (обратная совместимость)."""
+    text = _fmt_account_status({
+        "account_id": 42,
+        "from": "pool",
+        "to": "banned",
+        "initiator": "health",
+    })
+    assert text is not None
+    assert "#42" in text
+
+
 # ── ban_risk ────────────────────────────────────────────────────────────────
 
 
