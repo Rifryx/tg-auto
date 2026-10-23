@@ -73,6 +73,18 @@ Postgres и Redis используют именованные volume (`postgres_
 данные переживают `docker compose down && docker compose up`. Полная очистка:
 `docker compose down -v`.
 
+**⚠️ `docker compose down -v`, удаление контейнеров через Docker Desktop
+"Clean/Purge data" и перенос WSL-диска (`wsl --unregister …`) стирают эти
+volume безвозвратно** — восстановить данные после этого неоткуда. Перед любой
+из этих операций сделайте снимок базы:
+
+```bash
+bash scripts/backup_db.sh     # → backups/neuro_<дата>.sql
+```
+
+и скопируйте файл куда-то вне Docker (сам `backups/` не защищён от тех же
+операций). Восстановление: `bash scripts/restore_db.sh backups/<файл>.sql`.
+
 ### Логи
 
 ```bash
