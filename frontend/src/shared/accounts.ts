@@ -79,14 +79,16 @@ export const accountsApi = {
     return api.postForm<Account>("/accounts/import-session", fd);
   },
   importTData: (body: {
-    phone: string;
+    // Опциональный: в tdata номера нет, бэкенд подставит `tg{user_id}` если
+    // пустой/пропущен (пользователю не нужно знать точный номер tdata-архива).
+    phone?: string;
     proxy_id: number | null;
     warming_profile: WarmingProfile;
     persona_id?: number | null;
     tdata_zip: File;
   }) => {
     const fd = new FormData();
-    fd.append("phone", body.phone);
+    if (body.phone && body.phone.trim()) fd.append("phone", body.phone.trim());
     if (body.proxy_id != null) fd.append("proxy_id", String(body.proxy_id));
     fd.append("warming_profile", body.warming_profile);
     if (body.persona_id != null) fd.append("persona_id", String(body.persona_id));

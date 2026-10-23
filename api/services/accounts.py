@@ -184,13 +184,21 @@ def _find_tdata_dir(root: str) -> Optional[str]:
     return None
 
 
-def _tdata_dir_to_string(tdata_dir: str) -> str:
-    """TData-папка → StringSession офлайн (opentele, flag=UseCurrentSession).
+async def _tdata_dir_to_string(tdata_dir: str) -> tuple[str, Optional[int]]:
+    """TData-папка → (StringSession, user_id) офлайн (opentele, UseCurrentSession).
 
     Сеть не нужна: auth_key и DC берутся прямо из tdata. PyQt5 (транзитивная
-    зависимость opentele для разбора Qt-сериализации) импортируется лениво."""
-    import asyncio
+    зависимость opentele для разбора Qt-сериализации) импортируется лениво.
 
+    Возвращает ``user_id`` из tdata — чтобы вызывающий код мог построить
+    псевдо-телефон, если пользователь не ввёл настоящий номер (в tdata его нет,
+    номер хранится только на серверах Telegram; получить его можно позже через
+    ``get_me()`` при первом коннекте аккаунта).
+
+    АСИНХРОННАЯ, потому что вызывает ``await tdesk.ToTelethon(...)``. Раньше
+    тут был ``asyncio.run()`` — он падает ``RuntimeError`` при вызове из уже
+    работающего event loop (напр. из FastAPI-handler'а), запрос зависал/рушился.
+    """
     from opentele.api import UseCurrentSession
     from opentele.td import TDesktop
     from telethon.sessions import StringSession
@@ -199,11 +207,18 @@ def _tdata_dir_to_string(tdata_dir: str) -> str:
     if not tdesk.isLoaded() or tdesk.accountsCount == 0:
         raise SessionImportError("tdata не содержит авторизованных аккаунтов")
 
-    async def _convert() -> str:
-        client = await tdesk.ToTelethon(flag=UseCurrentSession)
-        return StringSession.save(client.session)
-
-    return asyncio.run(_convert())
+    client = await tdesk.ToTelethon(flag=UseCurrentSession)
+    string = StringSession.save(client.session)
+    user_id: Optional[int] = None
+    try:
+        main = tdesk.mainAccount
+        if main is not None:
+            uid = main.UserId
+            if isinstance(uid, int) and uid > 0:
+                user_id = uid
+    except Exception:  # noqa: BLE001 — user_id best-effort, не фатально
+        user_id = None
+    return string, user_id
 
 
 def _extract_archive(archive_bytes: bytes, dest_dir: str) -> None:
@@ -241,11 +256,18 @@ def _extract_archive(archive_bytes: bytes, dest_dir: str) -> None:
     raise SessionImportError("файл не является ZIP или RAR-архивом")
 
 
-def tdata_archive_to_string(archive_bytes: bytes) -> str:
+async def tdata_archive_to_string(
+    archive_bytes: bytes,
+) -> tuple[str, Optional[int]]:
     """Конвертирует ZIP/RAR с папкой TData (Telegram Desktop) в StringSession.
 
+    Возвращает ``(session_string, user_id?)``: ``user_id`` извлекается из tdata
+    (лежит там рядом с auth_key), пригодится вызывающему коду для авто-заполнения
+    псевдо-телефона, если пользователь не ввёл номер (в tdata телефона нет).
+
     Поддерживается только tdata без локального passcode-пароля (у защищённого
-    ``isLoaded()`` вернёт False → понятная ошибка)."""
+    ``isLoaded()`` вернёт False → понятная ошибка).
+    """
     import tempfile
 
     try:
@@ -256,16 +278,16 @@ def tdata_archive_to_string(archive_bytes: bytes) -> str:
                 raise SessionImportError(
                     "в архиве не найдена папка tdata (нет файла key_datas)"
                 )
-            return _tdata_dir_to_string(tdata_dir)
+            return await _tdata_dir_to_string(tdata_dir)
     except SessionImportError:
         raise
     except Exception as exc:  # noqa: BLE001 — любой сбой парсинга → понятная 422
         raise SessionImportError(f"не удалось разобрать tdata: {exc}") from exc
 
 
-# Обратная совместимость: старое имя оставляем как алиас (ZIP всё ещё работает).
-def tdata_zip_to_string(zip_bytes: bytes) -> str:
-    return tdata_archive_to_string(zip_bytes)
+# Обратная совместимость: старое имя оставляем как асинхронный алиас.
+async def tdata_zip_to_string(zip_bytes: bytes) -> tuple[str, Optional[int]]:
+    return await tdata_archive_to_string(zip_bytes)
 
 
 def import_account_from_session(

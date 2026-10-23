@@ -269,7 +269,13 @@ export function NewAccountFlow() {
             />
           </div>
 
-          <PhoneCard phone={phone} onChange={setPhone} onExistsChange={setPhoneExists} />
+          {/* В методе TData номер телефона необязателен: в самом tdata его нет
+              (храняится auth_key + user_id + DC), бэкенд подставит tg{user_id}
+              как уникальный идентификатор. Пользователю не нужно знать точный
+              номер архива — одной меньше точкой трения на импорте. */}
+          {method !== "tdata" && (
+            <PhoneCard phone={phone} onChange={setPhone} onExistsChange={setPhoneExists} />
+          )}
 
           <ProxyCard
             proxyId={proxyId}
@@ -397,8 +403,6 @@ export function NewAccountFlow() {
         {step === 1 && method === "tdata" && (
           <CapsuleButton
             disabled={
-              !phone.trim() ||
-              phoneExists ||
               (!allowNoProxy && proxyId == null) ||
               !tdataZip ||
               importTData.isPending
@@ -1081,8 +1085,10 @@ function TDataSourceCard({
       </Field>
       <InfoNote>
         Запакуйте папку <b>tdata</b> из Telegram Desktop в ZIP или RAR. Конвертация
-        в сессию происходит офлайн; аккаунт сразу попадёт в пул. TData с локальным
-        паролем (passcode) не поддерживается.
+        в сессию происходит офлайн, 10–30 секунд (для архива в несколько десятков
+        МБ — дольше). Номер телефона вводить не нужно — он будет взят из tdata.
+        Аккаунт сразу попадёт в пул. TData с локальным паролем (passcode) не
+        поддерживается.
       </InfoNote>
     </div>
   );
