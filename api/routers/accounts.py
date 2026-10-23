@@ -332,7 +332,12 @@ async def import_session_account(
     "/import-tdata", response_model=AccountRead, status_code=status.HTTP_201_CREATED
 )
 async def import_tdata_account(
-    phone: str = Form(...),
+    # ВАЖНО: phone теперь опционален. В самом tdata телефон НЕ хранится (только
+    # auth_key + user_id + DC), узнать его можно лишь онлайн через get_me(). Если
+    # пользователь не ввёл номер — ставим псевдо-идентификатор ``tg{user_id}``,
+    # уникальный ключ в accounts обеспечен. Настоящий номер подтянется позже
+    # при первом удачном коннекте аккаунта.
+    phone: Optional[str] = Form(None),
     # proxy_id можно опустить только при ALLOW_NO_PROXY=true (сервис проверит).
     proxy_id: Optional[int] = Form(None),
     persona_id: Optional[int] = Form(None),
@@ -342,16 +347,31 @@ async def import_tdata_account(
     _limit: None = Depends(enforce_limit("accounts_max")),
 ) -> AccountRead:
     """Импорт аккаунта из TData (Telegram Desktop): ZIP/RAR конвертируется офлайн
-    в StringSession, шифруется и сохраняется. Аккаунт сразу попадает в пул."""
+    в StringSession, шифруется и сохраняется. Аккаунт сразу попадает в пул.
+
+    Телефон можно не передавать — он не хранится в tdata; подставим
+    ``tg{user_id}`` как уникальный идентификатор аккаунта в системе.
+    """
     try:
-        string = accounts_service.tdata_archive_to_string(await tdata_zip.read())
+        string, extracted_user_id = await accounts_service.tdata_archive_to_string(
+            await tdata_zip.read()
+        )
     except accounts_service.SessionImportError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    effective_phone = (phone or "").strip()
+    if not effective_phone:
+        if extracted_user_id is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "в tdata не удалось определить user_id — укажите номер телефона вручную",
+            )
+        effective_phone = f"tg{extracted_user_id}"
 
     try:
         account = accounts_service.import_account_from_session(
             session,
-            phone=phone,
+            phone=effective_phone,
             proxy_id=proxy_id,
             persona_id=persona_id,
             warming_profile=warming_profile,
