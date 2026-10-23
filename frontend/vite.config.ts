@@ -7,6 +7,7 @@ import react from "@vitejs/plugin-react";
 const API_PREFIXES = [
   "/accounts",
   "/admin",
+  "/app",
   "/autopilot",
   "/ban-risk",
   "/billing",
