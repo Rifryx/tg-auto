@@ -48,6 +48,16 @@ def create_invoice(
             invoice_id=f"stub-{payload[:12]}",
             pay_url="https://t.me/CryptoTestnetBot",
         )
+    # Без токена в проде реальный вызов обречён: @CryptoBot вернёт 401
+    # UNAUTHORIZED, пользователь увидит невнятный «provider error». Отсекаем
+    # заранее понятным сообщением, которое админ прочитает в UI оплаты.
+    if not settings.cryptobot_api_token:
+        raise CryptoBotError(
+            "CRYPTOBOT_API_TOKEN не задан на сервере — "
+            "крипто-оплата отключена. Задайте токен приложения из @CryptoBot "
+            "(Crypto Pay → Create App → API Token) в переменной окружения "
+            "CRYPTOBOT_API_TOKEN и перезапустите api/worker."
+        )
     body = {
         "asset": settings.cryptobot_asset,
         "amount": amount,

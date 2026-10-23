@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Bitcoin, Star, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { billingApi } from "../../shared/billing";
+import { ApiError } from "../../shared/api";
 import { usePricing } from "../../shared/store";
 import { hapticSelection, openExternal, openInvoice } from "../../shared/tg";
 import { PAYMENT_METHODS, type PaymentMethodId, type Plan } from "../../shared/plans";
@@ -13,7 +14,13 @@ interface PaymentSheetProps {
   onPaid: () => void;
 }
 
-type Phase = "idle" | "awaiting" | "done" | "error";
+/* idle — исходное; awaiting — поллим после открытия оплаты;
+   invoice_failed — createInvoice упал ДО открытия оплаты (напр. крипто-провайдер
+   недоступен); pending_timeout — поллинг истёк, но платёж ещё может прийти;
+   done — подписка активирована. Разделяем invoice_failed и pending_timeout,
+   чтобы не показывать «если вы оплатили — активируется» в случае, когда
+   пользователь ещё даже не видел окна оплаты. */
+type Phase = "idle" | "awaiting" | "done" | "invoice_failed" | "pending_timeout";
 
 const POLL_INTERVAL_MS = 2500;
 const POLL_TIMEOUT_MS = 150_000;
@@ -25,6 +32,7 @@ const POLL_TIMEOUT_MS = 150_000;
 export function PaymentSheet({ plan, onClose, onPaid }: PaymentSheetProps) {
   const [method, setMethod] = useState<PaymentMethodId>("stars");
   const [phase, setPhase] = useState<Phase>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const pricing = usePricing();
   const qc = useQueryClient();
   const pollTimer = useRef<number | null>(null);
@@ -67,7 +75,8 @@ export function PaymentSheet({ plan, onClose, onPaid }: PaymentSheetProps) {
       }
       if (res.status === "expired" || res.status === "failed") {
         stopPolling();
-        setPhase("error");
+        setPhase("pending_timeout");
+        setErrorMessage(null);
         return;
       }
     } catch {
@@ -76,7 +85,8 @@ export function PaymentSheet({ plan, onClose, onPaid }: PaymentSheetProps) {
     if (Date.now() >= deadline.current) {
       stopPolling();
       // Таймаут: платёж мог ещё не подтвердиться (крипто-сеть / бот).
-      setPhase("error");
+      setPhase("pending_timeout");
+      setErrorMessage(null);
       return;
     }
     pollTimer.current = window.setTimeout(() => pollOnce(paymentId), POLL_INTERVAL_MS);
@@ -89,23 +99,40 @@ export function PaymentSheet({ plan, onClose, onPaid }: PaymentSheetProps) {
 
   const pay = async () => {
     setPhase("awaiting");
+    setErrorMessage(null);
+    let invoice: Awaited<ReturnType<typeof billingApi.createInvoice>>;
     try {
-      const invoice = await billingApi.createInvoice(method);
-      if (method === "stars") {
-        openInvoice(invoice.url, (status) => {
-          if (status === "cancelled" || status === "failed") {
-            setPhase("idle");
-            return;
-          }
-          // paid / pending → подтверждение придёт через бота, поллим статус.
-          startPolling(invoice.payment_id);
-        });
-      } else {
-        openExternal(invoice.url);
-        startPolling(invoice.payment_id);
+      invoice = await billingApi.createInvoice(method);
+    } catch (e) {
+      // Инвойс не создался — пользователь ещё НЕ видел окна оплаты, поэтому
+      // «если вы оплатили — активируется» было бы ложью. Пробуем достать точное
+      // сообщение из detail (бэкенд отдаёт 502 с {reason, message} при падении
+      // крипто-провайдера — напр. незаданный CRYPTOBOT_API_TOKEN).
+      let msg = "Не удалось создать счёт. Попробуйте позже или другой способ оплаты.";
+      if (e instanceof ApiError) {
+        const d = e.detail;
+        if (d && typeof d === "object" && "message" in d && typeof (d as { message?: unknown }).message === "string") {
+          msg = (d as { message: string }).message;
+        } else if (typeof d === "string") {
+          msg = d;
+        }
       }
-    } catch {
-      setPhase("error");
+      setErrorMessage(msg);
+      setPhase("invoice_failed");
+      return;
+    }
+    if (method === "stars") {
+      openInvoice(invoice.url, (status) => {
+        if (status === "cancelled" || status === "failed") {
+          setPhase("idle");
+          return;
+        }
+        // paid / pending → подтверждение придёт через бота, поллим статус.
+        startPolling(invoice.payment_id);
+      });
+    } else {
+      openExternal(invoice.url);
+      startPolling(invoice.payment_id);
     }
   };
 
@@ -227,7 +254,13 @@ export function PaymentSheet({ plan, onClose, onPaid }: PaymentSheetProps) {
               автоматически.
             </p>
           )}
-          {phase === "error" && (
+          {phase === "invoice_failed" && (
+            <p className="mt-2 px-1 text-center text-[12px] text-status-critical">
+              {errorMessage ??
+                "Не удалось создать счёт. Попробуйте позже или другой способ оплаты."}
+            </p>
+          )}
+          {phase === "pending_timeout" && (
             <p className="mt-2 px-1 text-center text-[12px] text-status-critical">
               Оплата ещё не подтверждена. Если вы оплатили — подписка активируется
               в течение пары минут.
