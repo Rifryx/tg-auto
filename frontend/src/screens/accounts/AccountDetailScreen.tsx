@@ -193,7 +193,14 @@ export function AccountDetailScreen() {
         onSave={(v) => patchProfile.mutate({ display_name: v })}
       />
 
-      <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-8">
+      {/* 2-колоночная вёрстка на действительно широком экране. Порог lg: (1024px)
+          слишком ранний — на типовых ноутбучных окнах 1280-1366 после сайдбара
+          (~250px) каждой колонке остаётся ~450px, в них ползунки «Микс действий»
+          выглядят обрезанными, кнопки «Закрепить/Открепить» вылезают на две
+          строки, placeholder'ы полей обрезаются. Поднимаем порог до xl: (1280px)
+          и явно задаём минимум 0 обеим колонкам, чтобы содержимое не распирало
+          их шире места. */}
+      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] xl:items-start xl:gap-8">
       <div className="min-w-0">
       {/* Профиль — редактируемый в стиле Telegram (автосохранение onBlur). */}
       <Section
