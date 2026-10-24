@@ -43,7 +43,13 @@ async def parse_post_reactors(
     log = get_logger()
     session_factory = ctx["session_factory"]
     pool = ctx["client_pool"]
-    governor = ctx["governor"]
+    # fail-open fallback: parser_run теперь всегда кладёт governor в ctx, но
+    # на случай обхода dispatch (прямой вызов из других модулей/тестов) собираем
+    # и здесь — Governor(None) безопасен и возвращает True.
+    governor = ctx.get("governor")
+    if governor is None:
+        from worker.health import Governor as _Governor
+        governor = _Governor(ctx.get("redis"))
     now = ctx.get("now") or datetime.now(timezone.utc)
 
     if not await governor.check_and_reserve(collector_account_id, PARSER_ACTION_TYPE):
