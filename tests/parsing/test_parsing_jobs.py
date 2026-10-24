@@ -38,6 +38,11 @@ async def test_job_lifecycle_done(session):
     async def _fake(ctx, **_kw):
         # Прогресс доступен парсеру через ctx.
         assert ctx.get("parsing_progress") is not None
+        # Governor обязательно доступен в ctx: парсеры дёргают ctx["governor"]
+        # напрямую без собственного фолбэка. Регрессия на реальный баг — пустой
+        # ctx без redis падал KeyError('governor') на запуске (видно в UI как
+        # «✖ Ошибка: KeyError('governor')»).
+        assert ctx.get("governor") is not None
         return ParseResult(list_id=99, raw_count=20, inserted=8, filters_breakdown={})
 
     from modules.parsing.worker.dispatch import parser_run
