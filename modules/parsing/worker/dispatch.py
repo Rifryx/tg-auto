@@ -20,6 +20,7 @@ from modules.parsing.parser.filters import FilterOptions
 from modules.parsing.parser.post_reactors import parse_post_reactors
 from modules.parsing.repositories.job import ParsingJobRepository
 from modules.parsing.worker.progress import ParsingProgress, ParsingStopped
+from worker.health import Governor
 
 get_logger = structlog.get_logger
 
@@ -58,6 +59,15 @@ async def parser_run(
     log = get_logger()
     session_factory = ctx.get("session_factory")
     job_id = payload.get("job_id")
+
+    # Governor-гейт здравствует «ленивой» сборкой поверх arq ctx['redis'] — так
+    # же, как в worker/login/flow.py::_governor, worker/tasks/bulk.py и
+    # worker/tasks/warming.py. Парсеры дёргают ctx["governor"] напрямую (без
+    # собственного фолбэка): без этой инъекции первый же парсер падал
+    # KeyError('governor') и работа аккаунта срывалась на старте — как раз то,
+    # что видел пользователь («✖ Ошибка: KeyError('governor')» в логе прогона).
+    if ctx.get("governor") is None:
+        ctx = {**ctx, "governor": Governor(ctx.get("redis"))}
 
     # Готовим прогресс-задачу (если задан job_id и есть session_factory).
     progress: Optional[ParsingProgress] = None
