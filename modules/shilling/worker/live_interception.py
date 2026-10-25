@@ -28,15 +28,16 @@ LLM-контекст: product.description + последние нескольк�
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import redis.asyncio as aioredis
 from sqlalchemy import select
 from telethon import TelegramClient, events
 
 from core.models.account import Account
-from core.repositories.account import AccountRepository
 from modules.shilling.models import ShillingCampaign, ShillingExecutionLog
 from modules.shilling.repositories import (
     CampaignAccountRepository,
@@ -46,6 +47,14 @@ from modules.shilling.repositories import (
 from worker.llm import get_provider
 from worker.llm.base import Message
 from worker.tasks.logging import get_logger
+
+# Отдельный pub/sub-канал для шиллинга — не пересекается с
+# commenting.campaign_lifecycle. API-эндпоинты /campaigns/{id}/start и /stop
+# публикуют сюда {"campaign_id": ..., "action": "attach"|"detach"}, воркер
+# слушает и дёргает registry.attach/detach_campaign — без рестарта.
+SHILLING_LIFECYCLE_CHANNEL = "shilling_campaign_lifecycle"
+ACTION_ATTACH = "attach"
+ACTION_DETACH = "detach"
 
 _STALE_HOURS = 24
 _RATE_WINDOW_SEC = 10 * 60
@@ -385,3 +394,93 @@ async def _generate_reply(
     ):
         text = text[1:-1].strip()
     return text or None
+
+
+class ShillingLifecycleListener:
+    """Фоновая подписка на SHILLING_LIFECYCLE_CHANNEL → attach/detach через
+    LiveInterceptionRegistry. Паттерн один в один как commenting.CampaignLifecycleListener.
+    """
+
+    def __init__(
+        self,
+        registry: LiveInterceptionRegistry,
+        ctx: dict,
+        redis_url: str,
+        channel: str = SHILLING_LIFECYCLE_CHANNEL,
+    ) -> None:
+        self._registry = registry
+        self._ctx = ctx
+        self._redis_url = redis_url
+        self._channel = channel
+        self._redis: Optional[aioredis.Redis] = None
+        self._pubsub: Any = None
+
+    async def run(self) -> None:
+        self._redis = aioredis.from_url(self._redis_url)
+        self._pubsub = self._redis.pubsub()
+        await self._pubsub.subscribe(self._channel)
+        get_logger().info("shilling.lifecycle.subscribed", channel=self._channel)
+        async for message in self._pubsub.listen():
+            if message.get("type") != "message":
+                continue
+            await self._handle(message.get("data"))
+
+    async def _handle(self, data: Any) -> None:
+        if isinstance(data, (bytes, bytearray)):
+            data = data.decode()
+        try:
+            payload = json.loads(data)
+        except (TypeError, ValueError):
+            return
+        campaign_id = payload.get("campaign_id")
+        action = payload.get("action")
+        if campaign_id is None or action not in (ACTION_ATTACH, ACTION_DETACH):
+            return
+        try:
+            if action == ACTION_ATTACH:
+                # Берём свежую запись кампании — enabled/auto_responder могли
+                # измениться к моменту доставки события.
+                session_factory = self._ctx["session_factory"]
+                with session_factory() as session:
+                    camp = CampaignRepository(session).get(int(campaign_id))
+                if camp is not None:
+                    await self._registry.attach(self._ctx, camp)
+            else:
+                await self._registry.detach_campaign(int(campaign_id))
+        except Exception as exc:  # noqa: BLE001 — событие не должно ронять цикл
+            get_logger().warning(
+                "shilling.lifecycle.handle_failed",
+                campaign_id=campaign_id,
+                action=action,
+                error=repr(exc),
+            )
+
+    async def stop(self) -> None:
+        if self._pubsub is not None:
+            try:
+                await asyncio.wait_for(self._pubsub.aclose(), timeout=2.0)
+            except Exception:
+                pass
+            self._pubsub = None
+        if self._redis is not None:
+            try:
+                await asyncio.wait_for(self._redis.aclose(), timeout=2.0)
+            except Exception:
+                pass
+            self._redis = None
+
+
+def publish_shilling_lifecycle(
+    publisher: Any, campaign_id: int, action: str
+) -> None:
+    """Публикует событие lifecycle шиллинга (no-op при publisher=None).
+
+    Единая точка для API-роутов /campaigns/{id}/start и /stop. Payload
+    совпадает с тем, что ждёт ShillingLifecycleListener._handle.
+    """
+    if publisher is None:
+        return
+    publisher.publish(
+        SHILLING_LIFECYCLE_CHANNEL,
+        {"campaign_id": campaign_id, "action": action},
+    )

@@ -67,10 +67,14 @@ async def startup(ctx: dict) -> None:
     ctx["channel_lifecycle_task"] = asyncio.create_task(channel_lifecycle.run())
 
     # Live Interception шиллинга: подключаем слушателей ответов живого юзера
-    # для всех running-кампаний с auto_responder != "off". Lifecycle attach/
-    # detach на лету (при старте/останове кампании) — в следующей итерации.
+    # для всех running-кампаний с auto_responder != "off". Lifecycle через
+    # Redis pub/sub (SHILLING_LIFECYCLE_CHANNEL): API-роуты start/stop
+    # публикуют attach/detach, здесь слушаем и дёргаем реестр без рестарта.
     from modules.shilling.repositories import CampaignRepository as _ShRepo
-    from modules.shilling.worker.live_interception import LiveInterceptionRegistry
+    from modules.shilling.worker.live_interception import (
+        LiveInterceptionRegistry,
+        ShillingLifecycleListener,
+    )
 
     shilling_live = LiveInterceptionRegistry()
     ctx["shilling_live_interception"] = shilling_live
@@ -90,6 +94,10 @@ async def startup(ctx: dict) -> None:
                 error=repr(_exc),
             )
 
+    shilling_lifecycle = ShillingLifecycleListener(shilling_live, ctx, settings.redis_url)
+    ctx["shilling_live_lifecycle"] = shilling_lifecycle
+    ctx["shilling_live_lifecycle_task"] = asyncio.create_task(shilling_lifecycle.run())
+
     get_logger().info(
         "worker.startup",
         functions=[f.name for f in TASK_FUNCTIONS],
@@ -102,7 +110,11 @@ async def startup(ctx: dict) -> None:
 
 
 async def shutdown(ctx: dict) -> None:
-    for task_key in ("campaign_lifecycle_task", "channel_lifecycle_task"):
+    for task_key in (
+        "campaign_lifecycle_task",
+        "channel_lifecycle_task",
+        "shilling_live_lifecycle_task",
+    ):
         task = ctx.get(task_key)
         if task is not None:
             task.cancel()
@@ -110,7 +122,11 @@ async def shutdown(ctx: dict) -> None:
                 await asyncio.wait_for(task, timeout=2.0)
             except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
                 pass
-    for lc_key in ("campaign_lifecycle", "channel_lifecycle"):
+    for lc_key in (
+        "campaign_lifecycle",
+        "channel_lifecycle",
+        "shilling_live_lifecycle",
+    ):
         lifecycle = ctx.get(lc_key)
         if lifecycle is not None:
             await lifecycle.stop()

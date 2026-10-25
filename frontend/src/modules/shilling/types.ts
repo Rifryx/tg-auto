@@ -35,6 +35,7 @@ export interface Campaign {
   reserve_enabled: boolean;
   inter_account_reactions_enabled: boolean;
   captcha_solver_enabled: boolean;
+  slow_mode_wait_max_sec: number;
   msg_limit_per_hour: number | null;
   msg_limit_total: number | null;
   enabled: boolean;
@@ -63,6 +64,7 @@ export interface CampaignCreateBody {
   reserve_enabled?: boolean;
   inter_account_reactions_enabled?: boolean;
   captcha_solver_enabled?: boolean;
+  slow_mode_wait_max_sec?: number;
   msg_limit_per_hour?: number | null;
   msg_limit_total?: number | null;
   enabled?: boolean;

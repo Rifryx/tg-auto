@@ -26,7 +26,7 @@ from modules.shilling.repositories import (
     ScenarioRepository,
     ScenarioStepRepository,
 )
-from modules.shilling.schemas import BlacklistCreate
+from modules.shilling.schemas import BlacklistCreate, ExecutionLogCreate
 from worker.client_pool import ClientPool
 
 get_logger = structlog.get_logger
@@ -371,6 +371,21 @@ async def failover(
         chosen.is_reserve = False
         chosen.role_id = role_id
         link_repo.detach(campaign_id, failed_account_id)
+        # Логируем сам факт замены: UI в истории покажет replaced-строку,
+        # чтобы по статистике кампании было видно, где и почему был failover.
+        ExecutionLogRepository(session).create(
+            ExecutionLogCreate(
+                campaign_id=campaign_id,
+                target_id=target_id,
+                account_id=failed_account_id,
+                role_id=role_id,
+                step_id=step_id,
+                message_text=None,
+                posted_message_id=None,
+                status="replaced",
+                error=f"replaced_by:{chosen.account_id}",
+            )
+        )
         session.commit()
         new_account_id = chosen.account_id
 

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { haptic } from "../../shared/tg";
 import { timeAgo } from "../../shared/format";
-import { shillingApi } from "./api";
+import { productsApi, shillingApi } from "./api";
 import { AccountsTab } from "./components/AccountsTab";
 import { BlacklistTab } from "./components/BlacklistTab";
 import { DryRunSimulator } from "./components/DryRunSimulator";
@@ -188,6 +188,8 @@ function OverviewTab({ campaignId }: { campaignId: number }) {
         <Metric label="Успех" value={`${s?.success_rate_percent ?? 0}%`} />
       </div>
 
+      <SettingsSection campaignId={campaignId} />
+
       <div className="card p-4">
         <p className="mb-3 text-[14px] font-medium text-text-primary">Последние отправки</p>
         {logs.data && logs.data.length > 0 ? (
@@ -207,6 +209,157 @@ function OverviewTab({ campaignId }: { campaignId: number }) {
         )}
       </div>
     </div>
+  );
+}
+
+/** Настройки кампании — живые тогглы с автосохранением через PATCH.
+    На каждый флип делаем optimistic update и сразу PATCH; при ошибке
+    react-query откатит значение из последнего успешного ответа. */
+function SettingsSection({ campaignId }: { campaignId: number }) {
+  const qc = useQueryClient();
+  const c = useQuery({
+    queryKey: ["shilling", "campaign", campaignId],
+    queryFn: () => shillingApi.get(campaignId),
+  });
+  const products = useQuery({
+    queryKey: ["shilling", "products"],
+    queryFn: productsApi.list,
+  });
+
+  const patch = useMutation({
+    mutationFn: (body: Parameters<typeof shillingApi.update>[1]) =>
+      shillingApi.update(campaignId, body),
+    onSuccess: (updated) => {
+      qc.setQueryData(["shilling", "campaign", campaignId], updated);
+    },
+  });
+
+  if (!c.data) return null;
+  const camp = c.data;
+
+  return (
+    <div className="card flex flex-col gap-3 p-4">
+      <p className="text-[14px] font-medium text-text-primary">Настройки</p>
+
+      <SettingRow
+        label="Привязанный продукт"
+        hint="Описание продукта попадёт в контекст LLM при генерации реплик."
+      >
+        <select
+          value={camp.product_id ?? ""}
+          onChange={(e) =>
+            patch.mutate({
+              product_id: e.target.value ? Number(e.target.value) : null,
+            })
+          }
+          className="h-9 min-w-[200px] rounded-chip border border-hairline bg-surface-1 px-3 text-[13px] text-text-primary"
+        >
+          <option value="">— не выбран —</option>
+          {(products.data ?? []).map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </SettingRow>
+
+      <SettingToggle
+        label="Реакции между аккаунтами"
+        hint="Боты ставят эмодзи-реакции на реплики друг друга — для большей естественности."
+        checked={camp.inter_account_reactions_enabled}
+        disabled={patch.isPending}
+        onChange={(v) => patch.mutate({ inter_account_reactions_enabled: v })}
+      />
+
+      <SettingToggle
+        label="Live Interception"
+        hint="Если живой пользователь ответит реплаем на реплику бота — бот подхватит диалог и ответит."
+        checked={camp.auto_responder !== "off"}
+        disabled={patch.isPending}
+        onChange={(v) =>
+          patch.mutate({ auto_responder: v ? "reply_in_chat" : "off" })
+        }
+      />
+
+      <SettingToggle
+        label="Резервные аккаунты"
+        hint="При peer_flood/спам-блоке активного аккаунта реплика переходит к резервному."
+        checked={camp.reserve_enabled}
+        disabled={patch.isPending}
+        onChange={(v) => patch.mutate({ reserve_enabled: v })}
+      />
+
+      <SettingToggle
+        label="Авто-прохождение капчи"
+        hint="При вступлении в закрытый чат пытаемся решить капчу (button/math; image — через внешний провайдер)."
+        checked={camp.captcha_solver_enabled}
+        disabled={patch.isPending}
+        onChange={(v) => patch.mutate({ captcha_solver_enabled: v })}
+      />
+    </div>
+  );
+}
+
+function SettingRow({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] text-text-primary">{label}</p>
+        {hint && (
+          <p className="mt-0.5 text-[11px] leading-relaxed text-text-tertiary">
+            {hint}
+          </p>
+        )}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+}
+
+function SettingToggle({
+  label,
+  hint,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <SettingRow label={label} hint={hint}>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={[
+          "relative inline-flex h-[28px] w-[46px] shrink-0 items-center rounded-full border transition-colors disabled:opacity-50",
+          checked
+            ? "border-transparent bg-status-active"
+            : "border-hairline bg-surface-2",
+        ].join(" ")}
+      >
+        <span
+          className={[
+            "inline-block h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-transform duration-150",
+            checked ? "translate-x-[21px]" : "translate-x-[2px]",
+          ].join(" ")}
+        />
+      </button>
+    </SettingRow>
   );
 }
 

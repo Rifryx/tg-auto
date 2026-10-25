@@ -139,6 +139,13 @@ class ShillingCampaign(Base, TimestampMixin):
     captcha_solver_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Максимум секунд ожидания в чате со slow-mode. Если Telegram требует
+    # подождать больше — шаг пропускается (в чате реально много народу,
+    # ждать 20 минут бессмысленно). Default 300 (5 минут) — приближённо к
+    # UI конкурента: «повільний режим: чекати до 5 хв».
+    slow_mode_wait_max_sec: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=300, server_default="300"
+    )
 
     # ── Лимиты на аккаунт ───────────────────────────────────────────────
     msg_limit_per_hour: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

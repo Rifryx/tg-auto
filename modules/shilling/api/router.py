@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from api.deps.auth import require_user
 from api.deps.db import get_session
 from api.deps.limits import enforce_limit
-from api.deps.queue import get_task_queue
+from api.deps.queue import get_publisher, get_task_queue
 from core.billing.plans import FeatureKey
 from core.queue import TaskQueue
 from core.queue.task_names import TaskName
@@ -735,6 +735,7 @@ async def start_campaign(
     campaign_id: int,
     session: Session = Depends(get_session),
     task_queue: TaskQueue = Depends(get_task_queue),
+    publisher = Depends(get_publisher),
 ) -> CampaignRead:
     """Валидирует готовность, переводит в running и ставит задачу оркестратора."""
     try:
@@ -748,6 +749,13 @@ async def start_campaign(
     session.commit()
     # Задача публикуется ПОСЛЕ commit'а: смена статуса уже зафиксирована.
     await task_queue.enqueue(TaskName.SHILLING_START_CAMPAIGN, campaign_id)
+    # Live Interception: тянет свежую запись и привязывает listener'ы
+    # (если auto_responder != "off"). no-op при publisher=None (DEV без Redis).
+    from modules.shilling.worker.live_interception import (
+        ACTION_ATTACH,
+        publish_shilling_lifecycle,
+    )
+    publish_shilling_lifecycle(publisher, campaign_id, ACTION_ATTACH)
     campaign = CampaignRepository(session).get(campaign_id)
     return CampaignRead.model_validate(campaign)
 
@@ -756,6 +764,7 @@ async def start_campaign(
 def stop_campaign(
     campaign_id: int,
     session: Session = Depends(get_session),
+    publisher = Depends(get_publisher),
 ) -> CampaignRead:
     """Переводит кампанию в paused. Задачи-в-полёте сами проверяют статус."""
     try:
@@ -763,6 +772,12 @@ def stop_campaign(
     except service.ShillingNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     session.commit()
+    # Live Interception: отключаем всех listener'ов этой кампании.
+    from modules.shilling.worker.live_interception import (
+        ACTION_DETACH,
+        publish_shilling_lifecycle,
+    )
+    publish_shilling_lifecycle(publisher, campaign_id, ACTION_DETACH)
     campaign = CampaignRepository(session).get(campaign_id)
     return CampaignRead.model_validate(campaign)
 

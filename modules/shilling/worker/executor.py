@@ -21,6 +21,7 @@ from core.queue import TaskQueue
 from core.queue.task_names import TaskName
 from core.repositories.account import AccountRepository
 from modules.shilling.repositories import (
+    CampaignAccountRepository,
     CampaignRepository,
     CampaignTargetRepository,
     ExecutionLogRepository,
@@ -71,13 +72,30 @@ def _is_ban_like(exc: Exception) -> bool:
 
     Импорт telethon ленивый: класс распознаём по имени, чтобы модуль
     оставался импортируемым без установленного telethon (тесты).
+
+    Также тригерит failover долгий FloodWaitError (>_FLOOD_WAIT_FAILOVER_SEC):
+    ждать 10 минут и дольше бессмысленно — цель в этом окне уже «отработана»
+    другим аккаунтом, а наш может схватить ещё больший бан. Короткие
+    FloodWait (<5 мин) остаются обычным retry через arq.
     """
-    return type(exc).__name__ in {
+    name = type(exc).__name__
+    if name in {
         "PeerFloodError",
         "UserBannedInChannelError",
         "ChatWriteForbiddenError",
         "UserIsBlockedError",
-    }
+    }:
+        return True
+    if name == "FloodWaitError":
+        seconds = getattr(exc, "seconds", 0) or 0
+        try:
+            return int(seconds) >= _FLOOD_WAIT_FAILOVER_SEC
+        except (TypeError, ValueError):
+            return False
+    return False
+
+
+_FLOOD_WAIT_FAILOVER_SEC = 300  # ≥5 минут — передаём резервному
 
 
 # --- задача execute_step -----------------------------------------------------
@@ -190,6 +208,41 @@ async def execute_step(
             sent_id = posted_message_id
     except Exception as exc:
         await pool.release(account_id)
+        # Slow-mode: Telegram говорит «подожди N сек между сообщениями». Если
+        # N в пределах разрешённого окна кампании — reschedule, иначе пропуск.
+        # Делаем ДО _log_result, чтобы правильный статус пошёл в лог.
+        if type(exc).__name__ == "SlowModeWaitError":
+            wait = int(getattr(exc, "seconds", 0) or 0)
+            if 0 < wait <= int(getattr(campaign, "slow_mode_wait_max_sec", 300)):
+                run_at = now + timedelta(seconds=wait + 2)
+                await task_queue.schedule(
+                    TaskName.SHILLING_EXECUTE_STEP,
+                    run_at,
+                    campaign_id, target_id, step_id, account_id,
+                    thread_msg_id=thread_msg_id,
+                )
+                _log_result(
+                    session_factory, campaign_id, target_id, account_id, role_id, step_id,
+                    message_text=None, posted_message_id=None,
+                    status="skipped", error=f"slow_mode_wait:{wait}s",
+                )
+                log.info(
+                    "shilling.execute_step.slow_mode_rescheduled",
+                    account_id=account_id, wait_sec=wait,
+                )
+                return None
+            # Ждать больше чем разрешено — не ждём, помечаем провалом и уходим.
+            _log_result(
+                session_factory, campaign_id, target_id, account_id, role_id, step_id,
+                message_text=None, posted_message_id=None,
+                status="skipped", error=f"slow_mode_too_long:{wait}s",
+            )
+            log.info(
+                "shilling.execute_step.slow_mode_too_long",
+                account_id=account_id, wait_sec=wait,
+            )
+            return None
+
         _log_result(
             session_factory, campaign_id, target_id, account_id, role_id, step_id,
             message_text=text if step_type == "message" else None,
@@ -220,7 +273,93 @@ async def execute_step(
         "shilling.execute_step.sent",
         account_id=account_id, step_id=step_id, posted_message_id=posted_message_id,
     )
+
+    # Авто-реакция между аккаунтами на только что отправленное сообщение.
+    # Отрабатывает только при inter_account_reactions_enabled и
+    # step_type == "message" (на реакции реакции ставить бессмысленно).
+    # С вероятностью _AUTO_REACTION_P выбираем ДРУГОГО бота кампании и ставим
+    # ему эмодзи-реакцию. Промахи логируются и не влияют на основной поток.
+    if (
+        step_type == "message"
+        and posted_message_id is not None
+        and getattr(campaign, "inter_account_reactions_enabled", False)
+    ):
+        try:
+            await _maybe_auto_react(
+                ctx=ctx,
+                campaign_id=campaign_id,
+                chat_id=chat_id,
+                skip_account_id=account_id,
+                posted_message_id=posted_message_id,
+                now=now,
+            )
+        except Exception as exc:  # noqa: BLE001 — вспомогательное действие
+            log.warning(
+                "shilling.auto_reaction.failed",
+                campaign_id=campaign_id, error=repr(exc),
+            )
+
     return sent_id
+
+
+# Белый список эмодзи для авто-реакций: универсальные, доступны в большинстве
+# чатов (включая обычные, без премиум-реакций). Явно безопасный короткий набор.
+_AUTO_REACTION_EMOJIS = ("👍", "❤️", "🔥", "😁", "👏", "🤔")
+# Вероятность вставки авто-реакции после каждого message-шага. Подбиралось
+# на глаз: 35% достаточно часто, чтобы было заметно, и достаточно редко,
+# чтобы не превратить тред в стену эмодзи.
+_AUTO_REACTION_P = 0.35
+
+
+async def _maybe_auto_react(
+    *,
+    ctx,
+    campaign_id: int,
+    chat_id: int,
+    skip_account_id: int,
+    posted_message_id: int,
+    now,
+) -> None:
+    """С вероятностью ``_AUTO_REACTION_P`` ставит реакцию от любого другого
+    бота кампании (не skip_account_id). Делает один раунд, никаких ретраев."""
+    import random as _rnd
+
+    if _rnd.random() > _AUTO_REACTION_P:
+        return
+    session_factory = ctx["session_factory"]
+    with session_factory() as session:
+        links = CampaignAccountRepository(session).list_by_campaign(campaign_id)
+        candidates = [
+            link.account_id
+            for link in links
+            if link.account_id != skip_account_id and not link.is_reserve
+        ]
+    if not candidates:
+        return
+    reactor_id = _rnd.choice(candidates)
+    emoji = _rnd.choice(_AUTO_REACTION_EMOJIS)
+
+    # Governor-gate (под отдельным "shilling_reaction" ключом не делаем —
+    # используем общий, т.к. это тот же тип активности в клиенте). Если
+    # исчерпан — просто не реагируем, без retry.
+    if not await _governor(ctx).check_and_reserve(reactor_id, "shilling"):
+        return
+
+    pool = _pool(ctx)
+    client = await pool.get(reactor_id)
+    try:
+        await _send_reaction(
+            client, chat_id, posted_message_id, emoji,
+            account_id=reactor_id, session_factory=session_factory,
+            publisher=ctx.get("publisher"), now=now,
+        )
+    finally:
+        await pool.release(reactor_id)
+    get_logger().info(
+        "shilling.auto_reaction.sent",
+        campaign_id=campaign_id, reactor_id=reactor_id, emoji=emoji,
+        posted_message_id=posted_message_id,
+    )
 
 
 async def _send_reaction(
