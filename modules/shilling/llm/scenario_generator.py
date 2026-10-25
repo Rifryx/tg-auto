@@ -30,6 +30,8 @@ class GeneratedStep:
     role: str  # имя роли (matchится к GeneratedRole.name)
     text: str
     reply_to_step: Optional[int] = None  # 1-based индекс шага, на который отвечает
+    step_type: str = "message"  # "message" | "reaction"
+    reaction_emoji: Optional[str] = None  # только для step_type="reaction"
 
 
 @dataclass
@@ -69,16 +71,24 @@ SYSTEM_PROMPT = """
 - Стиль: живой разговор, неформальный; каждый участник говорит своим стилем.
 - Первый шаг — вопрос/проблема от инициатора; далее ответы с органичным
   упоминанием бренда.
+- Если дано описание продукта — опирайся на его фичи и УТП в ответах,
+  но подавай их как личный опыт («недавно пользовался — там Х»), а не
+  маркетинговым языком.
+- Если включены реакции между участниками — где-то в середине диалога
+  вставь шаг с type="reaction" и подходящим эмодзи (👍/🔥/❤️/😁) от участника,
+  который НЕ отвечает в этот момент, на предыдущую ключевую реплику.
 
 Верни СТРОГО JSON без пояснений в формате:
 {
   "roles": [{"name": "Инициатор", "character": "спрашивает вежливо"}, ...],
   "steps": [
-    {"role": "Инициатор", "text": "...", "reply_to_step": null},
-    {"role": "Ответчик", "text": "...", "reply_to_step": 1}
+    {"type": "message", "role": "Инициатор", "text": "...", "reply_to_step": null},
+    {"type": "message", "role": "Ответчик", "text": "...", "reply_to_step": 1},
+    {"type": "reaction", "role": "Инициатор", "emoji": "👍", "reply_to_step": 2}
   ]
 }
-reply_to_step — 1-based номер ПРЕДЫДУЩЕГО шага или null.
+type по умолчанию "message" (можно опускать). reply_to_step — 1-based номер
+ПРЕДЫДУЩЕГО шага или null. Для reaction поле emoji обязательно, text игнорируется.
 """.strip()
 
 _JSON_BLOCK = re.compile(r"\{[\s\S]*\}")
@@ -106,6 +116,11 @@ class ScenarioGenerator:
         persons_count: int = 2,
         steps_count: Optional[int] = None,
         roles: Optional[list[GeneratedRole]] = None,
+        product_description: Optional[str] = None,
+        product_usp: Optional[str] = None,
+        product_website: Optional[str] = None,
+        enable_reactions: bool = False,
+        language: str = "ru",
     ) -> GeneratedScenario:
         if persons_count < 2:
             raise ScenarioGenerationError("persons_count must be >= 2")
@@ -115,7 +130,17 @@ class ScenarioGenerator:
         for attempt in range(_MAX_ATTEMPTS):
             enforce_brand = attempt > 0  # на ретрае явно требуем бренд
             user_prompt = _build_user_prompt(
-                topic, brand_name, persons_count, target_steps, roles, enforce_brand
+                topic=topic,
+                brand_name=brand_name,
+                persons_count=persons_count,
+                steps_count=target_steps,
+                roles=roles,
+                enforce_brand=enforce_brand,
+                product_description=product_description,
+                product_usp=product_usp,
+                product_website=product_website,
+                enable_reactions=enable_reactions,
+                language=language,
             )
             try:
                 raw = await self._provider.generate(
@@ -155,19 +180,40 @@ class ScenarioGenerator:
 
 
 def _build_user_prompt(
+    *,
     topic: str,
     brand_name: str,
     persons_count: int,
     steps_count: int,
     roles: Optional[list[GeneratedRole]],
     enforce_brand: bool,
+    product_description: Optional[str] = None,
+    product_usp: Optional[str] = None,
+    product_website: Optional[str] = None,
+    enable_reactions: bool = False,
+    language: str = "ru",
 ) -> str:
+    lang_label = {"ru": "русском", "ua": "украинском", "en": "английском"}.get(
+        language, language
+    )
     lines = [
+        f"Язык диалога: {lang_label}.",
         f"Тема обсуждения: {topic}",
         f"Бренд для упоминания: {brand_name}",
         f"Количество участников: {persons_count}",
         f"Примерное количество реплик: {steps_count}",
     ]
+    if product_usp:
+        lines.append(f"УТП продукта (одной строкой): {product_usp}")
+    if product_description:
+        lines.append("Описание продукта (используй как контекст):")
+        lines.append(product_description.strip())
+    if product_website:
+        # Явно просим не вставлять URL в текст — он в контексте только для
+        # понимания, что продукт существует (ссылки в диалоге палят рекламу).
+        lines.append(
+            f"У продукта есть сайт {product_website} — НЕ упоминай URL в репликах."
+        )
     if roles:
         role_desc = "; ".join(
             f"{r.name} ({r.character})" if r.character else r.name for r in roles
@@ -176,6 +222,11 @@ def _build_user_prompt(
         lines.append("Поле roles в ответе продублируй этими же ролями.")
     else:
         lines.append("Роли придумай сам (по числу участников).")
+    if enable_reactions:
+        lines.append(
+            "ВКЛЮЧИ 1-2 шага type=\"reaction\" между сообщениями — чтобы "
+            "участники не только отвечали, но и ставили реакции друг другу."
+        )
     if enforce_brand:
         lines.append(
             f"ВАЖНО: бренд «{brand_name}» ОБЯЗАН дословно фигурировать хотя бы "
@@ -220,15 +271,24 @@ def _parse_and_validate(
 
     role_names = {r.name for r in roles}
 
-    # Шаги.
+    # Шаги. type по умолчанию "message"; "reaction" даёт шаг-реакцию (emoji,
+    # text пустой). Reaction-шаги в проверке на упоминание бренда не участвуют.
     raw_steps = data.get("steps", []) or []
     steps: list[GeneratedStep] = []
     for idx, s in enumerate(raw_steps, start=1):
         if not isinstance(s, dict):
             continue
         role = str(s.get("role", "")).strip()
-        text = str(s.get("text", "")).strip()
-        if not role or not text:
+        step_type = str(s.get("type", "message") or "message").strip().lower()
+        if step_type not in ("message", "reaction"):
+            step_type = "message"
+        text = str(s.get("text", "") or "").strip()
+        emoji = str(s.get("emoji", "") or "").strip() or None
+        if not role:
+            continue
+        if step_type == "message" and not text:
+            continue
+        if step_type == "reaction" and not emoji:
             continue
         if role not in role_names:
             raise ScenarioGenerationError(
@@ -243,13 +303,24 @@ def _parse_and_validate(
             # reply_to должен указывать на предыдущий существующий шаг.
             if reply_to is not None and not (1 <= reply_to < idx):
                 reply_to = None
-        steps.append(GeneratedStep(role=role, text=text, reply_to_step=reply_to))
+        steps.append(
+            GeneratedStep(
+                role=role,
+                text=text,
+                reply_to_step=reply_to,
+                step_type=step_type,
+                reaction_emoji=emoji if step_type == "reaction" else None,
+            )
+        )
 
     if not steps:
         raise ScenarioGenerationError("no valid steps in scenario")
 
-    # Бренд должен встречаться хотя бы в одном шаге.
-    if brand_name and not any(brand_name.lower() in st.text.lower() for st in steps):
+    # Бренд должен встречаться хотя бы в одном сообщении (не в реакции).
+    msg_steps = [s for s in steps if s.step_type == "message"]
+    if brand_name and not any(
+        brand_name.lower() in st.text.lower() for st in msg_steps
+    ):
         raise ScenarioGenerationError("brand not mentioned in any step")
 
     return GeneratedScenario(roles=roles, steps=steps, raw=raw)

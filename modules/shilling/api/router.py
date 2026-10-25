@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from api.deps.auth import require_user
 from api.deps.db import get_session
 from api.deps.limits import enforce_limit
-from api.deps.queue import get_task_queue
+from api.deps.queue import get_publisher, get_task_queue
 from core.billing.plans import FeatureKey
 from core.queue import TaskQueue
 from core.queue.task_names import TaskName
@@ -205,8 +205,14 @@ async def generate_scenario(
     campaign_id: int,
     body: ScenarioGenerateRequest,
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ) -> GeneratedScenarioRead:
-    """ИИ-генерация черновика сценария. НЕ сохраняет — фронт применяет через PUT."""
+    """ИИ-генерация черновика сценария. НЕ сохраняет — фронт применяет через PUT.
+
+    Контекст продукта (description/usp/website) подхватывается, если задан
+    product_id в body или на кампании — тогда LLM получает описание и опирается
+    на фичи, вместо голого brand_name. Это даёт заметно более точные реплики.
+    """
     from modules.shilling.llm import (
         GeneratedRole,
         ScenarioGenerationError,
@@ -218,17 +224,35 @@ async def generate_scenario(
     if campaign is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
 
-    brand = body.brand_name or campaign.brand_name
+    # Продукт для контекста: явный body.product_id → с кампании → ничего.
+    product = None
+    product_id = body.product_id or campaign.product_id
+    if product_id is not None:
+        product = ProductRepository(session).get_owned(product_id, user_id)
+        if product is None:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                f"продукт {product_id} не найден (или не принадлежит пользователю)",
+            )
+
+    brand = body.brand_name or campaign.brand_name or (product.name if product else None)
     if not brand:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "brand_name is required (pass it or set it on the campaign)",
+            "brand_name is required (pass it, set it on the campaign, or привяжите продукт)",
         )
 
     forced_roles = (
         [GeneratedRole(name=r.name, character=r.character) for r in body.roles]
         if body.roles
         else None
+    )
+    # Реакции в сценарии: явный body.enable_reactions ИЛИ флаг на кампании.
+    # Логическое ИЛИ — чтобы разовую генерацию с реакциями можно было сделать
+    # и без включения флага на кампании, но включённый флаг — делал реакции
+    # по умолчанию при любой генерации.
+    enable_reactions = bool(body.enable_reactions) or bool(
+        campaign.inter_account_reactions_enabled
     )
     try:
         generator = ScenarioGenerator(get_provider(campaign.llm_provider))
@@ -238,6 +262,11 @@ async def generate_scenario(
             persons_count=body.persons_count,
             steps_count=body.steps_count,
             roles=forced_roles,
+            product_description=(product.description if product else None),
+            product_usp=(product.usp if product else None),
+            product_website=(product.website if product else None),
+            enable_reactions=enable_reactions,
+            language=body.language,
         )
     except ScenarioGenerationError as exc:
         # 502: внешний LLM не дал пригодного результата (не вина клиента).
@@ -251,7 +280,13 @@ async def generate_scenario(
     return GeneratedScenarioRead(
         roles=[{"name": r.name, "character": r.character} for r in draft.roles],
         steps=[
-            {"role": s.role, "text": s.text, "reply_to_step": s.reply_to_step}
+            {
+                "role": s.role,
+                "text": s.text,
+                "reply_to_step": s.reply_to_step,
+                "step_type": s.step_type,
+                "reaction_emoji": s.reaction_emoji,
+            }
             for s in draft.steps
         ],
     )
@@ -700,6 +735,7 @@ async def start_campaign(
     campaign_id: int,
     session: Session = Depends(get_session),
     task_queue: TaskQueue = Depends(get_task_queue),
+    publisher = Depends(get_publisher),
 ) -> CampaignRead:
     """Валидирует готовность, переводит в running и ставит задачу оркестратора."""
     try:
@@ -713,6 +749,13 @@ async def start_campaign(
     session.commit()
     # Задача публикуется ПОСЛЕ commit'а: смена статуса уже зафиксирована.
     await task_queue.enqueue(TaskName.SHILLING_START_CAMPAIGN, campaign_id)
+    # Live Interception: тянет свежую запись и привязывает listener'ы
+    # (если auto_responder != "off"). no-op при publisher=None (DEV без Redis).
+    from modules.shilling.worker.live_interception import (
+        ACTION_ATTACH,
+        publish_shilling_lifecycle,
+    )
+    publish_shilling_lifecycle(publisher, campaign_id, ACTION_ATTACH)
     campaign = CampaignRepository(session).get(campaign_id)
     return CampaignRead.model_validate(campaign)
 
@@ -721,6 +764,7 @@ async def start_campaign(
 def stop_campaign(
     campaign_id: int,
     session: Session = Depends(get_session),
+    publisher = Depends(get_publisher),
 ) -> CampaignRead:
     """Переводит кампанию в paused. Задачи-в-полёте сами проверяют статус."""
     try:
@@ -728,6 +772,12 @@ def stop_campaign(
     except service.ShillingNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     session.commit()
+    # Live Interception: отключаем всех listener'ов этой кампании.
+    from modules.shilling.worker.live_interception import (
+        ACTION_DETACH,
+        publish_shilling_lifecycle,
+    )
+    publish_shilling_lifecycle(publisher, campaign_id, ACTION_DETACH)
     campaign = CampaignRepository(session).get(campaign_id)
     return CampaignRead.model_validate(campaign)
 

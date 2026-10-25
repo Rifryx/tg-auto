@@ -66,6 +66,48 @@ async def startup(ctx: dict) -> None:
     ctx["channel_lifecycle"] = channel_lifecycle
     ctx["channel_lifecycle_task"] = asyncio.create_task(channel_lifecycle.run())
 
+    # Live Interception шиллинга: подключаем слушателей ответов живого юзера
+    # для всех running-кампаний с auto_responder != "off". Lifecycle через
+    # Redis pub/sub (SHILLING_LIFECYCLE_CHANNEL): API-роуты start/stop
+    # публикуют attach/detach, здесь слушаем и дёргаем реестр без рестарта.
+    from modules.shilling.repositories import CampaignRepository as _ShRepo
+    from modules.shilling.worker.live_interception import (
+        LiveInterceptionRegistry,
+        ShillingLifecycleListener,
+    )
+
+    shilling_live = LiveInterceptionRegistry()
+    ctx["shilling_live_interception"] = shilling_live
+    # Если shilling-схема ещё не накатана (ранний dev / integration-тесты без
+    # миграций модуля), просто пропускаем startup-attach: воркер поднимется,
+    # LiveInterceptionRegistry останется пустым, listener lifecycle подхватит
+    # кампании позже, когда схема появится.
+    _running: list = []
+    try:
+        with ctx["session_factory"]() as _session:
+            _running = [
+                c
+                for c in _ShRepo(_session).list_all()
+                if c.enabled and c.status == "running" and c.auto_responder != "off"
+            ]
+    except Exception as _exc:  # noqa: BLE001 — schema not ready / DB down
+        get_logger().info(
+            "shilling.live.startup_scan_skipped", error=repr(_exc)
+        )
+    for _c in _running:
+        try:
+            await shilling_live.attach(ctx, _c)
+        except Exception as _exc:  # noqa: BLE001 — не роняем старт воркера
+            get_logger().warning(
+                "shilling.live.startup_attach_failed",
+                campaign_id=_c.id,
+                error=repr(_exc),
+            )
+
+    shilling_lifecycle = ShillingLifecycleListener(shilling_live, ctx, settings.redis_url)
+    ctx["shilling_live_lifecycle"] = shilling_lifecycle
+    ctx["shilling_live_lifecycle_task"] = asyncio.create_task(shilling_lifecycle.run())
+
     get_logger().info(
         "worker.startup",
         functions=[f.name for f in TASK_FUNCTIONS],
@@ -73,11 +115,16 @@ async def startup(ctx: dict) -> None:
         registered=registered_names(),
         listeners=registry.active(),
         channel_listeners=channel_registry.active(),
+        shilling_live_handlers=shilling_live.active_handlers(),
     )
 
 
 async def shutdown(ctx: dict) -> None:
-    for task_key in ("campaign_lifecycle_task", "channel_lifecycle_task"):
+    for task_key in (
+        "campaign_lifecycle_task",
+        "channel_lifecycle_task",
+        "shilling_live_lifecycle_task",
+    ):
         task = ctx.get(task_key)
         if task is not None:
             task.cancel()
@@ -85,7 +132,11 @@ async def shutdown(ctx: dict) -> None:
                 await asyncio.wait_for(task, timeout=2.0)
             except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
                 pass
-    for lc_key in ("campaign_lifecycle", "channel_lifecycle"):
+    for lc_key in (
+        "campaign_lifecycle",
+        "channel_lifecycle",
+        "shilling_live_lifecycle",
+    ):
         lifecycle = ctx.get(lc_key)
         if lifecycle is not None:
             await lifecycle.stop()

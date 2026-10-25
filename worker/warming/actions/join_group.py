@@ -21,6 +21,16 @@ async def execute(
 ):
     from telethon.tl.functions.channels import JoinChannelRequest
 
+    from worker.captcha import solve_captcha_in_chat
+
     target = pick_target(rng or random.Random(), persona, "group", DISCOVERY_GROUPS)
     await client(JoinChannelRequest(target))
+    # Многие группы после join требуют пройти капчу от бота-проверки.
+    # Если не пройти — аккаунт тихо кикает через N минут; ответ одной кнопкой/
+    # математикой закрывает ~80% случаев. 60с хватает: капча обычно прилетает
+    # за 1–3 секунды. Любой провал тихий — warming продолжит жить.
+    try:
+        await solve_captcha_in_chat(client, target, timeout_sec=60.0)
+    except Exception:  # noqa: BLE001 — вспомогательное действие
+        pass
     return target
