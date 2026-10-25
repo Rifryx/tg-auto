@@ -61,12 +61,14 @@ async def _run(
     client,
     **_: object,
 ) -> BulkActionResult:
-    # 1) Читаем текущий шифрованный пароль (если есть) и hint.
+    # 1) Читаем текущий шифрованный пароль (если есть) + has_2fa из health.
     with session_factory() as session:
         account = AccountRepository(session).get(account_id)
         if account is None:
             return BulkActionResult(ok=False, skipped=True, detail={"reason": "account_missing"})
         current_enc = account.two_factor_password_enc
+        health = AccountHealthRepository(session).get(account_id)
+        has_2fa_health = bool(getattr(health, "has_2fa", False)) if health else False
 
     # 2) Декодируем новый payload (если задан).
     new_password: Optional[str] = None
@@ -106,9 +108,15 @@ async def _run(
     # 3) Готовим аргументы edit_2fa под режим.
     if payload.mode == "remove":
         if current_password is None:
-            # Нет ни введённого, ни сохранённого — физически не можем снять
-            # (Telegram требует current_password). Возвращаем явную ошибку,
-            # а не skipped: пользователь должен ввести пароль в UI.
+            # Различаем два случая по health.has_2fa:
+            # - реально нет 2FA (health.has_2fa=False/None) → скипаем (нечего
+            #   снимать, идемпотентность), как было до фикса current_password;
+            # - 2FA есть, но пароля ни ввели, ни сохранили → явная ошибка,
+            #   чтобы UI подсказал ввести вручную.
+            if not has_2fa_health:
+                return BulkActionResult(
+                    ok=False, skipped=True, detail={"reason": "no_2fa"}
+                )
             return BulkActionResult(
                 ok=False, detail={"reason": "need_current_password"}
             )
