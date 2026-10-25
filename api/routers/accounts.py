@@ -884,6 +884,10 @@ class Set2FABulkRequest(BaseModel):
     В отличие от общего ``POST /bulk-jobs`` — принимает открытый пароль и
     шифрует его до записи в БД (в ``bulk_jobs.payload`` попадает уже
     ``password_enc_b64``, plaintext дальше API не идёт).
+
+    ``current_password`` — опциональный текущий пароль, если он известен
+    пользователю (нужен, когда сохранённого в БД нет / он устарел). См.
+    комментарий в ``Set2FAPayload.current_password_enc_b64``.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -891,6 +895,7 @@ class Set2FABulkRequest(BaseModel):
     account_ids: list[int]
     mode: str = "set_or_change"  # см. Set2FAPayload
     password: Optional[str] = None
+    current_password: Optional[str] = None
     hint: Optional[str] = None
     email: Optional[str] = None
 
@@ -928,12 +933,15 @@ async def bulk_set_2fa(
         )
 
     # Шифруем ДО записи в БД. Plaintext исчезает вместе с request scope'ом.
+    import base64
+
     payload: dict[str, Any] = {"mode": body.mode}
     if body.password:
-        import base64
-
         enc = encrypt_password(body.password.encode("utf-8"))
         payload["password_enc_b64"] = base64.b64encode(enc).decode("ascii")
+    if body.current_password:
+        enc_cur = encrypt_password(body.current_password.encode("utf-8"))
+        payload["current_password_enc_b64"] = base64.b64encode(enc_cur).decode("ascii")
     if body.hint is not None:
         payload["hint"] = body.hint
     if body.email is not None:
