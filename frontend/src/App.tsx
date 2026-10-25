@@ -22,6 +22,7 @@ import { NewCampaignScreen } from "./modules/commenting/NewCampaignScreen";
 import { ShillingListScreen } from "./modules/shilling/ShillingListScreen";
 import { NewShillingWizard } from "./modules/shilling/NewShillingWizard";
 import { ShillingDetailScreen } from "./modules/shilling/ShillingDetailScreen";
+import { ShillingProductsScreen } from "./modules/shilling/ProductsScreen";
 import { PrimingListScreen } from "./modules/priming/PrimingListScreen";
 import { NewPrimingScreen } from "./modules/priming/NewPrimingScreen";
 import { PrimingDetailScreen } from "./modules/priming/PrimingDetailScreen";
@@ -51,6 +52,7 @@ export function App() {
         <Route path="/modules/commenting/campaigns/new" element={<NewCampaignScreen />} />
         <Route path="/modules/commenting/campaigns/:id" element={<CampaignDetailScreen />} />
         <Route path="/modules/shilling" element={<ShillingListScreen />} />
+        <Route path="/modules/shilling/products" element={<ShillingProductsScreen />} />
         <Route path="/modules/shilling/campaigns/new" element={<NewShillingWizard />} />
         <Route path="/modules/shilling/campaigns/:id" element={<ShillingDetailScreen />} />
         <Route path="/modules/priming" element={<PrimingListScreen />} />

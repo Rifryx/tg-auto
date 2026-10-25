@@ -30,6 +30,7 @@ from modules.shilling.repositories import (
     CampaignRepository,
     CampaignTargetRepository,
     ExecutionLogRepository,
+    ProductRepository,
     ScenarioRepository,
     ScenarioRoleRepository,
     ScenarioStepRepository,
@@ -47,6 +48,9 @@ from modules.shilling.schemas import (
     CampaignUpdate,
     ExecutionLogRead,
     GeneratedScenarioRead,
+    ProductCreate,
+    ProductRead,
+    ProductUpdate,
     RoleCreate,
     ScenarioGenerateRequest,
     RoleRead,
@@ -845,3 +849,97 @@ async def dry_run_stream(
             await redis_client.aclose()
 
     return StreamingResponse(event_source(), media_type="text/event-stream")
+
+
+# --- Продукты (база знаний для LLM-контекста) --------------------------------
+#
+# Один продукт описывается один раз (name, USP, website, description, tags) и
+# может быть привязан к любому количеству кампаний. При рерайтинге/генерации
+# реплик LLM получает описание продукта как контекст — не нужно дублировать
+# brand_name/brand_link/topic в каждой кампании. Операции строго в контексте
+# владельца (owner_user_id = require_user) — чужой продукт достать нельзя.
+
+
+@router.get("/products", response_model=list[ProductRead])
+def list_products(
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> list[ProductRead]:
+    return [
+        ProductRead.model_validate(p)
+        for p in ProductRepository(session).list_by_owner(user_id)
+    ]
+
+
+@router.post(
+    "/products",
+    response_model=ProductRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_product(
+    body: ProductCreate,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> ProductRead:
+    from modules.shilling.models import ShillingProduct
+
+    product = ShillingProduct(
+        owner_user_id=user_id,
+        name=body.name.strip(),
+        description=body.description or "",
+        usp=(body.usp or None),
+        website=(body.website or None),
+        tags=(body.tags or None),
+    )
+    session.add(product)
+    session.commit()
+    session.refresh(product)
+    return ProductRead.model_validate(product)
+
+
+@router.get("/products/{product_id}", response_model=ProductRead)
+def get_product(
+    product_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> ProductRead:
+    product = ProductRepository(session).get_owned(product_id, user_id)
+    if product is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Продукт не найден")
+    return ProductRead.model_validate(product)
+
+
+@router.patch("/products/{product_id}", response_model=ProductRead)
+def update_product(
+    product_id: int,
+    body: ProductUpdate,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> ProductRead:
+    product = ProductRepository(session).get_owned(product_id, user_id)
+    if product is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Продукт не найден")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(product, field, value)
+    session.commit()
+    session.refresh(product)
+    return ProductRead.model_validate(product)
+
+
+@router.delete(
+    "/products/{product_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+def delete_product(
+    product_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> None:
+    product = ProductRepository(session).get_owned(product_id, user_id)
+    if product is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Продукт не найден")
+    # product_id в кампаниях → SET NULL (миграция 0064), сами кампании живут
+    # дальше со своими brand_name/brand_link/topic.
+    session.delete(product)
+    session.commit()

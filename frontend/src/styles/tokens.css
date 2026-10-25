@@ -35,27 +35,32 @@
 }
 
 [data-theme="light"] {
-  /* Слоновая кость (ivory) — приглушённый тёплый крем, а не глянцевый белый.
-     Оттенок «состаренной бумаги», чтобы глаз не резало при долгой работе.
-     Карточки заметно светлее фона + чуть сильнее hairline — иначе на кремовом
-     фоне surface-1 сливается с bg-base и экран выглядит пустым. */
-  --bg-base: #ddd3ba;         /* холст — тёплая слоновая кость (чуть глубже) */
-  --bg-elevated: #f4ecd6;
+  /* Чистая нейтральная светлая тема — холст серо-белый, карточки белые на нём,
+     графитовый текст, тёмный акцент (не зелёный — пользователь просил без
+     зелёного декора). Основные референсы — Linear/Vercel light, iOS 17 light,
+     DarkTelegram light панель. Статусы оставлены — приглушённые, но различимые
+     (success/warning/critical) — это информация, не декор. */
+  --bg-base: #f5f5f7;         /* холст — Apple-like neutral grey-white */
+  --bg-elevated: #ffffff;     /* модалки/дровер — чистый белый */
 
-  --surface-1: #f4ecd6;       /* карточки — заметно светлее холста */
-  --surface-2: #e5dbc0;       /* вложенные капсулы/пилюли */
-  --surface-border: rgba(60, 44, 20, 0.22);
-  --surface-border-strong: rgba(60, 44, 20, 0.34);
+  --surface-1: #ffffff;       /* базовая карточка */
+  --surface-2: #eff0f3;       /* вложенные капсулы/пилюли */
+  --surface-border: rgba(60, 60, 67, 0.12);
+  --surface-border-strong: rgba(60, 60, 67, 0.22);
 
-  --text-primary: #1e1c0d;    /* тёплый почти-чёрный */
-  --text-secondary: #4d4835;
-  --text-tertiary: #7a7259;   /* приглушённо, но читабельно на bg */
+  --text-primary: #1d1d1f;    /* графитовый почти-чёрный */
+  --text-secondary: #6e6e73;  /* iOS secondary */
+  --text-tertiary: #8e8e93;
 
-  --status-active: #256b2f;
-  --status-warning: #8f5308;
-  --status-critical: #952720;
-  --status-neutral: #7a7259;
+  /* Статусы — приглушённые, но узнаваемые. Используются только в UI-состояниях
+     (значки, баннеры), не как общий декор. */
+  --status-active: #30823a;
+  --status-warning: #a86a17;
+  --status-critical: #c0362f;
+  --status-neutral: #8e8e93;
 
-  --accent: #1e1c0d;
-  --accent-on: #f4ecd6;
+  /* Акцент — графит (как в Linear/Vercel light): кнопка primary чёрная,
+     ссылки/активные таб-пилюли — тёмные. Никакого зелёного. */
+  --accent: #1d1d1f;
+  --accent-on: #ffffff;
 }

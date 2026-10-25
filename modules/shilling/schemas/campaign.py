@@ -51,6 +51,9 @@ class CampaignCreate(BaseModel, _DelayRangesMixin):
 
     scenario_id: Optional[int] = None
     media_asset_id: Optional[int] = None
+    # Опциональная связь с базой знаний продуктов (0064). Если задан — brand_*
+    # можно оставить пустыми, в промпты пойдёт описание продукта.
+    product_id: Optional[int] = None
 
     auto_responder: AutoResponderMode = "off"
     reserve_enabled: bool = True
@@ -79,6 +82,7 @@ class CampaignUpdate(BaseModel, _DelayRangesMixin):
 
     scenario_id: Optional[int] = None
     media_asset_id: Optional[int] = None
+    product_id: Optional[int] = None
 
     auto_responder: Optional[AutoResponderMode] = None
     reserve_enabled: Optional[bool] = None
@@ -106,6 +110,7 @@ class CampaignRead(ORMModel):
     posts_per_target: int
     scenario_id: Optional[int]
     media_asset_id: Optional[int]
+    product_id: Optional[int] = None
     auto_responder: AutoResponderMode
     reserve_enabled: bool
     msg_limit_per_hour: Optional[int]

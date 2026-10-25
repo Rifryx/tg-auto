@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Megaphone, MessagesSquare, Pause, Play, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, Megaphone, MessagesSquare, Package, Pause, Play, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
@@ -52,13 +52,23 @@ export function ShillingListScreen() {
       <ScreenHeader
         title="НейроШиллинг"
         action={
-          <button
-            onClick={() => navigate("/modules/shilling/campaigns/new")}
-            className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-accent px-4 text-[14px] font-medium text-accent-on active:opacity-80"
-          >
-            <Plus className="h-4 w-4" strokeWidth={2.2} aria-hidden />
-            Новая
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate("/modules/shilling/products")}
+              className="inline-flex h-9 items-center gap-1.5 rounded-pill border border-hairline bg-surface-1 px-3.5 text-[13px] font-medium text-text-primary active:bg-surface-2"
+              title="База знаний продуктов"
+            >
+              <Package className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+              Продукты
+            </button>
+            <button
+              onClick={() => navigate("/modules/shilling/campaigns/new")}
+              className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-accent px-4 text-[14px] font-medium text-accent-on active:opacity-80"
+            >
+              <Plus className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+              Новая
+            </button>
+          </div>
         }
       />
 

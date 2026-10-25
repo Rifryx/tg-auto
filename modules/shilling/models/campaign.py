@@ -109,6 +109,16 @@ class ShillingCampaign(Base, TimestampMixin):
         ForeignKey("media_assets.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # product_id — опциональная связь с «Базой знаний продуктов» (0064).
+    # Если задан — brand_name/brand_link/topic/описание берутся из продукта
+    # (при пустых полях кампании). Явные поля кампании имеют приоритет —
+    # это чтобы одну кампанию можно было отбрендить от общего продукта,
+    # не плодя дубли в базе продуктов.
+    product_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey(f"{SHILLING_SCHEMA}.products.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     # ── Автоответчик и резерв ───────────────────────────────────────────
     auto_responder: Mapped[str] = mapped_column(

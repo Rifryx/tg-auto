@@ -109,3 +109,36 @@ export const shillingApi = {
   dryRunStreamPath: (id: number, jobId: string) =>
     `${BASE}/${id}/dry-run/${jobId}/stream`,
 };
+
+/** База знаний продуктов для нейрошиллинга — переиспользуемые описания,
+    которые привязываются к кампании через product_id. */
+export interface Product {
+  id: number;
+  owner_user_id: string;
+  name: string;
+  description: string;
+  usp: string | null;
+  website: string | null;
+  tags: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductBody {
+  name: string;
+  description?: string;
+  usp?: string | null;
+  website?: string | null;
+  tags?: string | null;
+}
+
+const PRODUCTS = "/modules/shilling/products";
+
+export const productsApi = {
+  list: () => api.get<Product[]>(PRODUCTS),
+  get: (id: number) => api.get<Product>(`${PRODUCTS}/${id}`),
+  create: (body: ProductBody) => api.post<Product>(PRODUCTS, body),
+  update: (id: number, body: Partial<ProductBody>) =>
+    api.patch<Product>(`${PRODUCTS}/${id}`, body),
+  remove: (id: number) => api.del<void>(`${PRODUCTS}/${id}`),
+};

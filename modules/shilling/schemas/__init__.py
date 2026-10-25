@@ -1,6 +1,7 @@
 """Реэкспорт Pydantic-схем модуля НейроШиллинг."""
 
 from modules.shilling.schemas.blacklist import BlacklistCreate, BlacklistRead
+from modules.shilling.schemas.product import ProductCreate, ProductRead, ProductUpdate
 from modules.shilling.schemas.campaign import (
     AutoResponderMode,
     CampaignCreate,
@@ -75,6 +76,9 @@ __all__ = [
     "GeneratedScenarioRead",
     "GeneratedStepRead",
     "LLMProvider",
+    "ProductCreate",
+    "ProductRead",
+    "ProductUpdate",
     "ReadinessCheck",
     "RoleCreate",
     "ScenarioGenerateRequest",
