@@ -133,10 +133,19 @@ class GenerateRoleInput(BaseModel):
 
 class ScenarioGenerateRequest(BaseModel):
     topic: str = Field(min_length=1)
-    brand_name: Optional[str] = None  # если None — берётся из кампании
+    brand_name: Optional[str] = None  # если None — берётся из кампании/продукта
     persons_count: int = Field(default=2, ge=2, le=10)
     steps_count: Optional[int] = Field(default=None, ge=2, le=30)
     roles: Optional[list[GenerateRoleInput]] = None
+    # Явный product_id перебивает тот, что указан на кампании (можно сгенерить
+    # черновик под другой продукт, не меняя привязку). Если None и у кампании
+    # есть product_id — берём из кампании.
+    product_id: Optional[int] = None
+    # Включить реакции между участниками (type="reaction") в сгенерированный
+    # сценарий. По умолчанию выключено, чтобы не менять старое поведение.
+    enable_reactions: bool = False
+    # Язык сгенерированных реплик. "ru" | "ua" | "en". По умолчанию русский.
+    language: str = Field(default="ru", pattern=r"^(ru|ua|en)$")
 
 
 class GeneratedRoleRead(BaseModel):
@@ -148,6 +157,8 @@ class GeneratedStepRead(BaseModel):
     role: str
     text: str
     reply_to_step: Optional[int] = None
+    step_type: str = "message"
+    reaction_emoji: Optional[str] = None
 
 
 class GeneratedScenarioRead(BaseModel):

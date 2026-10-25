@@ -57,6 +57,8 @@ class CampaignCreate(BaseModel, _DelayRangesMixin):
 
     auto_responder: AutoResponderMode = "off"
     reserve_enabled: bool = True
+    inter_account_reactions_enabled: bool = False
+    captcha_solver_enabled: bool = False
 
     msg_limit_per_hour: Optional[int] = Field(default=None, gt=0)
     msg_limit_total: Optional[int] = Field(default=None, gt=0)
@@ -86,6 +88,8 @@ class CampaignUpdate(BaseModel, _DelayRangesMixin):
 
     auto_responder: Optional[AutoResponderMode] = None
     reserve_enabled: Optional[bool] = None
+    inter_account_reactions_enabled: Optional[bool] = None
+    captcha_solver_enabled: Optional[bool] = None
 
     msg_limit_per_hour: Optional[int] = Field(default=None, gt=0)
     msg_limit_total: Optional[int] = Field(default=None, gt=0)
@@ -113,6 +117,8 @@ class CampaignRead(ORMModel):
     product_id: Optional[int] = None
     auto_responder: AutoResponderMode
     reserve_enabled: bool
+    inter_account_reactions_enabled: bool = False
+    captcha_solver_enabled: bool = False
     msg_limit_per_hour: Optional[int]
     msg_limit_total: Optional[int]
     enabled: bool

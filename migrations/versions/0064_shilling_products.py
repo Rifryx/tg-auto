@@ -82,8 +82,39 @@ def upgrade() -> None:
         ondelete="SET NULL",
     )
 
+    # Два новых toggle'а на кампании под фичи из конкурентного анализа:
+    # - inter_account_reactions_enabled: шаги type=reaction в сценарии +
+    #   редкие авто-реакции между ботами в orchestrator;
+    # - captcha_solver_enabled: авто-решение капч при входе в закрытые чаты
+    #   (требует CAPTCHA_PROVIDER_KEY на сервере).
+    # Оба false по умолчанию — старые кампании работают как раньше.
+    op.add_column(
+        "campaigns",
+        sa.Column(
+            "inter_account_reactions_enabled",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("false"),
+        ),
+        schema="shilling",
+    )
+    op.add_column(
+        "campaigns",
+        sa.Column(
+            "captcha_solver_enabled",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("false"),
+        ),
+        schema="shilling",
+    )
+
 
 def downgrade() -> None:
+    op.drop_column("campaigns", "captcha_solver_enabled", schema="shilling")
+    op.drop_column(
+        "campaigns", "inter_account_reactions_enabled", schema="shilling"
+    )
     op.drop_constraint(
         "fk_shilling_campaigns_product",
         "campaigns",

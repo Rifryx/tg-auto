@@ -30,8 +30,11 @@ export interface Campaign {
   posts_per_target: number;
   scenario_id: number | null;
   media_asset_id: number | null;
+  product_id: number | null;
   auto_responder: AutoResponderMode;
   reserve_enabled: boolean;
+  inter_account_reactions_enabled: boolean;
+  captcha_solver_enabled: boolean;
   msg_limit_per_hour: number | null;
   msg_limit_total: number | null;
   enabled: boolean;
@@ -55,8 +58,11 @@ export interface CampaignCreateBody {
   posts_per_target?: number;
   scenario_id?: number | null;
   media_asset_id?: number | null;
+  product_id?: number | null;
   auto_responder?: AutoResponderMode;
   reserve_enabled?: boolean;
+  inter_account_reactions_enabled?: boolean;
+  captcha_solver_enabled?: boolean;
   msg_limit_per_hour?: number | null;
   msg_limit_total?: number | null;
   enabled?: boolean;
@@ -142,11 +148,24 @@ export interface ScenarioGenerateBody {
   persons_count?: number;
   steps_count?: number | null;
   roles?: GenerateRoleInput[] | null;
+  // Явный product_id перебивает тот, что указан на кампании. Если null и
+  // у кампании есть product_id — бэкенд возьмёт из кампании.
+  product_id?: number | null;
+  // Включить реакции между участниками в сгенерированном сценарии (type="reaction").
+  enable_reactions?: boolean;
+  // Язык реплик.
+  language?: "ru" | "ua" | "en";
 }
 
 export interface GeneratedScenario {
   roles: { name: string; character: string }[];
-  steps: { role: string; text: string; reply_to_step: number | null }[];
+  steps: {
+    role: string;
+    text: string;
+    reply_to_step: number | null;
+    step_type?: string;
+    reaction_emoji?: string | null;
+  }[];
 }
 
 /* ── Аккаунты кампании ─────────────────────────────────────────────── */

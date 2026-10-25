@@ -66,6 +66,30 @@ async def startup(ctx: dict) -> None:
     ctx["channel_lifecycle"] = channel_lifecycle
     ctx["channel_lifecycle_task"] = asyncio.create_task(channel_lifecycle.run())
 
+    # Live Interception шиллинга: подключаем слушателей ответов живого юзера
+    # для всех running-кампаний с auto_responder != "off". Lifecycle attach/
+    # detach на лету (при старте/останове кампании) — в следующей итерации.
+    from modules.shilling.repositories import CampaignRepository as _ShRepo
+    from modules.shilling.worker.live_interception import LiveInterceptionRegistry
+
+    shilling_live = LiveInterceptionRegistry()
+    ctx["shilling_live_interception"] = shilling_live
+    with ctx["session_factory"]() as _session:
+        _running = [
+            c
+            for c in _ShRepo(_session).list_all()
+            if c.enabled and c.status == "running" and c.auto_responder != "off"
+        ]
+    for _c in _running:
+        try:
+            await shilling_live.attach(ctx, _c)
+        except Exception as _exc:  # noqa: BLE001 — не роняем старт воркера
+            get_logger().warning(
+                "shilling.live.startup_attach_failed",
+                campaign_id=_c.id,
+                error=repr(_exc),
+            )
+
     get_logger().info(
         "worker.startup",
         functions=[f.name for f in TASK_FUNCTIONS],
@@ -73,6 +97,7 @@ async def startup(ctx: dict) -> None:
         registered=registered_names(),
         listeners=registry.active(),
         channel_listeners=channel_registry.active(),
+        shilling_live_handlers=shilling_live.active_handlers(),
     )
 
 

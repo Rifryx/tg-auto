@@ -127,6 +127,18 @@ class ShillingCampaign(Base, TimestampMixin):
     reserve_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    # Генератор сценариев автоматически вставит шаги-реакции (type="reaction")
+    # между реплик. Также используется orchestrator'ом: когда очередной бот
+    # отвечает другому боту кампании, с некоторой вероятностью проставит и
+    # эмодзи-реакцию (повышает естественность, видно в скринах конкурента).
+    inter_account_reactions_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Captcha-solver для вступления в закрытые чаты. По умолчанию выключен —
+    # внешний провайдер требует отдельного ключа (CAPTCHA_PROVIDER_KEY).
+    captcha_solver_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     # ── Лимиты на аккаунт ───────────────────────────────────────────────
     msg_limit_per_hour: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
