@@ -373,13 +373,16 @@ async def failover(
         link_repo.detach(campaign_id, failed_account_id)
         # Логируем сам факт замены: UI в истории покажет replaced-строку,
         # чтобы по статистике кампании было видно, где и почему был failover.
+        # Если шаг пропал (например, сценарий пересобрали пока задача висела),
+        # пишем step_id=None — FK scenario_steps nullable + SET NULL в модели.
+        step_still_exists = ScenarioStepRepository(session).get(step_id) is not None
         ExecutionLogRepository(session).create(
             ExecutionLogCreate(
                 campaign_id=campaign_id,
                 target_id=target_id,
                 account_id=failed_account_id,
                 role_id=role_id,
-                step_id=step_id,
+                step_id=step_id if step_still_exists else None,
                 message_text=None,
                 posted_message_id=None,
                 status="replaced",

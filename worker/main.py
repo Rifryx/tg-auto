@@ -78,12 +78,22 @@ async def startup(ctx: dict) -> None:
 
     shilling_live = LiveInterceptionRegistry()
     ctx["shilling_live_interception"] = shilling_live
-    with ctx["session_factory"]() as _session:
-        _running = [
-            c
-            for c in _ShRepo(_session).list_all()
-            if c.enabled and c.status == "running" and c.auto_responder != "off"
-        ]
+    # Если shilling-схема ещё не накатана (ранний dev / integration-тесты без
+    # миграций модуля), просто пропускаем startup-attach: воркер поднимется,
+    # LiveInterceptionRegistry останется пустым, listener lifecycle подхватит
+    # кампании позже, когда схема появится.
+    _running: list = []
+    try:
+        with ctx["session_factory"]() as _session:
+            _running = [
+                c
+                for c in _ShRepo(_session).list_all()
+                if c.enabled and c.status == "running" and c.auto_responder != "off"
+            ]
+    except Exception as _exc:  # noqa: BLE001 — schema not ready / DB down
+        get_logger().info(
+            "shilling.live.startup_scan_skipped", error=repr(_exc)
+        )
     for _c in _running:
         try:
             await shilling_live.attach(ctx, _c)
