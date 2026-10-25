@@ -47,6 +47,7 @@ REASON_NO_PHONE = "no_phone"
 REASON_USERNAME_REGEX = "username_regex"
 REASON_NAME_SCRIPT = "name_script"
 REASON_LAST_SEEN_OLD = "last_seen_too_old"
+REASON_PHONE_COUNTRY = "phone_country"
 
 
 _CYRILLIC = re.compile(r"[Ѐ-ӿ]")
@@ -85,6 +86,11 @@ class FilterOptions:
     username_regex: Optional[str] = None
     name_script: Optional[str] = None  # "cyrillic" | "latin" | None
     last_seen_max_days: Optional[int] = None
+    # Фильтр по стране телефонного номера: список допустимых префиксов типа
+    # ["+380", "+375", "+7"]. Строка "+" опциональна в элементах. Если задан —
+    # пропускаем только тех, у кого есть видимый phone И он начинается с одного
+    # из префиксов (без «+» и всех нецифровых). Пустой список → не фильтруем.
+    phone_country_prefixes: Optional[list[str]] = None
 
     def compiled_username_regex(self) -> Optional["re.Pattern[str]"]:
         if not self.username_regex:
@@ -229,6 +235,22 @@ def _first_drop_reason(
         return REASON_NOT_VERIFIED
     if options.require_phone_visible and not row.get("phone"):
         return REASON_NO_PHONE
+    if options.phone_country_prefixes:
+        phone = (row.get("phone") or "").strip()
+        if not phone:
+            # Без видимого телефона отбрасываем — если юзер хочет фильтр по
+            # стране, значит хочет гарантированное попадание. Иначе выбор
+            # будет непредсказуем.
+            return REASON_PHONE_COUNTRY
+        digits = "".join(ch for ch in phone if ch.isdigit())
+        norm_prefixes = [
+            "".join(ch for ch in p if ch.isdigit())
+            for p in options.phone_country_prefixes
+            if p
+        ]
+        norm_prefixes = [p for p in norm_prefixes if p]
+        if norm_prefixes and not any(digits.startswith(p) for p in norm_prefixes):
+            return REASON_PHONE_COUNTRY
     if options.name_script and not _matches_script(_full_name(row), options.name_script):
         return REASON_NAME_SCRIPT
     if options.username_regex:

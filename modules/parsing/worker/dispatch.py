@@ -27,6 +27,12 @@ get_logger = structlog.get_logger
 
 def _filter_options(payload: dict[str, Any]) -> FilterOptions:
     """Собирает FilterOptions из payload (Extraction+ фильтры)."""
+    raw_prefixes = payload.get("phone_country_prefixes") or []
+    prefixes: Optional[list[str]] = None
+    if isinstance(raw_prefixes, list) and raw_prefixes:
+        prefixes = [str(p).strip() for p in raw_prefixes if str(p).strip()]
+        if not prefixes:
+            prefixes = None
     return FilterOptions(
         require_username=bool(payload.get("require_username", True)),
         premium_only=bool(payload.get("premium_only", False)),
@@ -41,6 +47,7 @@ def _filter_options(payload: dict[str, Any]) -> FilterOptions:
             if payload.get("last_seen_max_days") is not None
             else None
         ),
+        phone_country_prefixes=prefixes,
     )
 
 
@@ -131,6 +138,24 @@ async def parser_run(
                     int(job_id),
                     f"✓ Готово: собрано {result.raw_count}, добавлено {result.inserted}.",
                 )
+                # Разбор причин, по которым кандидаты не попали в финальный
+                # список (ключи — reason-коды из parsing/parser/*: no_username,
+                # scam_fake, verified_only, min_participants, enrich_failed,
+                # search_failed, …). Пользователь видел «собрано 0 / добавлено
+                # 0» без понимания, где застряло — теперь каждая причина со
+                # счётчиком попадает в лог прогона, как в CI-отчётах.
+                breakdown = result.filters_breakdown or {}
+                if breakdown:
+                    repo.append_log(
+                        int(job_id),
+                        "Отсеяно (причина → сколько):",
+                    )
+                    for reason, cnt in sorted(
+                        breakdown.items(), key=lambda kv: -kv[1]
+                    ):
+                        repo.append_log(
+                            int(job_id), f"  • {reason}: {cnt}",
+                        )
             session.commit()
 
     if result is None:

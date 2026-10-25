@@ -26,6 +26,22 @@ const USES_WINDOW = new Set<Kind>(["chat_messages", "channel_commenters"]);
 const inputCls =
   "mt-1 w-full rounded-xl border border-hairline bg-surface-2 p-2 text-[15px] tabular-nums text-text-primary";
 
+// Самые частые страны для парсинга аудитории: RU/UA/BY/KZ/UZ + популярные
+// англоязычные. Список намеренно короткий: редкие страны пользователь впишет
+// в текстовое поле (prefix через запятую).
+const COMMON_PHONE_COUNTRIES: readonly { label: string; prefix: string }[] = [
+  { label: "🇷🇺 Россия", prefix: "+7" },
+  { label: "🇺🇦 Украина", prefix: "+380" },
+  { label: "🇧🇾 Беларусь", prefix: "+375" },
+  { label: "🇰🇿 Казахстан", prefix: "+77" },
+  { label: "🇺🇿 Узбекистан", prefix: "+998" },
+  { label: "🇹🇷 Турция", prefix: "+90" },
+  { label: "🇩🇪 Германия", prefix: "+49" },
+  { label: "🇺🇸 США/Канада", prefix: "+1" },
+  { label: "🇬🇧 Великобритания", prefix: "+44" },
+  { label: "🇵🇱 Польша", prefix: "+48" },
+];
+
 export function RunParsingScreen() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -51,6 +67,10 @@ export function RunParsingScreen() {
   const [usernameRegex, setUsernameRegex] = useState("");
   const [nameScript, setNameScript] = useState<"" | "cyrillic" | "latin">("");
   const [lastSeenMaxDays, setLastSeenMaxDays] = useState("");
+  // Фильтр по стране телефона: multi-select из популярных + произвольные
+  // префиксы через запятую. Пустой — не фильтруем.
+  const [phonePrefixes, setPhonePrefixes] = useState<string[]>([]);
+  const [phonePrefixCustom, setPhonePrefixCustom] = useState("");
 
   const accountsQuery = useQuery({
     queryKey: ["accounts", "pool"],
@@ -69,6 +89,12 @@ export function RunParsingScreen() {
   const submit = useMutation({
     mutationFn: async () => {
       if (!collectorId) throw new Error("no collector");
+      // Склеиваем выбранные чипы + ручной ввод (через запятую/пробел/перенос).
+      const customExtras = phonePrefixCustom
+        .split(/[\s,]+/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+      const prefixes = [...new Set([...phonePrefixes, ...customExtras])];
       const filters: AudienceFilters = {
         require_username: requireUsername,
         premium_only: premiumOnly,
@@ -79,6 +105,7 @@ export function RunParsingScreen() {
         username_regex: usernameRegex.trim() || null,
         name_script: nameScript || null,
         last_seen_max_days: lastSeenMaxDays === "" ? null : Number(lastSeenMaxDays),
+        phone_country_prefixes: prefixes.length > 0 ? prefixes : null,
       };
       const base = { name: name.trim(), collector_account_id: collectorId, chat_ref: chatRef.trim(), ...filters };
       if (kind === "chat_messages")
@@ -108,7 +135,7 @@ export function RunParsingScreen() {
   return (
     <div className="min-h-full">
       <ScreenHeader
-        title="Запуск парсинга"
+        title="Парсинг пользователей"
         action={
           <button
             type="button"
@@ -295,7 +322,7 @@ export function RunParsingScreen() {
             <label className="text-[13px] font-medium text-text-secondary">
               Онлайн ≤ дней
               <input
-                type="number" min={0} value={lastSeenMaxDays}
+                type="text" inputMode="numeric" value={lastSeenMaxDays}
                 onChange={(e) => setLastSeenMaxDays(e.target.value.replace(/\D/g, ""))}
                 placeholder="любой" className={inputCls}
               />
@@ -310,6 +337,47 @@ export function RunParsingScreen() {
               />
             </label>
           </div>
+
+          {/* Страна телефона — популярные префиксы чипами + свой список.
+              Отбор работает по видимым номерам (require_phone_visible
+              включается автоматически в фильтре на бэке, если задать страны). */}
+          <label className="mt-4 block text-[13px] font-medium text-text-secondary">
+            Страна телефона
+          </label>
+          <p className="mt-1 text-[11px] text-text-tertiary">
+            Отфильтрует только тех, у кого виден номер. Можно комбинировать
+            чипы и ручные префиксы.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {COMMON_PHONE_COUNTRIES.map((c) => {
+              const on = phonePrefixes.includes(c.prefix);
+              return (
+                <button
+                  key={c.prefix}
+                  type="button"
+                  onClick={() =>
+                    setPhonePrefixes((prev) =>
+                      on ? prev.filter((p) => p !== c.prefix) : [...prev, c.prefix],
+                    )
+                  }
+                  className={[
+                    "rounded-pill border px-3 py-1 text-[12px] font-medium transition-colors",
+                    on
+                      ? "border-strong bg-surface-2 text-text-primary"
+                      : "border-hairline bg-surface-1 text-text-secondary active:bg-surface-2",
+                  ].join(" ")}
+                >
+                  {c.label} {c.prefix}
+                </button>
+              );
+            })}
+          </div>
+          <input
+            value={phonePrefixCustom}
+            onChange={(e) => setPhonePrefixCustom(e.target.value)}
+            placeholder="свои префиксы через запятую: +44, +34"
+            className="mt-2 w-full rounded-xl border border-hairline bg-surface-2 p-2 text-[13px] text-text-primary placeholder:text-text-tertiary"
+          />
         </div>
 
         <div

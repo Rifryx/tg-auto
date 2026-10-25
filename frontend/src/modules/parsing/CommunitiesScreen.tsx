@@ -36,8 +36,11 @@ export function CommunitiesScreen() {
   const [useRecs, setUseRecs] = useState(true);
   const [useForwards, setUseForwards] = useState(false);
   const [useMentions, setUseMentions] = useState(false);
-  const [depth, setDepth] = useState(2);
-  const [maxResults, setMaxResults] = useState(200);
+  // Хранить как string: иначе `Number("") === 0` при стирании поля превращает
+  // ввод в вечный «0», который юзер не может удалить. Парсим и клампим в
+  // run-мутации.
+  const [depthRaw, setDepthRaw] = useState("2");
+  const [maxResultsRaw, setMaxResultsRaw] = useState("200");
 
   // Общие фильтры результатов
   const [kind, setKind] = useState<"" | "channel" | "chat">("");
@@ -87,6 +90,9 @@ export function CommunitiesScreen() {
           ...commonFilters,
         });
       }
+      // Нормализуем ввод из «сырых» строк. Пустое поле или 0 → дефолт.
+      const parsedDepth = Math.min(3, Math.max(1, Number(depthRaw) || 2));
+      const parsedMaxResults = Math.min(1000, Math.max(1, Number(maxResultsRaw) || 200));
       return parsingApi.runDiscover({
         name: name.trim(),
         collector_account_id: collectorId,
@@ -96,8 +102,8 @@ export function CommunitiesScreen() {
         use_recommendations: useRecs,
         use_forwards: useForwards,
         use_mentions: useMentions,
-        depth,
-        max_results: maxResults,
+        depth: parsedDepth,
+        max_results: parsedMaxResults,
         ...commonFilters,
       });
     },
@@ -220,12 +226,24 @@ export function CommunitiesScreen() {
 
             <div className="mt-4 grid grid-cols-2 gap-3">
               <label className="text-[13px] font-medium text-text-secondary">Глубина «похожих»
-                <input type="number" min={1} max={3} value={depth}
-                  onChange={(e) => setDepth(Number(e.target.value))} className={inputCls} />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={depthRaw}
+                  onChange={(e) => setDepthRaw(e.target.value.replace(/\D/g, ""))}
+                  placeholder="2"
+                  className={inputCls}
+                />
               </label>
               <label className="text-[13px] font-medium text-text-secondary">Макс. каналов
-                <input type="number" min={1} max={1000} value={maxResults}
-                  onChange={(e) => setMaxResults(Number(e.target.value))} className={inputCls} />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={maxResultsRaw}
+                  onChange={(e) => setMaxResultsRaw(e.target.value.replace(/\D/g, ""))}
+                  placeholder="200"
+                  className={inputCls}
+                />
               </label>
             </div>
           </div>

@@ -122,6 +122,8 @@ async def parse_post_reactors(
                         "username": r.get("username"),
                         "phone": r.get("phone"),
                         "has_premium": r.get("has_premium"),
+                        "first_name": r.get("first_name"),
+                        "last_name": r.get("last_name"),
                         "last_seen_bucket": r.get("last_seen_bucket") or TargetLastSeen.UNKNOWN.value,
                     }
                     for r in outcome.kept

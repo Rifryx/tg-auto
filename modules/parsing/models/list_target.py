@@ -44,6 +44,9 @@ class ParsedListTarget(Base, CreatedAtMixin):
     username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     phone: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     has_premium: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    first_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    last_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    photo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     last_seen_bucket: Mapped[str] = mapped_column(
         String, nullable=False, default="unknown", server_default="unknown",
     )
