@@ -55,6 +55,9 @@ export interface ParsedListTarget {
   username: string | null;
   phone: string | null;
   has_premium: boolean | null;
+  first_name: string | null;
+  last_name: string | null;
+  photo_url: string | null;
   last_seen_bucket: LastSeenBucket;
   created_at: string;
 }

@@ -3,6 +3,8 @@ import {
   ChevronRight,
   Combine,
   Filter,
+  Loader2,
+  Pause,
   Sparkles,
   Trash2,
   UserSearch,
@@ -13,7 +15,7 @@ import { ScreenHeader } from "../../app/layout/AppLayout";
 import { EmptyState } from "../../components/EmptyState";
 import { timeAgo } from "../../shared/format";
 import { parsingApi } from "./api";
-import type { ParsedList } from "./types";
+import type { ParsedList, ParsingJob } from "./types";
 
 /* Модуль «Парсинг» — самостоятельный сервис (docs/priming-spec §8).
    Хранит спарсенные списки; Прайминг импортирует их через
@@ -39,6 +41,17 @@ export function ParsingListsScreen() {
     queryFn: parsingApi.list,
     refetchInterval: 10_000,
   });
+  // Активные задачи — не блокируют UI, обновляются быстрее основного списка,
+  // чтобы индикатор «идёт прогон» появлялся сразу после запуска.
+  const activeJobs = useQuery({
+    queryKey: ["parsing", "jobs"],
+    queryFn: parsingApi.jobs,
+    refetchInterval: 3_000,
+    staleTime: 2_000,
+  });
+  const liveJobs = (activeJobs.data ?? []).filter(
+    (j) => j.status === "running" || j.status === "paused" || j.status === "pending",
+  );
 
   const remove = useMutation({
     mutationFn: (id: number) => parsingApi.remove(id),
@@ -51,6 +64,28 @@ export function ParsingListsScreen() {
   return (
     <div className="min-h-full pb-24">
       <ScreenHeader title="Парсинг" />
+
+      {/* Активные прогоны — список запущенных задач, которые крутятся в
+          воркере даже если юзер ушёл со страницы (persistence). Каждая строка
+          кликабельна → экран живого прогресса. Так пользователь всегда видит,
+          что происходит, и не теряет текущие прогоны между переходами. */}
+      {liveJobs.length > 0 && (
+        <div className="mb-4 flex flex-col gap-2">
+          <p className="px-1 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">
+            Активные прогоны · {liveJobs.length}
+          </p>
+          <div className="card overflow-hidden p-0">
+            {liveJobs.map((j, i) => (
+              <ActiveJobRow
+                key={j.id}
+                job={j}
+                isFirst={i === 0}
+                onClick={() => navigate(`/modules/parsing/run/${j.id}`)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Три равноправных вида парсинга — одной линией. Раньше «Прогон»
           (парсинг пользователей) был акцент-кнопкой справа в заголовке, а
@@ -110,7 +145,26 @@ export function ParsingListsScreen() {
       {data && data.length > 0 && (
         <div className="card overflow-hidden p-0">
           {data.map((l, i) => {
-            const clickable = l.source_kind === "community_enrich";
+            // community_enrich → экран сообществ; все остальные user-парсеры и
+            // list_op → экран пользователей. manual_list/upload_csv — тоже
+            // наборы юзеров, UserListScreen умеет их рендерить.
+            const target: "communities" | "users" | null =
+              l.source_kind === "community_enrich"
+                ? "communities"
+                : [
+                    "chat_messages",
+                    "chat_members",
+                    "channel_commenters",
+                    "post_reactors",
+                    "list_op",
+                    "manual_list",
+                    "upload_csv",
+                  ].includes(l.source_kind)
+                  ? "users"
+                  : null;
+            const href = target
+              ? `/modules/parsing/lists/${l.id}/${target}`
+              : undefined;
             return (
               <div
                 key={l.id}
@@ -118,13 +172,9 @@ export function ParsingListsScreen() {
               >
                 <button
                   type="button"
-                  onClick={
-                    clickable
-                      ? () => navigate(`/modules/parsing/lists/${l.id}/communities`)
-                      : undefined
-                  }
-                  className={`flex min-w-0 flex-1 items-center gap-4 text-left ${clickable ? "active:opacity-70" : "cursor-default"}`}
-                  disabled={!clickable}
+                  onClick={href ? () => navigate(href) : undefined}
+                  className={`flex min-w-0 flex-1 items-center gap-4 text-left ${href ? "active:opacity-70" : "cursor-default"}`}
+                  disabled={!href}
                 >
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-primary">
                     <Filter className="h-5 w-5" strokeWidth={1.7} aria-hidden />
@@ -149,7 +199,7 @@ export function ParsingListsScreen() {
                       {l.source_kind === "community_enrich" ? "сообществ" : "целей"}
                     </div>
                   </div>
-                  {clickable && (
+                  {href && (
                     <ChevronRight className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
                   )}
                 </button>
@@ -182,6 +232,41 @@ export function ParsingListsScreen() {
         />
       )}
     </div>
+  );
+}
+
+function ActiveJobRow({
+  job,
+  isFirst,
+  onClick,
+}: {
+  job: ParsingJob;
+  isFirst: boolean;
+  onClick: () => void;
+}) {
+  const paused = job.status === "paused";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex w-full items-center gap-3 px-4 py-3 text-left active:bg-surface-2 ${isFirst ? "" : "border-t border-hairline"}`}
+    >
+      {paused ? (
+        <Pause className="h-4 w-4 text-status-warning" strokeWidth={2.2} aria-hidden />
+      ) : (
+        <Loader2 className="h-4 w-4 animate-spin text-status-active" strokeWidth={2.2} aria-hidden />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[14px] font-medium text-text-primary">
+          {job.name || `Прогон ${job.id}`}
+        </p>
+        <p className="truncate text-[12px] text-text-tertiary">
+          {paused ? "Пауза" : "Идёт"} · собрано {job.raw_count}, добавлено{" "}
+          {job.inserted_count} · {timeAgo(job.updated_at)}
+        </p>
+      </div>
+      <ChevronRight className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
+    </button>
   );
 }
 

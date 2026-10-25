@@ -61,6 +61,9 @@ class ParsedListTargetRead(_ParsingBase):
     username: Optional[str] = None
     phone: Optional[str] = None
     has_premium: Optional[bool] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    photo_url: Optional[str] = None
     last_seen_bucket: TargetLastSeen
     created_at: datetime
 

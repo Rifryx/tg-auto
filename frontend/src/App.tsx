@@ -34,6 +34,7 @@ import { CommunityListScreen } from "./modules/parsing/CommunityListScreen";
 import { ListOpsScreen } from "./modules/parsing/ListOpsScreen";
 import { RunParsingScreen } from "./modules/parsing/RunParsingScreen";
 import { ParsingRunScreen } from "./modules/parsing/ParsingRunScreen";
+import { UserListScreen } from "./modules/parsing/UserListScreen";
 import { AdminScreen } from "./screens/admin/AdminScreen";
 import { BillingScreen } from "./screens/billing/BillingScreen";
 
@@ -71,6 +72,7 @@ export function App() {
           element={<Navigate to="/modules/parsing/communities" replace />}
         />
         <Route path="/modules/parsing/lists/:id/communities" element={<CommunityListScreen />} />
+        <Route path="/modules/parsing/lists/:id/users" element={<UserListScreen />} />
         <Route path="/services" element={<ServicesScreen />} />
         <Route path="/more" element={<MoreScreen />} />
         <Route path="/more/personas" element={<PersonasScreen />} />
