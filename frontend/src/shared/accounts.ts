@@ -126,10 +126,14 @@ export const accountsApi = {
       ...(opts?.custom_prompt ? { custom_prompt: opts.custom_prompt } : {}),
     }),
   // 2FA-пароль одного/нескольких аккаунтов (plaintext шифруется на сервере).
+  // current_password нужен, если текущий пароль не сохранён в системе или
+  // устарел (сменили вручную через Telegram) — Telegram требует его при
+  // любом изменении/снятии.
   set2fa: (body: {
     account_ids: number[];
     mode: "set_or_change" | "remove";
     password?: string;
+    current_password?: string;
     hint?: string;
     email?: string;
   }) => api.post<BulkJobRead>("/accounts/bulk/set-2fa", body),
