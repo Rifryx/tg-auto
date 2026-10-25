@@ -131,6 +131,24 @@ async def parser_run(
                     int(job_id),
                     f"✓ Готово: собрано {result.raw_count}, добавлено {result.inserted}.",
                 )
+                # Разбор причин, по которым кандидаты не попали в финальный
+                # список (ключи — reason-коды из parsing/parser/*: no_username,
+                # scam_fake, verified_only, min_participants, enrich_failed,
+                # search_failed, …). Пользователь видел «собрано 0 / добавлено
+                # 0» без понимания, где застряло — теперь каждая причина со
+                # счётчиком попадает в лог прогона, как в CI-отчётах.
+                breakdown = result.filters_breakdown or {}
+                if breakdown:
+                    repo.append_log(
+                        int(job_id),
+                        "Отсеяно (причина → сколько):",
+                    )
+                    for reason, cnt in sorted(
+                        breakdown.items(), key=lambda kv: -kv[1]
+                    ):
+                        repo.append_log(
+                            int(job_id), f"  • {reason}: {cnt}",
+                        )
             session.commit()
 
     if result is None:
