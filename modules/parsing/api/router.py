@@ -63,6 +63,7 @@ _FILTER_KEYS = (
     "username_regex",
     "name_script",
     "last_seen_max_days",
+    "phone_country_prefixes",
 )
 
 

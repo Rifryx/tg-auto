@@ -77,6 +77,9 @@ class _FilterFields(_ParsingBase):
     username_regex: Optional[str] = Field(default=None, max_length=256)
     name_script: Optional[str] = Field(default=None, pattern="^(cyrillic|latin)$")
     last_seen_max_days: Optional[int] = Field(default=None, ge=0, le=3650)
+    # Фильтр по стране телефонного номера (список префиксов, напр. ["+380", "7"]).
+    # Пустой/отсутствующий — не фильтруем. См. filters.py::_rejected_first_reason.
+    phone_country_prefixes: Optional[list[str]] = Field(default=None, max_length=20)
 
 
 class RunChatMessagesRequest(_FilterFields):

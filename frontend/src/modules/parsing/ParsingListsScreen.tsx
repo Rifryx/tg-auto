@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Combine, Filter, Plus, Sparkles, Trash2 } from "lucide-react";
+import {
+  ChevronRight,
+  Combine,
+  Filter,
+  Sparkles,
+  Trash2,
+  UserSearch,
+} from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
@@ -43,27 +50,25 @@ export function ParsingListsScreen() {
 
   return (
     <div className="min-h-full pb-24">
-      <ScreenHeader
-        title="Парсинг"
-        action={
-          <button
-            type="button"
-            onClick={() => navigate("/modules/parsing/run")}
-            className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-accent px-4 text-[14px] font-medium text-accent-on active:opacity-80"
-          >
-            <Plus className="h-4 w-4" strokeWidth={2.2} aria-hidden />
-            Прогон
-          </button>
-        }
-      />
+      <ScreenHeader title="Парсинг" />
 
-      {/* Доп. действия — отдельная прокручиваемая лента, чтобы не ломать
-          шапку на узких экранах (раньше 4 кнопки не помещались в заголовок). */}
+      {/* Три равноправных вида парсинга — одной линией. Раньше «Прогон»
+          (парсинг пользователей) был акцент-кнопкой справа в заголовке, а
+          остальные — вторичными табами внизу: пользователь не понимал,
+          что это ТОЖЕ парсер, и жаловался «тут нет парсинга пользователей». */}
       <div className="-mx-5 mb-4 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <button
           type="button"
+          onClick={() => navigate("/modules/parsing/run")}
+          className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-pill bg-accent px-4 text-[14px] font-semibold text-accent-on active:opacity-80"
+        >
+          <UserSearch className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+          Пользователи
+        </button>
+        <button
+          type="button"
           onClick={() => navigate("/modules/parsing/communities")}
-          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-pill bg-surface-2 px-3.5 text-[14px] font-medium text-text-secondary active:text-text-primary"
+          className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-pill bg-surface-2 px-4 text-[14px] font-medium text-text-primary active:bg-surface-1"
         >
           <Sparkles className="h-4 w-4" strokeWidth={2.2} aria-hidden />
           Каналы и сообщества
@@ -71,7 +76,7 @@ export function ParsingListsScreen() {
         <button
           type="button"
           onClick={() => navigate("/modules/parsing/ops")}
-          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-pill bg-surface-2 px-3.5 text-[14px] font-medium text-text-secondary active:text-text-primary"
+          className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-pill bg-surface-2 px-4 text-[14px] font-medium text-text-primary active:bg-surface-1"
         >
           <Combine className="h-4 w-4" strokeWidth={2.2} aria-hidden />
           Операции

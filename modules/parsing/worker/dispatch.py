@@ -27,6 +27,12 @@ get_logger = structlog.get_logger
 
 def _filter_options(payload: dict[str, Any]) -> FilterOptions:
     """Собирает FilterOptions из payload (Extraction+ фильтры)."""
+    raw_prefixes = payload.get("phone_country_prefixes") or []
+    prefixes: Optional[list[str]] = None
+    if isinstance(raw_prefixes, list) and raw_prefixes:
+        prefixes = [str(p).strip() for p in raw_prefixes if str(p).strip()]
+        if not prefixes:
+            prefixes = None
     return FilterOptions(
         require_username=bool(payload.get("require_username", True)),
         premium_only=bool(payload.get("premium_only", False)),
@@ -41,6 +47,7 @@ def _filter_options(payload: dict[str, Any]) -> FilterOptions:
             if payload.get("last_seen_max_days") is not None
             else None
         ),
+        phone_country_prefixes=prefixes,
     )
 
 

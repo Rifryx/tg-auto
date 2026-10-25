@@ -22,6 +22,8 @@ export interface AudienceFilters {
   username_regex?: string | null;
   name_script?: "cyrillic" | "latin" | null;
   last_seen_max_days?: number | null;
+  /** Фильтр по стране телефонного номера: список префиксов (+380, +7, …). */
+  phone_country_prefixes?: string[] | null;
 }
 
 export type LastSeenBucket =
