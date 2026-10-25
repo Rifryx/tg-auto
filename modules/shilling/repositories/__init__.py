@@ -5,6 +5,7 @@ from modules.shilling.repositories.campaign import CampaignRepository
 from modules.shilling.repositories.campaign_account import CampaignAccountRepository
 from modules.shilling.repositories.campaign_target import CampaignTargetRepository
 from modules.shilling.repositories.execution_log import ExecutionLogRepository
+from modules.shilling.repositories.product import ProductRepository
 from modules.shilling.repositories.scenario import (
     ScenarioRepository,
     ScenarioRoleRepository,
@@ -17,6 +18,7 @@ __all__ = [
     "CampaignRepository",
     "CampaignTargetRepository",
     "ExecutionLogRepository",
+    "ProductRepository",
     "ScenarioRepository",
     "ScenarioRoleRepository",
     "ScenarioStepRepository",

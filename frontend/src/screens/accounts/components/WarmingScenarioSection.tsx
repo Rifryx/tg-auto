@@ -215,12 +215,22 @@ export function WarmingScenarioSection({
           <p className="mb-2 px-0.5 text-[13px] font-semibold text-text-primary">
             Микс действий
           </p>
-          <div className="mb-4 flex flex-col gap-2.5">
+          {/* Ползунки: при узкой колонке (например, 2-колоночный account detail
+              на ноутбуке) 150px-лейбл + sliders = ползунок схлопывается в
+              60-80px и выглядит обрубком. Переносим лейбл над ползунком,
+              слайдер растягивается на всю ширину карточки — читается одинаково
+              и на телефоне, и на десктопе. */}
+          <div className="mb-4 flex flex-col gap-3">
             {ACTIONS.map((a) => (
-              <div key={a} className="flex items-center gap-3">
-                <span className="w-[150px] shrink-0 text-[13px] text-text-secondary">
-                  {WARMING_ACTION_LABEL[a]}
-                </span>
+              <div key={a} className="min-w-0">
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="truncate text-[13px] text-text-secondary">
+                    {WARMING_ACTION_LABEL[a]}
+                  </span>
+                  <span className="shrink-0 text-[12px] text-text-tertiary tabular-nums">
+                    {form.weights[a] === 0 ? "выкл" : `×${form.weights[a]}`}
+                  </span>
+                </div>
                 <input
                   type="range"
                   min={0}
@@ -230,11 +240,8 @@ export function WarmingScenarioSection({
                   onChange={(e) =>
                     set({ weights: { ...form.weights, [a]: Number(e.target.value) } })
                   }
-                  className="h-1 flex-1 accent-[var(--accent)]"
+                  className="h-1 w-full accent-[var(--accent)]"
                 />
-                <span className="w-9 shrink-0 text-right text-[12px] text-text-tertiary">
-                  {form.weights[a] === 0 ? "выкл" : `×${form.weights[a]}`}
-                </span>
               </div>
             ))}
           </div>
