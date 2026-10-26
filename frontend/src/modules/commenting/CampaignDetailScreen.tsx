@@ -255,8 +255,8 @@ export function CampaignDetailScreen() {
               {attachSummary.ok > 0 && <>Добавлено: {attachSummary.ok}. </>}
               {attachSummary.failed > 0 && (
                 <>
-                  Не удалось: {attachSummary.failed} (не в пуле — на прогреве /
-                  заняты / в кулдауне).
+                  Не удалось: {attachSummary.failed} (забанены / выведены или уже
+                  в другой кампании).
                 </>
               )}
             </span>

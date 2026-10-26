@@ -156,12 +156,15 @@ export function NewCampaignScreen() {
     (a) => selected.has(a.id) && accountWorkWarning(a.status) != null,
   );
 
-  // Аккаунты, которые реально прикрепятся: сервер требует status === 'pool'
-  // (warming/cooldown/assigned attach отклоняет с 409). Раньше пользователь
-  // выбирал warming-аккаунт, бэкенд его отбрасывал, но кампания создавалась
-  // «пустой» без явного сигнала.
+  // Прикрепляются ВСЕ выбранные аккаунты, кроме явно нерабочих
+  // (banned/retired). Для warming/cooldown/created state-machine сама
+  // переводит их в assigned при прикреплении — пользователь явно просил
+  // поведение «аккаунт на прогреве тоже прикрепляется и работает».
   const attachableIds = (allAccounts.data ?? [])
-    .filter((a) => selected.has(a.id) && a.status === "pool")
+    .filter(
+      (a) =>
+        selected.has(a.id) && a.status !== "banned" && a.status !== "retired",
+    )
     .map((a) => a.id);
   const skippedCount = selected.size - attachableIds.length;
 
@@ -631,14 +634,23 @@ export function NewCampaignScreen() {
             })
           }
         />
-        {anyNonIdealSelected && (
+        {anyNonIdealSelected && skippedCount === 0 && (
           <div className="mt-3 flex items-start gap-2 rounded-chip border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-[12px] text-status-warning">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
             <span>
-              Выбрано {selected.size} аккаунтов, но прикрепится только{" "}
-              <strong>{attachableIds.length}</strong>: остальные {skippedCount} не из пула
-              (на прогреве / заняты / в кулдауне / выведены). Прикрепить их можно
-              позже из экрана кампании, когда они освободятся.
+              Среди выбранных есть аккаунты не из пула (на прогреве / в
+              кулдауне). Они будут прикреплены и сразу начнут работать —
+              прогрев/кулдаун прервутся. Это повышает риск бана.
+            </span>
+          </div>
+        )}
+        {skippedCount > 0 && attachableIds.length > 0 && (
+          <div className="mt-3 flex items-start gap-2 rounded-chip border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-[12px] text-status-warning">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+            <span>
+              Выбрано {selected.size} аккаунтов, прикрепится{" "}
+              <strong>{attachableIds.length}</strong>: остальные {skippedCount} забанены
+              или выведены из работы — их нельзя использовать.
             </span>
           </div>
         )}
@@ -646,8 +658,8 @@ export function NewCampaignScreen() {
           <div className="mt-3 flex items-start gap-2 rounded-chip border border-status-critical/40 bg-status-critical/10 px-3 py-2 text-[12px] text-status-critical">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
             <span>
-              Ни один из выбранных аккаунтов нельзя прикрепить сейчас (все не в
-              пуле). Кампания не будет создана — выберите хотя бы один из пула.
+              Все выбранные аккаунты забанены или выведены из работы. Выберите
+              хотя бы один рабочий.
             </span>
           </div>
         )}

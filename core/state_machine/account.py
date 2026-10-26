@@ -124,7 +124,19 @@ _TRANSITIONS: tuple[_Transition, ...] = (
     ),
     _Transition(
         AccountEvent.CONTAINER_ATTACH,
-        frozenset({AccountStatus.POOL}),
+        # Разрешено прикреплять аккаунт из любого «рабочего» статуса, не только
+        # pool: пользователь прямо запросил поведение «аккаунт на прогреве
+        # прикрепляется к кампании и работает» (баг-репорт: без этого warming
+        # отклонялся с 409 и кампания оставалась пустой). WARMING/COOLDOWN
+        # прерываются переводом в ASSIGNED — аккаунт сразу идёт в работу.
+        # Исключены: ASSIGNED (эксклюзивность — уже где-то, проверяется в сервисе
+        # через UNIQUE в campaign_account), BANNED/RETIRED (явно нерабочие).
+        frozenset({
+            AccountStatus.POOL,
+            AccountStatus.WARMING,
+            AccountStatus.COOLDOWN,
+            AccountStatus.CREATED,
+        }),
         AccountStatus.ASSIGNED,
         Initiator.USER,
         effects=(Effect.ATTACH_CONTAINER,),
