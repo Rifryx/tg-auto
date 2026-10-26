@@ -136,7 +136,18 @@ export interface CommunityItem {
   created_at: string;
 }
 
-export interface RunCommunitiesBody {
+/** Расширенные фильтры каналов/чатов (общие для enrich и discover). */
+export interface CommunityExtraFilters {
+  title_exclude_regex?: string | null;
+  /** "ru" / "en" / "ru_or_en" / null. Язык определяется по title+about. */
+  language?: "ru" | "en" | "ru_or_en" | null;
+  /** false → отсеивать каналы c noforwards (запрет пересылки). */
+  allow_noforwards?: boolean;
+  min_slowmode_seconds?: number | null;
+  max_slowmode_seconds?: number | null;
+}
+
+export interface RunCommunitiesBody extends CommunityExtraFilters {
   name: string;
   collector_account_id: number;
   refs: string[];
@@ -153,7 +164,7 @@ export interface RunCommunitiesBody {
 }
 
 /* Бесплатный нативный discovery сообществ (поиск + похожие + snowball). */
-export interface RunDiscoverBody {
+export interface RunDiscoverBody extends CommunityExtraFilters {
   name: string;
   collector_account_id: number;
   seeds: string[];

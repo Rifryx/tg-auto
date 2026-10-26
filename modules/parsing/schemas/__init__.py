@@ -134,6 +134,12 @@ class RunCommunitiesRequest(_ParsingBase):
     verified_only: bool = False
     title_regex: Optional[str] = Field(default=None, max_length=256)
     username_regex: Optional[str] = Field(default=None, max_length=256)
+    # Расширенные фильтры.
+    title_exclude_regex: Optional[str] = Field(default=None, max_length=256)
+    language: Optional[str] = Field(default=None, pattern="^(ru|en|ru_or_en)$")
+    allow_noforwards: bool = True
+    min_slowmode_seconds: Optional[int] = Field(default=None, ge=0, le=86_400)
+    max_slowmode_seconds: Optional[int] = Field(default=None, ge=0, le=86_400)
 
 
 class ParsedCommunityItemRead(_ParsingBase):
@@ -169,6 +175,12 @@ class _CommunityFilterFields(_ParsingBase):
     verified_only: bool = False
     title_regex: Optional[str] = Field(default=None, max_length=256)
     username_regex: Optional[str] = Field(default=None, max_length=256)
+    # Расширенные фильтры (точечность парсинга каналов).
+    title_exclude_regex: Optional[str] = Field(default=None, max_length=256)
+    language: Optional[str] = Field(default=None, pattern="^(ru|en|ru_or_en)$")
+    allow_noforwards: bool = True
+    min_slowmode_seconds: Optional[int] = Field(default=None, ge=0, le=86_400)
+    max_slowmode_seconds: Optional[int] = Field(default=None, ge=0, le=86_400)
 
 
 class RunDiscoverRequest(_CommunityFilterFields):

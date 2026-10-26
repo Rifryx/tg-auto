@@ -198,6 +198,9 @@ async def snapshot_from_entity(
         "is_fake": bool(getattr(entity, "fake", False)),
         "slowmode_seconds": slowmode,
         "about": about,
+        # noforwards доступен прямо на канале/чате — отдельный флаг Telegram'а.
+        # Не сохраняем в таблице (миграции нет), используется только в фильтре.
+        "noforwards": bool(getattr(entity, "noforwards", False)),
     }
 
 
@@ -226,6 +229,7 @@ async def _snapshot_invite(client, raw: str, now: datetime) -> Optional[dict]:
             "is_fake": bool(getattr(chat, "fake", False)),
             "slowmode_seconds": None,
             "about": None,
+            "noforwards": bool(getattr(chat, "noforwards", False)),
         }
     # ChatInvite (ещё не вступили) — ограниченная инфа.
     is_megagroup = bool(getattr(res, "megagroup", False))
@@ -247,11 +251,12 @@ async def _snapshot_invite(client, raw: str, now: datetime) -> Optional[dict]:
         "is_fake": bool(getattr(res, "fake", False)),
         "slowmode_seconds": None,
         "about": getattr(res, "about", None),
+        "noforwards": False,
     }
 
 
 def _to_item(snap: dict) -> dict:
-    """Снапшот → поля community_items (last_post_days → last_post_at не пишем:
-    храним только то, что в таблице; days — лишь для фильтра)."""
-    item = {k: v for k, v in snap.items() if k != "last_post_days"}
-    return item
+    """Снапшот → поля community_items. ``last_post_days`` и ``noforwards`` в
+    таблице не хранятся (нужны только для фильтров), поэтому вырезаем их."""
+    skip = {"last_post_days", "noforwards"}
+    return {k: v for k, v in snap.items() if k not in skip}
