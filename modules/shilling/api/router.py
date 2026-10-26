@@ -12,9 +12,12 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+
+log = structlog.get_logger()
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
@@ -98,8 +101,25 @@ def _enforce_child_limit(
 
 @router.get("/campaigns", response_model=list[CampaignRead])
 def list_campaigns(session: Session = Depends(get_session)) -> list[CampaignRead]:
-    """Список кампаний, свежие сверху (сортировка репозитория)."""
-    return [CampaignRead.model_validate(c) for c in CampaignRepository(session).list_all()]
+    """Список кампаний, свежие сверху (сортировка репозитория).
+
+    Валидация per-row с логированием: если одна строка не проходит
+    (например, старый enum-статус или инвариант, добавленный после создания
+    кампании), она пропускается, а остальные возвращаются. Это защищает
+    весь экран от 500, который ломает UX до неработоспособности.
+    """
+    rows = CampaignRepository(session).list_all()
+    result: list[CampaignRead] = []
+    for c in rows:
+        try:
+            result.append(CampaignRead.model_validate(c))
+        except Exception as exc:  # noqa: BLE001 — валидация per-row не должна рушить весь список
+            log.error(
+                "shilling.campaigns.list_item_invalid",
+                campaign_id=getattr(c, "id", None),
+                error=repr(exc),
+            )
+    return result
 
 
 @router.get("/campaigns/{campaign_id}", response_model=CampaignRead)

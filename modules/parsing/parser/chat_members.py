@@ -76,25 +76,34 @@ async def parse_chat_members(
     progress.log(f"Открываю {chat_ref} и читаю участников…")
     client = await pool.get(collector_account_id)
     raw_rows: list[dict[str, Any]] = []
+    # pre_breakdown: отсеивания ДО фильтров (напр. only_recently_seen) —
+    # раньше они молча терялись: пользователь видел raw_count=0 и думал, что
+    # парсинг «ничего не делает», хотя чат на 50k. Теперь показываем в логе.
+    pre_breakdown: dict[str, int] = {}
+    total_seen = 0
     try:
         entity = await client.get_entity(chat_ref)
-        seen = 0
         async for participant in client.iter_participants(entity):
-            seen += 1
+            total_seen += 1
             snap = _snapshot(participant, now)
             if only_recently_seen and snap["last_seen_bucket"] not in {
                 TargetLastSeen.RECENTLY.value,
                 TargetLastSeen.WITHIN_WEEK.value,
             }:
+                pre_breakdown["not_recently_seen"] = (
+                    pre_breakdown.get("not_recently_seen", 0) + 1
+                )
                 continue
             raw_rows.append(snap)
-            # Каждые 50 — прогресс + реакция на паузу/стоп.
-            if seen % 50 == 0:
-                progress.log(f"Просмотрено {seen}, собрано {len(raw_rows)}…")
+            if total_seen % 50 == 0:
+                progress.log(f"Просмотрено {total_seen}, собрано {len(raw_rows)}…")
                 await progress.heartbeat(raw=len(raw_rows))
     finally:
         await pool.release(collector_account_id)
-    progress.log(f"Сбор завершён: собрано {len(raw_rows)}. Применяю фильтры…")
+    progress.log(
+        f"Сбор завершён: просмотрено {total_seen}, собрано {len(raw_rows)}. "
+        f"Применяю фильтры…"
+    )
 
     options = filter_options or FilterOptions()
     options.owner_user_id = owner_user_id
@@ -124,25 +133,31 @@ async def parse_chat_members(
                 ],
             )
         breakdown = dict(outcome.breakdown)
+        # Отсеивания ДО фильтров (only_recently_seen) тоже видимы юзеру,
+        # чтобы не казалось, что парсер «ничего не собрал».
+        for reason, cnt in pre_breakdown.items():
+            breakdown[reason] = breakdown.get(reason, 0) + cnt
         already = len(outcome.kept) - inserted
         if already > 0:
             breakdown["already_in_list"] = already
         ParsedListRepository(session).update(list_id, {
-            "raw_count": len(raw_rows),
+            "raw_count": total_seen,
             "after_filters_count": inserted,
             "filters_breakdown": breakdown,
             "parsed_at": datetime.now(timezone.utc),
         })
         session.commit()
 
-    progress.set_counts(raw=len(raw_rows), inserted=inserted)
-    progress.log(f"Фильтры применены: добавлено {inserted} из {len(raw_rows)}.")
+    progress.set_counts(raw=total_seen, inserted=inserted)
+    progress.log(
+        f"Фильтры применены: добавлено {inserted} из {total_seen} просмотренных."
+    )
     log.info(
         "parsing.chat_members.done", list_id=list_id,
-        raw=len(raw_rows), inserted=inserted, breakdown=breakdown,
+        raw=total_seen, inserted=inserted, breakdown=breakdown,
     )
     return ParseResult(
-        list_id=list_id, raw_count=len(raw_rows),
+        list_id=list_id, raw_count=total_seen,
         inserted=inserted, filters_breakdown=breakdown,
     )
 
