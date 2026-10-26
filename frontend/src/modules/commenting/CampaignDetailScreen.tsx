@@ -7,7 +7,7 @@ import { accountsApi, catalogApi } from "../../shared/accounts";
 import { projectsApi } from "../../shared/projects";
 import { Select } from "../../shared/Select";
 import { accountDisplay } from "../../shared/format";
-import { statusDotClass } from "../../shared/status";
+import { accountStatusHint, statusDotClass } from "../../shared/status";
 import { haptic } from "../../shared/tg";
 import type { Account } from "../../shared/types";
 import { commentingApi } from "./api";
@@ -278,6 +278,7 @@ export function CampaignDetailScreen() {
               const acc = accountById.get(aid);
               const link = (links.data ?? []).find((l) => l.account_id === aid);
               const customized = !!link?.override_prompt || link?.probability_override != null;
+              const accHint = acc ? accountStatusHint(acc) : null;
               return (
                 <div key={aid} className="card flex items-center gap-3 px-4 py-3">
                   <AccountAvatar avatarUrl={acc?.avatar_url} fallback={acc?.first_name ?? acc?.username} size={32} />
@@ -285,9 +286,16 @@ export function CampaignDetailScreen() {
                     className={`h-2 w-2 shrink-0 rounded-full ${acc ? statusDotClass(acc.status) : "bg-status-neutral"}`}
                     aria-hidden
                   />
-                  <span className="min-w-0 flex-1 truncate text-[15px] text-text-primary nums">
-                    {acc ? accountDisplay(acc) : `Аккаунт #${aid}`}
-                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[15px] text-text-primary nums">
+                      {acc ? accountDisplay(acc) : `Аккаунт #${aid}`}
+                    </p>
+                    {accHint?.detail && (
+                      <p className={`truncate text-[11px] ${accHint.warn ? "text-status-warning" : "text-text-tertiary"}`}>
+                        {accHint.label} · {accHint.detail}
+                      </p>
+                    )}
+                  </div>
                   <button
                     onClick={() => setSettingsAccountId(aid)}
                     aria-label="Индивидуальные настройки"

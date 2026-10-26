@@ -1,7 +1,12 @@
 import { Check, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { accountDisplay, ageFrom, countdown } from "../../../shared/format";
-import { CONTAINER_LABEL, PROFILE_LABEL, ROLE_LABEL } from "../../../shared/status";
+import {
+  accountStatusHint,
+  CONTAINER_LABEL,
+  PROFILE_LABEL,
+  ROLE_LABEL,
+} from "../../../shared/status";
 import type { Account, Proxy } from "../../../shared/types";
 import { StatusBadge, StatusDot } from "./ui";
 
@@ -34,6 +39,10 @@ export function AccountRow({
     ? CONTAINER_LABEL[account.assigned_container_type] ?? account.assigned_container_type
     : "Idle";
   const roleLabel = account.role ? ROLE_LABEL[account.role] : null;
+  // ETA по статусу (прогрев / кулдаун) — показываем на карточке, чтобы
+  // пользователь понимал когда аккаунт станет готовым, а не ломал глаза
+  // в поисках абстрактного «ещё на прогреве» без цифры.
+  const statusHint = accountStatusHint(account);
 
   const meta: string[] = [];
   if (proxy?.geo) meta.push(proxy.geo.toUpperCase());
@@ -79,6 +88,9 @@ export function AccountRow({
           {meta.join(" · ")}
           {roleLabel && <span className="text-text-secondary"> · {roleLabel}</span>}
           {timer && <span className="text-status-warning"> · ⏳ {timer}</span>}
+          {statusHint.detail && !timer && (
+            <span className="text-status-warning"> · ⏳ {statusHint.detail}</span>
+          )}
         </p>
       </div>
 

@@ -1,10 +1,13 @@
 import { Check } from "lucide-react";
 import { AccountAvatar } from "../../../shared/AccountAvatar";
 import { accountDisplay } from "../../../shared/format";
-import { statusDotClass, STATUS_LABEL } from "../../../shared/status";
+import { statusDotClass, STATUS_LABEL, accountStatusHint } from "../../../shared/status";
 import type { Account } from "../../../shared/types";
 
-/* Карточка-строка аккаунта с чекбоксом (те же строки, что в списке аккаунтов). */
+/* Карточка-строка аккаунта с чекбоксом (те же строки, что в списке аккаунтов).
+ * Под именем показываем статус + ETA («Прогрев · не позже чем через 3 дня»),
+ * чтобы пользователь понимал, когда аккаунт освободится — раньше была только
+ * пометка «ещё на прогреве» без таймера. */
 export function AccountPickRow({
   account,
   selected,
@@ -16,6 +19,7 @@ export function AccountPickRow({
   onToggle: () => void;
   note?: string;
 }) {
+  const hint = accountStatusHint(account);
   return (
     <button
       onClick={onToggle}
@@ -28,7 +32,15 @@ export function AccountPickRow({
           {accountDisplay(account)}
         </p>
         <p className="truncate text-[12px] text-text-tertiary">
-          {STATUS_LABEL[account.status]}
+          <span className={hint.warn ? "text-status-warning" : undefined}>
+            {STATUS_LABEL[account.status]}
+          </span>
+          {hint.detail && (
+            <span className={hint.warn ? "text-status-warning" : undefined}>
+              {" · "}
+              {hint.detail}
+            </span>
+          )}
           {note && <span className="text-status-warning"> · {note}</span>}
         </p>
       </div>
