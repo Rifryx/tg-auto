@@ -71,6 +71,30 @@ def _filter_payload(body) -> dict:
     return {k: getattr(body, k) for k in _FILTER_KEYS}
 
 
+# Поля фильтров для community-парсеров (enrich + discover).
+_COMMUNITY_FILTER_KEYS = (
+    "kind",
+    "min_participants",
+    "max_participants",
+    "require_public",
+    "require_linked_chat",
+    "last_post_max_days",
+    "exclude_scam_fake",
+    "verified_only",
+    "title_regex",
+    "username_regex",
+    "title_exclude_regex",
+    "language",
+    "allow_noforwards",
+    "min_slowmode_seconds",
+    "max_slowmode_seconds",
+)
+
+
+def _community_filter_payload(body) -> dict:
+    return {k: getattr(body, k) for k in _COMMUNITY_FILTER_KEYS}
+
+
 async def _start_job(
     *,
     session: Session,
@@ -245,16 +269,7 @@ async def run_communities(
         payload={
             "collector_account_id": body.collector_account_id,
             "refs": body.refs,
-            "kind": body.kind,
-            "min_participants": body.min_participants,
-            "max_participants": body.max_participants,
-            "require_public": body.require_public,
-            "require_linked_chat": body.require_linked_chat,
-            "last_post_max_days": body.last_post_max_days,
-            "exclude_scam_fake": body.exclude_scam_fake,
-            "verified_only": body.verified_only,
-            "title_regex": body.title_regex,
-            "username_regex": body.username_regex,
+            **_community_filter_payload(body),
         },
     )
 
@@ -282,16 +297,7 @@ async def run_discover(
             "use_mentions": body.use_mentions,
             "depth": body.depth,
             "max_results": body.max_results,
-            "kind": body.kind,
-            "min_participants": body.min_participants,
-            "max_participants": body.max_participants,
-            "require_public": body.require_public,
-            "require_linked_chat": body.require_linked_chat,
-            "last_post_max_days": body.last_post_max_days,
-            "exclude_scam_fake": body.exclude_scam_fake,
-            "verified_only": body.verified_only,
-            "title_regex": body.title_regex,
-            "username_regex": body.username_regex,
+            **_community_filter_payload(body),
         },
     )
 

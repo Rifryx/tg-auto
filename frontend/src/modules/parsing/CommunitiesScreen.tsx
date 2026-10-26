@@ -3,10 +3,21 @@ import { AlertCircle, ArrowLeft, Filter, Link2, Play, Sparkles, UserCheck } from
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
+import { AccountAvatar } from "../../shared/AccountAvatar";
 import { accountsApi } from "../../shared/accounts";
 import { accountWorkWarning, sortForWork } from "../../shared/status";
+import type { Account } from "../../shared/types";
 import { parsingApi } from "./api";
 import { Checkbox } from "./components/Checkbox";
+
+/** Отображаемое имя аккаунта: display_name > first+last > @username > телефон. */
+function accountLabel(a: Account): string {
+  if (a.display_name && a.display_name.trim()) return a.display_name.trim();
+  const full = [a.first_name, a.last_name].filter(Boolean).join(" ").trim();
+  if (full) return full;
+  if (a.username) return `@${a.username}`;
+  return a.phone;
+}
 
 /* Единый экран поиска каналов/чатов (раньше были два почти одинаковых —
    «Сообщества» и «Найти каналы»). Два режима:
@@ -53,6 +64,12 @@ export function CommunitiesScreen() {
   const [excludeScamFake, setExcludeScamFake] = useState(true);
   const [titleRegex, setTitleRegex] = useState("");
   const [usernameRegex, setUsernameRegex] = useState("");
+  // Расширенные фильтры (язык, noforwards, slowmode, exclude-regex).
+  const [language, setLanguage] = useState<"" | "ru" | "en" | "ru_or_en">("");
+  const [allowNoforwards, setAllowNoforwards] = useState(true);
+  const [titleExcludeRegex, setTitleExcludeRegex] = useState("");
+  const [minSlowmode, setMinSlowmode] = useState("");
+  const [maxSlowmode, setMaxSlowmode] = useState("");
 
   const accountsQuery = useQuery({ queryKey: ["accounts", "pool"], queryFn: () => accountsApi.list() });
   const collectors = useMemo(() => sortForWork(accountsQuery.data ?? []), [accountsQuery.data]);
@@ -77,6 +94,11 @@ export function CommunitiesScreen() {
     exclude_scam_fake: excludeScamFake,
     title_regex: titleRegex.trim() || null,
     username_regex: usernameRegex.trim() || null,
+    title_exclude_regex: titleExcludeRegex.trim() || null,
+    language: language || null,
+    allow_noforwards: allowNoforwards,
+    min_slowmode_seconds: minSlowmode ? Number(minSlowmode) : null,
+    max_slowmode_seconds: maxSlowmode ? Number(maxSlowmode) : null,
   };
 
   const submit = useMutation({
@@ -255,22 +277,32 @@ export function CommunitiesScreen() {
             <UserCheck className="h-4 w-4 text-status-active" strokeWidth={2.2} aria-hidden />
             <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">Аккаунт-парсер</div>
           </div>
-          <div className="flex max-h-48 flex-col gap-1.5 overflow-y-auto">
+          <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
             {collectors.map((a) => {
               const warn = accountWorkWarning(a.status);
+              const label = accountLabel(a);
               return (
                 <button
                   key={a.id} type="button" onClick={() => setCollectorId(collectorId === a.id ? null : a.id)}
                   className={[
-                    "flex items-center justify-between gap-2 rounded-xl border p-3 text-left transition-colors",
+                    "flex items-center gap-3 rounded-xl border p-3 text-left transition-colors",
                     collectorId === a.id ? "border-strong bg-surface-2" : "border-hairline bg-surface-1 active:bg-surface-2",
                   ].join(" ")}
                 >
-                  <div className="min-w-0">
+                  <AccountAvatar
+                    avatarUrl={a.avatar_url}
+                    fallback={label}
+                    size={36}
+                    colorful
+                  />
+                  <div className="min-w-0 flex-1">
                     <div className="truncate text-[14px] font-medium text-text-primary">
-                      {a.username ? `@${a.username}` : a.phone}
+                      {label}
                     </div>
-                    {warn && <div className="truncate text-[11px] text-status-warning">{warn}</div>}
+                    <div className="truncate text-[11px] text-text-tertiary">
+                      {a.username ? `@${a.username}` : a.phone}
+                      {warn && <span className="ml-1 text-status-warning">· {warn}</span>}
+                    </div>
                   </div>
                   {collectorId === a.id && (
                     <span className="shrink-0 rounded-pill bg-status-active/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-status-active">выбран</span>
@@ -341,6 +373,70 @@ export function CommunitiesScreen() {
                 className="mt-1 w-full rounded-xl border border-hairline bg-surface-2 p-2 font-mono text-[13px] text-text-primary" />
             </label>
           </div>
+
+          <label className="mt-3 block text-[13px] font-medium text-text-secondary">
+            Исключить по названию (regex)
+            <input value={titleExcludeRegex} onChange={(e) => setTitleExcludeRegex(e.target.value)}
+              placeholder="казино|18+|spam"
+              className="mt-1 w-full rounded-xl border border-hairline bg-surface-2 p-2 font-mono text-[13px] text-text-primary" />
+            <span className="mt-1 block text-[11px] text-text-tertiary">
+              Канал/чат отсеивается, если название совпадает с regex.
+            </span>
+          </label>
+
+          {/* Язык — простая эвристика по title+about (кириллица vs латиница).
+              Для азиатских/арабских каналов выбор «любой», иначе их отсеет. */}
+          <div className="mt-4 text-[13px] font-medium text-text-secondary">Язык канала</div>
+          <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {([
+              ["", "Любой"],
+              ["ru", "Русский"],
+              ["en", "Английский"],
+              ["ru_or_en", "RU или EN"],
+            ] as const).map(([v, lbl]) => (
+              <button
+                key={v || "any"} type="button" onClick={() => setLanguage(v)}
+                className={[
+                  "rounded-pill border px-3 py-1.5 text-[13px] font-medium",
+                  language === v ? "border-strong bg-surface-2 text-text-primary" : "border-hairline bg-surface-1 text-text-secondary",
+                ].join(" ")}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] text-text-tertiary">
+            Эвристика по названию и описанию. «Неизвестный» (слишком мало текста) пропускается всегда.
+          </p>
+
+          <div className="mt-3">
+            <Checkbox
+              checked={allowNoforwards}
+              onChange={setAllowNoforwards}
+              label="Разрешать каналы с запретом пересылки"
+              description="Отключите, если нужны только каналы, из которых можно репостить/форвардить."
+            />
+          </div>
+
+          {/* Slowmode — применимо к чатам/группам. Для каналов всегда 0. */}
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <label className="text-[13px] font-medium text-text-secondary">
+              Slowmode от (сек)
+              <input type="number" min={0} value={minSlowmode}
+                onChange={(e) => setMinSlowmode(e.target.value.replace(/\D/g, ""))}
+                placeholder="любой" className={inputCls} />
+            </label>
+            <label className="text-[13px] font-medium text-text-secondary">
+              до (сек)
+              <input type="number" min={0} value={maxSlowmode}
+                onChange={(e) => setMaxSlowmode(e.target.value.replace(/\D/g, ""))}
+                placeholder="любой" className={inputCls} />
+            </label>
+          </div>
+          <p className="mt-1 text-[11px] text-text-tertiary">
+            Задержка между сообщениями в чате. 0 — без ограничений. Высокий slowmode
+            обычно у чатов с жёсткой модерацией.
+          </p>
         </div>
 
         <div

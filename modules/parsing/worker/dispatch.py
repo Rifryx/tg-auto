@@ -51,6 +51,27 @@ def _filter_options(payload: dict[str, Any]) -> FilterOptions:
     )
 
 
+def _community_filter_options(payload: dict[str, Any]) -> CommunityFilterOptions:
+    """Собирает CommunityFilterOptions из payload (Discovery-фильтры)."""
+    return CommunityFilterOptions(
+        kind=payload.get("kind") or None,
+        min_participants=payload.get("min_participants"),
+        max_participants=payload.get("max_participants"),
+        require_public=bool(payload.get("require_public", False)),
+        require_linked_chat=bool(payload.get("require_linked_chat", False)),
+        last_post_max_days=payload.get("last_post_max_days"),
+        exclude_scam_fake=bool(payload.get("exclude_scam_fake", True)),
+        verified_only=bool(payload.get("verified_only", False)),
+        title_regex=payload.get("title_regex") or None,
+        username_regex=payload.get("username_regex") or None,
+        title_exclude_regex=payload.get("title_exclude_regex") or None,
+        language=payload.get("language") or None,
+        allow_noforwards=bool(payload.get("allow_noforwards", True)),
+        min_slowmode_seconds=payload.get("min_slowmode_seconds"),
+        max_slowmode_seconds=payload.get("max_slowmode_seconds"),
+    )
+
+
 async def parser_run(
     ctx: dict, kind: str, payload: dict[str, Any],
 ) -> Optional[dict]:
@@ -224,18 +245,7 @@ async def _dispatch_kind(ctx: dict, kind: str, payload: dict[str, Any]):
             name=str(payload["name"]),
             collector_account_id=int(payload["collector_account_id"]),
             refs=list(payload.get("refs") or []),
-            filter_options=CommunityFilterOptions(
-                kind=payload.get("kind") or None,
-                min_participants=payload.get("min_participants"),
-                max_participants=payload.get("max_participants"),
-                require_public=bool(payload.get("require_public", False)),
-                require_linked_chat=bool(payload.get("require_linked_chat", False)),
-                last_post_max_days=payload.get("last_post_max_days"),
-                exclude_scam_fake=bool(payload.get("exclude_scam_fake", True)),
-                verified_only=bool(payload.get("verified_only", False)),
-                title_regex=payload.get("title_regex") or None,
-                username_regex=payload.get("username_regex") or None,
-            ),
+            filter_options=_community_filter_options(payload),
         )
     elif kind == "discover_communities":
         result = await discover_communities(
@@ -251,18 +261,7 @@ async def _dispatch_kind(ctx: dict, kind: str, payload: dict[str, Any]):
             use_mentions=bool(payload.get("use_mentions", False)),
             depth=int(payload.get("depth", 2)),
             max_results=int(payload.get("max_results", 200)),
-            filter_options=CommunityFilterOptions(
-                kind=payload.get("kind") or None,
-                min_participants=payload.get("min_participants"),
-                max_participants=payload.get("max_participants"),
-                require_public=bool(payload.get("require_public", False)),
-                require_linked_chat=bool(payload.get("require_linked_chat", False)),
-                last_post_max_days=payload.get("last_post_max_days"),
-                exclude_scam_fake=bool(payload.get("exclude_scam_fake", True)),
-                verified_only=bool(payload.get("verified_only", False)),
-                title_regex=payload.get("title_regex") or None,
-                username_regex=payload.get("username_regex") or None,
-            ),
+            filter_options=_community_filter_options(payload),
         )
     else:
         log.warning("parsing.parser_run.unknown_kind", kind=kind)
