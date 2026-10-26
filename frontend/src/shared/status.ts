@@ -66,6 +66,95 @@ export function accountWorkWarning(status: AccountStatus): string | null {
   return WORK_WARNING[status] ?? null;
 }
 
+/** Пороги готовности прогрева — зеркало worker/warming/presets.py.
+ *  По факту завершение — по РАНЬШЕМУ из критериев (действия или дни),
+ *  но у фронта нет счётчика действий, поэтому даём ETA по дням как
+ *  верхнюю оценку: «не позже чем …». */
+const WARMING_READY_DAYS = 14;
+
+/** Человекочитаемая «подсказка» рядом со статусом аккаунта.
+ *
+ *  Пользователь жаловался: «риск бана 0 из 100, но он всё ещё на прогреве —
+ *  непонятно когда закончится». Теперь по каждому не-pool статусу считаем
+ *  ETA (на базе warming_started_at и cooldown_until) и даём человекочитаемую
+ *  строку: «Прогрев: ещё ~3 дня», «Кулдаун: до 15:30», «В работе» и т.п.
+ *
+ *  Возвращает:
+ *   - label — короткая подпись статуса (для «badge»);
+ *   - detail — пояснение с ETA (для второй строки под именем);
+ *   - warn — true если аккаунт «не идеален» для немедленной работы.
+ */
+export function accountStatusHint(a: {
+  status: AccountStatus;
+  warming_started_at?: string | null;
+  cooldown_until?: string | null;
+}): { label: string; detail: string | null; warn: boolean } {
+  const now = Date.now();
+  switch (a.status) {
+    case "pool":
+      return { label: "Готов", detail: null, warn: false };
+    case "assigned":
+      return { label: "В работе", detail: "уже занят в кампании", warn: true };
+    case "warming": {
+      if (!a.warming_started_at) {
+        return { label: "Прогрев", detail: "идёт прогрев", warn: true };
+      }
+      const started = new Date(a.warming_started_at).getTime();
+      const endsAt = started + WARMING_READY_DAYS * 86_400_000;
+      const left = endsAt - now;
+      return {
+        label: "Прогрев",
+        detail:
+          left <= 0
+            ? "вот-вот завершится"
+            : `не позже чем через ${formatDuration(left)}`,
+        warn: true,
+      };
+    }
+    case "cooldown": {
+      if (!a.cooldown_until) {
+        return { label: "Пауза", detail: "кулдаун, риск/флуд", warn: true };
+      }
+      const until = new Date(a.cooldown_until).getTime();
+      const left = until - now;
+      return {
+        label: "Пауза",
+        detail:
+          left <= 0
+            ? "вот-вот снимется"
+            : `освободится через ${formatDuration(left)}`,
+        warn: true,
+      };
+    }
+    case "created":
+      return {
+        label: "Новый",
+        detail: "не вошёл / не прогрет — требует запуска",
+        warn: true,
+      };
+    case "banned":
+      return { label: "Забанен", detail: "работа невозможна", warn: true };
+    case "retired":
+      return { label: "Выведен", detail: "выведен из работы", warn: true };
+    default:
+      return { label: a.status, detail: null, warn: false };
+  }
+}
+
+/** Форматирует миллисекунды в «3 дн», «5 ч», «40 мин», «1 мин». */
+function formatDuration(ms: number): string {
+  const minutes = Math.max(1, Math.floor(ms / 60_000));
+  if (minutes >= 1440) {
+    const days = Math.round(minutes / 1440);
+    return `${days} ${days === 1 ? "день" : days < 5 ? "дня" : "дней"}`;
+  }
+  if (minutes >= 60) {
+    const hours = Math.round(minutes / 60);
+    return `${hours} ${hours === 1 ? "час" : hours < 5 ? "часа" : "часов"}`;
+  }
+  return `${minutes} ${minutes === 1 ? "минуту" : minutes < 5 ? "минуты" : "минут"}`;
+}
+
 /** Сортировка: идеальные (pool) — вверх, затем прочие в порядке «полезности». */
 const WORK_ORDER: Record<AccountStatus, number> = {
   pool: 0,
