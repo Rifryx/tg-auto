@@ -68,7 +68,10 @@ export function RunParsingScreen() {
   const [reactionsPerPost, setReactionsPerPost] = useState(100);
   const [minReactions, setMinReactions] = useState(1);
   // filters
-  const [requireUsername, setRequireUsername] = useState(true);
+  // По умолчанию выключено: раньше галочка стояла, и парсер отсеивал
+  // большинство участников (многие в чатах без @username) — пользователь
+  // видел пустой результат и думал, что «ничего не парсится».
+  const [requireUsername, setRequireUsername] = useState(false);
   const [premiumOnly, setPremiumOnly] = useState(false);
   const [requirePhoto, setRequirePhoto] = useState(false);
   const [verifiedOnly, setVerifiedOnly] = useState(false);

@@ -69,9 +69,30 @@ export function CampaignDetailScreen() {
     mutationFn: (body: CampaignUpdateBody) => commentingApi.update(campaignId, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["campaign", campaignId] }),
   });
+  // Attach-мутация: раньше при первой ошибке падала целиком, а уже успешные
+  // attach оставались примонтированными — пользователь видел «ошибку», но
+  // часть аккаунтов на самом деле прикрепилась. Теперь идём последовательно,
+  // собираем успехи/отказы и показываем сводку.
+  const [attachSummary, setAttachSummary] = useState<null | {
+    ok: number;
+    failed: number;
+  }>(null);
   const attach = useMutation({
-    mutationFn: (ids: number[]) => Promise.all(ids.map((a) => commentingApi.attach(campaignId, a))),
-    onSuccess: () => {
+    mutationFn: async (ids: number[]) => {
+      let ok = 0;
+      let failed = 0;
+      for (const aid of ids) {
+        try {
+          await commentingApi.attach(campaignId, aid);
+          ok += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      return { ok, failed };
+    },
+    onSuccess: (summary) => {
+      setAttachSummary(summary);
       setSheetOpen(false);
       qc.invalidateQueries({ queryKey: ["campaign", campaignId, "accounts"] });
       qc.invalidateQueries({ queryKey: ["accounts"] });
@@ -220,6 +241,35 @@ export function CampaignDetailScreen() {
           onAdd={(ids) => attach.mutate(ids.filter((id) => !attachedIds.includes(id)))}
           actionLabelPending={attach.isPending ? "Добавляем…" : undefined}
         />
+        {attachSummary && (attachSummary.ok > 0 || attachSummary.failed > 0) && (
+          <div
+            className={`mt-2 flex items-start gap-2 rounded-chip px-3 py-2 text-[12px] ${
+              attachSummary.failed > 0 && attachSummary.ok === 0
+                ? "border border-status-critical/40 bg-status-critical/10 text-status-critical"
+                : attachSummary.failed > 0
+                  ? "border border-status-warning/40 bg-status-warning/10 text-status-warning"
+                  : "border border-status-active/40 bg-status-active/10 text-status-active"
+            }`}
+          >
+            <span className="flex-1">
+              {attachSummary.ok > 0 && <>Добавлено: {attachSummary.ok}. </>}
+              {attachSummary.failed > 0 && (
+                <>
+                  Не удалось: {attachSummary.failed} (не в пуле — на прогреве /
+                  заняты / в кулдауне).
+                </>
+              )}
+            </span>
+            <button
+              type="button"
+              onClick={() => setAttachSummary(null)}
+              className="shrink-0 opacity-70 hover:opacity-100"
+              aria-label="Скрыть"
+            >
+              ×
+            </button>
+          </div>
+        )}
         {attachedIds.length === 0 ? (
           <p className="px-1 text-[13px] text-text-tertiary">Аккаунты не привязаны.</p>
         ) : (
