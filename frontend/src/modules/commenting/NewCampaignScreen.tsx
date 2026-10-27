@@ -156,11 +156,24 @@ export function NewCampaignScreen() {
     (a) => selected.has(a.id) && accountWorkWarning(a.status) != null,
   );
 
+  // Прикрепляются ВСЕ выбранные аккаунты, кроме явно нерабочих
+  // (banned/retired). Для warming/cooldown/created state-machine сама
+  // переводит их в assigned при прикреплении — пользователь явно просил
+  // поведение «аккаунт на прогреве тоже прикрепляется и работает».
+  const attachableIds = (allAccounts.data ?? [])
+    .filter(
+      (a) =>
+        selected.has(a.id) && a.status !== "banned" && a.status !== "retired",
+    )
+    .map((a) => a.id);
+  const skippedCount = selected.size - attachableIds.length;
+
   const valid =
     name.trim() !== "" &&
     prompt.trim() !== "" &&
     delayMin <= delayMax &&
-    (selectionMode !== "keywords" || keywordsList.length > 0);
+    (selectionMode !== "keywords" || keywordsList.length > 0) &&
+    attachableIds.length > 0;
 
   const create = useMutation({
     mutationFn: async () => {
@@ -215,16 +228,42 @@ export function NewCampaignScreen() {
           /* некритично: картинки можно прикрепить позже в деталях кампании */
         }
       }
-      for (const id of selected) {
+      // Прикрепляем только pool-аккаунты (сервер отклонит остальные с 409).
+      // Собираем результаты, чтобы при полном провале удалить созданную кампанию
+      // и показать пользователю ошибку — иначе он видит «пустую» кампанию без
+      // понимания, что пошло не так.
+      let attached = 0;
+      const failedIds: number[] = [];
+      for (const id of attachableIds) {
         const override =
           selectionMode === "probability" ? perAccountProbability[id] ?? null : null;
-        await commentingApi.attach(camp.id, id, {
-          probability_override: override,
-        });
+        try {
+          await commentingApi.attach(camp.id, id, {
+            probability_override: override,
+          });
+          attached += 1;
+        } catch {
+          failedIds.push(id);
+        }
       }
-      return camp;
+      if (attached === 0) {
+        // Ни один не прошёл — чистим созданную кампанию и бросаем, чтобы
+        // пользователь остался на экране создания с текущими данными.
+        try {
+          await commentingApi.remove(camp.id);
+        } catch {
+          /* если не удалось удалить — не критично, пользователь увидит её
+             в списке и сможет удалить вручную */
+        }
+        throw new Error(
+          failedIds.length > 0
+            ? "Ни один аккаунт не удалось привязать (отказ сервера). Проверьте статусы аккаунтов."
+            : "Не удалось привязать аккаунты.",
+        );
+      }
+      return { camp, attached, failedIds, skipped: skippedCount };
     },
-    onSuccess: (camp) => {
+    onSuccess: ({ camp }) => {
       haptic("light");
       navigate(`/modules/commenting/campaigns/${camp.id}`);
     },
@@ -595,13 +634,32 @@ export function NewCampaignScreen() {
             })
           }
         />
-        {anyNonIdealSelected && (
+        {anyNonIdealSelected && skippedCount === 0 && (
           <div className="mt-3 flex items-start gap-2 rounded-chip border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-[12px] text-status-warning">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
             <span>
-              Выбраны не идеальные аккаунты (не из пула): они могут быть не
-              прогреты, заняты или на паузе. Кампания сможет взять в работу только
-              свободные (в пуле) — остальные подключатся, когда освободятся.
+              Среди выбранных есть аккаунты не из пула (на прогреве / в
+              кулдауне). Они будут прикреплены и сразу начнут работать —
+              прогрев/кулдаун прервутся. Это повышает риск бана.
+            </span>
+          </div>
+        )}
+        {skippedCount > 0 && attachableIds.length > 0 && (
+          <div className="mt-3 flex items-start gap-2 rounded-chip border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-[12px] text-status-warning">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+            <span>
+              Выбрано {selected.size} аккаунтов, прикрепится{" "}
+              <strong>{attachableIds.length}</strong>: остальные {skippedCount} забанены
+              или выведены из работы — их нельзя использовать.
+            </span>
+          </div>
+        )}
+        {selected.size > 0 && attachableIds.length === 0 && (
+          <div className="mt-3 flex items-start gap-2 rounded-chip border border-status-critical/40 bg-status-critical/10 px-3 py-2 text-[12px] text-status-critical">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+            <span>
+              Все выбранные аккаунты забанены или выведены из работы. Выберите
+              хотя бы один рабочий.
             </span>
           </div>
         )}
@@ -688,7 +746,11 @@ export function NewCampaignScreen() {
           disabled={!valid || create.isPending}
           onClick={() => create.mutate()}
         >
-          {create.isPending ? "Создаём…" : "Создать кампанию"}
+          {create.isPending
+            ? "Создаём…"
+            : attachableIds.length > 0
+              ? `Создать кампанию (${attachableIds.length} ${attachableIds.length === 1 ? "аккаунт" : "аккаунтов"})`
+              : "Создать кампанию"}
         </CapsuleButton>
       </StickyActionBar>
     </div>

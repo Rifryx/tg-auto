@@ -118,10 +118,14 @@ def test_attach_from_pool_succeeds(session, client):
     assert CampaignAccountRepository(session).get(campaign_id, account_id) is not None
 
 
-# --- 2. attach из cooldown → 409, без изменений ------------------------------
+# --- 2. attach из cooldown → 201: прерывает кулдаун, аккаунт в работе --------
+# Пользователь явно запросил поведение «аккаунт любого рабочего статуса
+# прикрепляется и работает» (см. state_machine/account.py: CONTAINER_ATTACH
+# расширен на {POOL, WARMING, COOLDOWN, CREATED}). Trade-off осознанный:
+# повышенный риск бана в обмен на простоту UX.
 
 
-def test_attach_from_cooldown_conflict(session, client):
+def test_attach_from_cooldown_prempts(session, client):
     _clean(session)
     campaign_id = _make_campaign(session)
     account_id = _make_account(session, status="cooldown")
@@ -130,10 +134,12 @@ def test_attach_from_cooldown_conflict(session, client):
         f"/modules/commenting/campaigns/{campaign_id}/accounts",
         json={"account_id": account_id},
     )
-    assert resp.status_code == 409
+    assert resp.status_code == 201
 
-    assert AccountRepository(session).get(account_id).status == "cooldown"
-    assert CampaignAccountRepository(session).get(campaign_id, account_id) is None
+    account = AccountRepository(session).get(account_id)
+    assert account.status == "assigned"
+    assert account.assigned_container_id == campaign_id
+    assert CampaignAccountRepository(session).get(campaign_id, account_id) is not None
 
 
 # --- 3. attach уже привязанного аккаунта → 409 (эксклюзивность) ---------------

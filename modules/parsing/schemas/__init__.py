@@ -69,9 +69,17 @@ class ParsedListTargetRead(_ParsingBase):
 
 
 class _FilterFields(_ParsingBase):
-    """Общий набор фильтров аудитории (Extraction+, этап 1)."""
+    """Общий набор фильтров аудитории (Extraction+, этап 1).
 
-    require_username: bool = True
+    Дефолты намеренно мягкие: пользователь жаловался что «ничего не парсит».
+    Раньше ``require_username=True`` + ``exclude_scam_fake=True`` отсеивали
+    большую часть участников чата (многие без username), и список выходил
+    пустой. Теперь по умолчанию ограничиваем только явно вредное
+    (bots/deleted/scam_fake уже обрабатываются в parsers), остальные
+    фильтры включаются пользователем явно.
+    """
+
+    require_username: bool = False
     premium_only: bool = False
     require_photo: bool = False
     verified_only: bool = False
@@ -97,7 +105,10 @@ class RunChatMembersRequest(_FilterFields):
     name: str = Field(..., min_length=1, max_length=120)
     collector_account_id: int
     chat_ref: str = Field(..., min_length=1)
-    only_recently_seen: bool = True
+    # По умолчанию берём всех участников — иначе Telegram возвращает лишь
+    # "онлайн/недавно", и список часто получался пустым. Явный last_seen_max_days
+    # в фильтрах даёт более точный контроль.
+    only_recently_seen: bool = False
 
 
 class RunChannelCommentersRequest(_FilterFields):
@@ -134,6 +145,12 @@ class RunCommunitiesRequest(_ParsingBase):
     verified_only: bool = False
     title_regex: Optional[str] = Field(default=None, max_length=256)
     username_regex: Optional[str] = Field(default=None, max_length=256)
+    # Расширенные фильтры.
+    title_exclude_regex: Optional[str] = Field(default=None, max_length=256)
+    language: Optional[str] = Field(default=None, pattern="^(ru|en|ru_or_en)$")
+    allow_noforwards: bool = True
+    min_slowmode_seconds: Optional[int] = Field(default=None, ge=0, le=86_400)
+    max_slowmode_seconds: Optional[int] = Field(default=None, ge=0, le=86_400)
 
 
 class ParsedCommunityItemRead(_ParsingBase):
@@ -169,6 +186,12 @@ class _CommunityFilterFields(_ParsingBase):
     verified_only: bool = False
     title_regex: Optional[str] = Field(default=None, max_length=256)
     username_regex: Optional[str] = Field(default=None, max_length=256)
+    # Расширенные фильтры (точечность парсинга каналов).
+    title_exclude_regex: Optional[str] = Field(default=None, max_length=256)
+    language: Optional[str] = Field(default=None, pattern="^(ru|en|ru_or_en)$")
+    allow_noforwards: bool = True
+    min_slowmode_seconds: Optional[int] = Field(default=None, ge=0, le=86_400)
+    max_slowmode_seconds: Optional[int] = Field(default=None, ge=0, le=86_400)
 
 
 class RunDiscoverRequest(_CommunityFilterFields):

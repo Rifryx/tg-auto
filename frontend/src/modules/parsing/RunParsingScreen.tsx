@@ -3,11 +3,21 @@ import { AlertCircle, AlertTriangle, ArrowLeft, Filter, Link2, Play, UserCheck }
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
+import { AccountAvatar } from "../../shared/AccountAvatar";
 import { accountsApi } from "../../shared/accounts";
 import { accountWorkWarning, sortForWork } from "../../shared/status";
+import type { Account } from "../../shared/types";
 import { parsingApi } from "./api";
 import type { AudienceFilters } from "./types";
 import { Checkbox } from "./components/Checkbox";
+
+function accountLabel(a: Account): string {
+  if (a.display_name && a.display_name.trim()) return a.display_name.trim();
+  const full = [a.first_name, a.last_name].filter(Boolean).join(" ").trim();
+  if (full) return full;
+  if (a.username) return `@${a.username}`;
+  return a.phone;
+}
 
 /* Экран запуска парсера (Extraction+, этап 1): 4 источника аудитории +
    расширенные фильтры профиля/активности. */
@@ -58,7 +68,10 @@ export function RunParsingScreen() {
   const [reactionsPerPost, setReactionsPerPost] = useState(100);
   const [minReactions, setMinReactions] = useState(1);
   // filters
-  const [requireUsername, setRequireUsername] = useState(true);
+  // По умолчанию выключено: раньше галочка стояла, и парсер отсеивал
+  // большинство участников (многие в чатах без @username) — пользователь
+  // видел пустой результат и думал, что «ничего не парсится».
+  const [requireUsername, setRequireUsername] = useState(false);
   const [premiumOnly, setPremiumOnly] = useState(false);
   const [requirePhoto, setRequirePhoto] = useState(false);
   const [verifiedOnly, setVerifiedOnly] = useState(false);
@@ -254,19 +267,46 @@ export function RunParsingScreen() {
             <p className="text-[13px] text-text-tertiary">Аккаунтов пока нет.</p>
           ) : (
             <>
-              <select
-                value={collectorId ?? ""}
-                onChange={(e) => setCollectorId(e.target.value ? Number(e.target.value) : null)}
-                className="w-full rounded-xl border border-hairline bg-surface-2 p-3 text-[15px] text-text-primary outline-none focus:border-strong"
-              >
-                <option value="">— выберите аккаунт —</option>
-                {collectors.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {(a.username ? `@${a.username}` : a.phone) +
-                      (accountWorkWarning(a.status) ? ` · ${accountWorkWarning(a.status)}` : "")}
-                  </option>
-                ))}
-              </select>
+              <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
+                {collectors.map((a) => {
+                  const warn = accountWorkWarning(a.status);
+                  const label = accountLabel(a);
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => setCollectorId(collectorId === a.id ? null : a.id)}
+                      className={[
+                        "flex items-center gap-3 rounded-xl border p-3 text-left transition-colors",
+                        collectorId === a.id
+                          ? "border-strong bg-surface-2"
+                          : "border-hairline bg-surface-1 active:bg-surface-2",
+                      ].join(" ")}
+                    >
+                      <AccountAvatar
+                        avatarUrl={a.avatar_url}
+                        fallback={label}
+                        size={36}
+                        colorful
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[14px] font-medium text-text-primary">
+                          {label}
+                        </div>
+                        <div className="truncate text-[11px] text-text-tertiary">
+                          {a.username ? `@${a.username}` : a.phone}
+                          {warn && <span className="ml-1 text-status-warning">· {warn}</span>}
+                        </div>
+                      </div>
+                      {collectorId === a.id && (
+                        <span className="shrink-0 rounded-pill bg-status-active/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-status-active">
+                          выбран
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
               {collectorWarning && (
                 <p className="mt-2 flex items-start gap-1.5 text-[12px] text-status-warning">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />

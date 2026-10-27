@@ -49,10 +49,18 @@ def attach_account(
     account = AccountRepository(session).get(account_id)
     if account is None:
         raise CommentingNotFound(f"account {account_id} not found")
-    # 'pool' исключает cooldown/banned/assigned/warming/etc.
-    if account.status != AccountStatus.POOL.value:
+    # Разрешаем прикрепить аккаунт в любом рабочем статусе (pool, warming,
+    # cooldown, created) — пользователь явно запросил поведение «аккаунт на
+    # прогреве тоже прикрепляется и работает». WARMING/COOLDOWN прерываются
+    # (state machine переводит в ASSIGNED). Явно нерабочие — ASSIGNED (уже где-то),
+    # BANNED, RETIRED — отвергаем с понятным текстом.
+    _NON_ATTACHABLE = {
+        AccountStatus.BANNED.value,
+        AccountStatus.RETIRED.value,
+    }
+    if account.status in _NON_ATTACHABLE:
         raise CommentingConflict(
-            f"account {account_id} is '{account.status}', must be 'pool' to attach"
+            f"account {account_id} is '{account.status}', нельзя прикрепить к кампании"
         )
     # Эксклюзивность: аккаунт не должен быть уже привязан (UNIQUE account_id).
     if CampaignAccountRepository(session).get_by_account(account_id) is not None:
