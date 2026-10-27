@@ -51,11 +51,10 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
         <p className="mb-1 text-text-tertiary">Конфиг</p>
         <ul className="flex flex-col gap-0.5">
           <li>
-            <strong>Канал:</strong> {d.campaign.target_channel ?? "— не задан —"}
-          </li>
-          <li>
-            <strong>Discussion group id:</strong>{" "}
-            {d.campaign.discussion_group_id ?? "— нет —"}
+            <strong>Источник каналов:</strong>{" "}
+            {d.campaign.channel_source_mode === "by_account_subscriptions"
+              ? "по подпискам аккаунта"
+              : "ссылки на каналы"}
           </li>
           <li>
             <strong>Режим отбора постов:</strong> {d.campaign.post_selection_mode}
@@ -64,8 +63,12 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
             <strong>Включено:</strong> {d.campaign.enabled ? "да" : "нет"}
           </li>
           <li>
-            <strong>Прикреплено аккаунтов:</strong> {d.accounts.length} (из них в
-            работе assigned: {d.assigned_count})
+            <strong>Прикреплено аккаунтов:</strong> {d.accounts.length} (в работе
+            assigned: {d.assigned_count})
+          </li>
+          <li>
+            <strong>Каналов для мониторинга:</strong> {d.channels.length}{" "}
+            (готовы к работе: {d.channels_ready_count})
           </li>
           {d.last_timeline_event_ts != null && (
             <li>
@@ -81,6 +84,40 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
           )}
         </ul>
       </div>
+
+      {d.channels.length > 0 && (
+        <div className="rounded-chip border border-hairline bg-surface-1 p-3 text-[12px] text-text-secondary">
+          <p className="mb-2 text-text-tertiary">Каналы кампании</p>
+          <ul className="flex flex-col gap-1">
+            {d.channels.map((ch) => (
+              <li
+                key={ch.id}
+                className={`flex items-start gap-2 ${
+                  ch.status === "working" && ch.has_discussion
+                    ? ""
+                    : "text-status-warning"
+                }`}
+              >
+                <span className="shrink-0">
+                  {ch.status === "working" && ch.has_discussion ? "✓" : "⚠"}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <strong>{ch.ref}</strong>{" "}
+                  <span className="opacity-80">(акк. #{ch.account_id})</span> —{" "}
+                  статус: <strong>{ch.status}</strong>
+                  {!ch.has_discussion && ", нет обсуждений"}
+                  {ch.error && (
+                    <>
+                      <br />
+                      <span className="opacity-80">Ошибка: {ch.error}</span>
+                    </>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

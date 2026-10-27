@@ -127,6 +127,19 @@ class ListenerRegistry:
                         meta={"reason": "missing_or_disabled"},
                     )
                     return False
+                # В режиме «по подпискам аккаунта» этот кампанийный listener
+                # не используется — слушатели живут на уровне каждой подписки
+                # аккаунта (ChannelListenerRegistry), а target_channel/
+                # discussion_group_id на самой кампании вообще не задаются
+                # (поле target_channel помечено как «легаси»). Если попали
+                # сюда в этом режиме — просто тихо выходим, без error-плашек.
+                if campaign.channel_source_mode == "by_account_subscriptions":
+                    get_logger().info(
+                        "commenting.listener.attach.skip",
+                        campaign_id=campaign_id,
+                        reason="by_account_subscriptions",
+                    )
+                    return False
                 target_channel = campaign.target_channel
                 discussion_group_id = campaign.discussion_group_id
                 account = await round_robin_account(session, campaign_id, self._cursor)
@@ -407,6 +420,9 @@ class ChannelListenerRegistry:
         """Подключает слушатель одного канала. Идемпотентно."""
         from telethon import events
 
+        from modules.commenting.worker.timeline import TimelineKind, push_event
+
+        redis = ctx.get("redis")
         async with self._lock:
             if channel_id in self._channel_account:
                 return True
@@ -417,16 +433,50 @@ class ChannelListenerRegistry:
 
             with session_factory() as session:
                 ch = MonitoredChannelRepository(session).get(channel_id)
-                if (
-                    ch is None
-                    or ch.status != "working"
-                    or ch.discussion_group_id is None
-                ):
+                if ch is None:
                     get_logger().info(
                         "commenting.channel_listener.attach.skip",
                         channel_id=channel_id,
-                        reason="missing_or_not_working",
+                        reason="missing",
                     )
+                    return False
+                source_campaign_id = ch.source_campaign_id
+                channel_ref = ch.channel_ref or ch.input_ref
+                if ch.status != "working":
+                    get_logger().info(
+                        "commenting.channel_listener.attach.skip",
+                        channel_id=channel_id,
+                        reason=f"status={ch.status}",
+                    )
+                    if source_campaign_id is not None:
+                        push_event(
+                            redis, source_campaign_id, TimelineKind.LISTENER_OFFLINE,
+                            f"Канал «{channel_ref}» не в работе (status={ch.status}). "
+                            f"Проверьте что аккаунт подписан и канал резолвится.",
+                            meta={
+                                "reason": "not_working",
+                                "channel_id": channel_id,
+                                "status": ch.status,
+                                "error": ch.error,
+                            },
+                        )
+                    return False
+                if ch.discussion_group_id is None:
+                    get_logger().info(
+                        "commenting.channel_listener.attach.skip",
+                        channel_id=channel_id,
+                        reason="no_discussion",
+                    )
+                    if source_campaign_id is not None:
+                        push_event(
+                            redis, source_campaign_id, TimelineKind.LISTENER_OFFLINE,
+                            f"У канала «{channel_ref}» нет группы обсуждений. "
+                            "Включите Discussion group в самом Telegram-канале.",
+                            meta={
+                                "reason": "no_discussion_group",
+                                "channel_id": channel_id,
+                            },
+                        )
                     return False
                 account_id = ch.account_id
                 discussion_group_id = ch.discussion_group_id
@@ -439,7 +489,11 @@ class ChannelListenerRegistry:
                 self._accounts[account_id] = entry
 
             handler = make_channel_post_handler(
-                account_id, channel_id, task_queue, channel_tg_id=channel_tg_id
+                account_id, channel_id, task_queue,
+                channel_tg_id=channel_tg_id,
+                redis=redis,
+                source_campaign_id=source_campaign_id,
+                channel_ref=channel_ref,
             )
             event = events.NewMessage(chats=discussion_group_id)
             entry.client.add_event_handler(handler, event)
@@ -450,6 +504,16 @@ class ChannelListenerRegistry:
                 channel_id=channel_id,
                 account_id=account_id,
             )
+            if source_campaign_id is not None:
+                push_event(
+                    redis, source_campaign_id, TimelineKind.LISTENER_ONLINE,
+                    f"Слушатель канала «{channel_ref}» подключён (аккаунт #{account_id})",
+                    meta={
+                        "channel_id": channel_id,
+                        "account_id": account_id,
+                        "discussion_group_id": discussion_group_id,
+                    },
+                )
             return True
 
     async def detach(self, channel_id: int) -> bool:
