@@ -88,8 +88,8 @@ export function AccountRow({
           {meta.join(" · ")}
           {roleLabel && <span className="text-text-secondary"> · {roleLabel}</span>}
           {timer && <span className="text-status-warning"> · ⏳ {timer}</span>}
-          {statusHint.detail && !timer && (
-            <span className="text-status-warning"> · ⏳ {statusHint.detail}</span>
+          {statusHint.shortDetail && !timer && (
+            <span className="text-status-warning"> · ⏳ {statusHint.shortDetail}</span>
           )}
         </p>
       </div>

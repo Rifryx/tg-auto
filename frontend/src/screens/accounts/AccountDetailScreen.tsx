@@ -6,7 +6,12 @@ import { accountsApi, catalogApi, channelsApi } from "../../shared/accounts";
 import { Select } from "../../shared/Select";
 import { commentingApi } from "../../modules/commenting/api";
 import { accountDisplay, formatDateTime, maskHost, timeAgo } from "../../shared/format";
-import { PROFILE_LABEL, STATUS_LABEL, statusDotClass } from "../../shared/status";
+import {
+  accountStatusHint,
+  PROFILE_LABEL,
+  STATUS_LABEL,
+  statusDotClass,
+} from "../../shared/status";
 import { haptic } from "../../shared/tg";
 import type { MonitoredChannel, MonitoredChannelStatus, WarmingProfile } from "../../shared/types";
 import { Field, TextArea, Toggle } from "../../modules/commenting/components/ui";
@@ -306,6 +311,25 @@ export function AccountDetailScreen() {
 
       {/* 1. Статус + таймлайн переходов */}
       <Section title="Статус">
+        {(() => {
+          const hint = accountStatusHint(acc);
+          if (!hint.detail) return null;
+          return (
+            <div
+              className={`mb-3 flex items-start gap-2 rounded-chip border px-3 py-2 text-[13px] ${
+                hint.warn
+                  ? "border-status-warning/40 bg-status-warning/10 text-status-warning"
+                  : "border-hairline bg-surface-1 text-text-secondary"
+              }`}
+            >
+              <span aria-hidden>⏳</span>
+              <div>
+                <p className="font-medium">{hint.label}</p>
+                <p className="text-[12px] opacity-80">{hint.detail}</p>
+              </div>
+            </div>
+          );
+        })()}
         {history.data && history.data.length > 0 ? (
           <ol className="flex flex-col">
             {history.data

@@ -45,6 +45,8 @@ from worker.warming.planner import (
 )
 from worker.warming.presets import (
     INITIAL_BATCH_PROFILE,
+    WARMING_AGED_READY_DAYS,
+    WARMING_AGED_THRESHOLD_DAYS,
     WARMING_READY_ACTIONS,
     WARMING_READY_DAYS,
 )
@@ -123,6 +125,15 @@ def _maybe_complete_warming(session, publisher, account_id: int, now: datetime) 
         if scenario is not None and scenario.ready_days is not None
         else WARMING_READY_DAYS
     )
+    # Для «старых» аккаунтов (created_at давно) прогрев в системе короче:
+    # сам telegram им уже доверяет, двух недель не нужно. См. WARMING_AGED_*.
+    if (
+        scenario is None
+        and account.created_at is not None
+        and (now - account.created_at)
+        >= timedelta(days=WARMING_AGED_THRESHOLD_DAYS)
+    ):
+        ready_days = min(ready_days, WARMING_AGED_READY_DAYS)
     done = _successful_initial_actions(session, account_id)
     age_ok = (
         account.warming_started_at is not None

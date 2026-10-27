@@ -624,7 +624,6 @@ export function NewCampaignScreen() {
       <Section title="Аккаунты">
         <AddGroupBar
           groups={groups.data ?? []}
-          pool={(pool.data ?? []).filter((a) => a.status === "pool")}
           all={allAccounts.data ?? []}
           onAdd={(ids) =>
             setSelected((s) => {
