@@ -17,6 +17,7 @@ import { AddGroupBar } from "./components/AddGroupBar";
 import { AiProtectionCard } from "./components/AiProtectionCard";
 import { CampaignMediaSection } from "./components/CampaignMediaSection";
 import { CommentLogList } from "./components/CommentLogList";
+import { DiagnosticSection } from "./components/DiagnosticSection";
 import { TimelineSection } from "./components/TimelineSection";
 import { LaunchAndStats } from "./components/LaunchAndStats";
 import {
@@ -390,6 +391,14 @@ export function CampaignDetailScreen() {
 
       <LaunchAndStats campaignId={campaignId} />
       <ChannelAlertsSection campaignId={campaignId} />
+
+      {/* Диагностика «почему тишина»: включена ли кампания, прикреплены
+         ли аккаунты, есть ли discussion_group — всё в одной выдаче. Виден
+         ВСЕГДА (не только когда кампания запущена), чтобы пользователь
+         мог быстро понять, что настроить. */}
+      <Section title="Диагностика">
+        <DiagnosticSection campaignId={campaignId} />
+      </Section>
 
       {/* Live-таймлайн: что listener/runner делал за последние ~N событий
          (Redis TTL 24h). Виден только пока кампания активна — для долгой
