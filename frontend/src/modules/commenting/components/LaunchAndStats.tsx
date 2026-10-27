@@ -63,12 +63,12 @@ export function LaunchAndStats({ campaignId }: { campaignId: number }) {
             />
             <RuntimeChip
               icon={<Timer className="h-4 w-4" strokeWidth={2} aria-hidden />}
-              label="Макс. интервал"
+              label="Интервал"
               value={s ? `${s.max_interval_sec}s` : "—"}
             />
             <RuntimeChip
               icon={<MessageSquare className="h-4 w-4" strokeWidth={2} aria-hidden />}
-              label="Макс. комментариев"
+              label="Лимит"
               value={s?.max_comments ?? "∞"}
             />
           </div>
@@ -107,24 +107,24 @@ export function LaunchAndStats({ campaignId }: { campaignId: number }) {
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             <StatTile
               icon={<MessageSquare className="h-4 w-4" strokeWidth={1.8} aria-hidden />}
-              label="Всего попыток"
+              label="Всего"
               value={stats.data?.total ?? 0}
             />
             <StatTile
               icon={<BarChart3 className="h-4 w-4 text-status-active" strokeWidth={1.8} aria-hidden />}
-              label="Успешных"
+              label="Успешно"
               value={stats.data?.posted ?? 0}
               tone="ok"
             />
             <StatTile
               icon={<XCircle className="h-4 w-4 text-status-critical" strokeWidth={1.8} aria-hidden />}
-              label="Неуспешных"
+              label="Ошибок"
               value={(stats.data?.failed ?? 0) + (stats.data?.flagged ?? 0)}
               tone="risk"
             />
             <StatTile
               icon={<BarChart3 className="h-4 w-4" strokeWidth={1.8} aria-hidden />}
-              label="Процент успешных"
+              label="Процент"
               value={`${stats.data?.success_rate_percent ?? 0}%`}
             />
           </div>
@@ -147,18 +147,18 @@ function RuntimeChip({
 }) {
   return (
     <div
-      className={`rounded-chip border px-3 py-2 ${
+      className={`min-w-0 rounded-chip border px-2.5 py-2 ${
         warn
           ? "border-status-critical/40 bg-status-critical/10"
           : "border-hairline bg-surface-1"
       }`}
     >
-      <div className="mb-0.5 flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-text-tertiary">
-        {icon}
-        <span>{label}</span>
+      <div className="mb-0.5 flex min-w-0 items-center gap-1 text-[10px] uppercase leading-tight tracking-wide text-text-tertiary">
+        <span className="shrink-0">{icon}</span>
+        <span className="min-w-0 truncate">{label}</span>
       </div>
       <p
-        className={`text-[18px] font-semibold tabular-nums ${
+        className={`truncate text-[18px] font-semibold tabular-nums ${
           warn ? "text-status-critical" : "text-text-primary"
         }`}
       >
@@ -180,13 +180,13 @@ function StatTile({
   tone?: "ok" | "risk";
 }) {
   return (
-    <div className="rounded-chip border border-hairline bg-surface-1 px-3 py-2">
-      <div className="mb-1 flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-text-tertiary">
-        {icon}
-        <span>{label}</span>
+    <div className="min-w-0 rounded-chip border border-hairline bg-surface-1 px-2.5 py-2">
+      <div className="mb-1 flex min-w-0 items-center gap-1 text-[10px] uppercase leading-tight tracking-wide text-text-tertiary">
+        <span className="shrink-0">{icon}</span>
+        <span className="min-w-0 truncate">{label}</span>
       </div>
       <p
-        className={`text-[22px] font-semibold tabular-nums ${
+        className={`truncate text-[22px] font-semibold tabular-nums ${
           tone === "ok"
             ? "text-status-active"
             : tone === "risk"

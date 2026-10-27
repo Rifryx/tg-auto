@@ -851,3 +851,75 @@ def get_timeline(
             for e in events
         ]
     }
+
+
+@router.get("/campaigns/{campaign_id}/diagnostic")
+def get_diagnostic(
+    campaign_id: int,
+    session: Session = Depends(get_session),
+    redis: Any = Depends(_get_redis),
+) -> dict:
+    """Диагностика кампании: почему слушатель не поднят / не ловит посты.
+
+    Собирает в одной выдаче всё, что нужно пользователю чтобы понять
+    «почему нейрокомментинг молчит»: включена ли кампания, есть ли
+    target_channel/discussion_group_id, какие аккаунты прикреплены и в
+    каких они статусах, активен ли listener в воркере, и когда были
+    последние события в live-таймлайне."""
+    from core.repositories.account import AccountRepository
+    from modules.commenting.worker.timeline import recent_events
+
+    campaign = CampaignRepository(session).get(campaign_id)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    links = CampaignAccountRepository(session).list_by_campaign(campaign_id)
+    acc_repo = AccountRepository(session)
+    accounts = []
+    assigned_count = 0
+    for link in links:
+        a = acc_repo.get(link.account_id)
+        if a is None:
+            continue
+        if a.status == "assigned":
+            assigned_count += 1
+        accounts.append({
+            "id": a.id,
+            "username": a.username,
+            "status": a.status,
+            "warming_started_at": a.warming_started_at.isoformat() if a.warming_started_at else None,
+        })
+
+    # Строим список «предупреждений» — простые, человекочитаемые пункты,
+    # которые пользователь может сам проверить.
+    warnings: list[str] = []
+    if not campaign.enabled:
+        warnings.append("Кампания выключена (enabled=false). Включите в настройках.")
+    if not campaign.target_channel:
+        warnings.append("Не указан target_channel — слушателю не на что подписаться.")
+    if campaign.discussion_group_id is None:
+        warnings.append(
+            "У канала нет discussion_group_id. Включите обсуждения в самом Telegram-канале "
+            "(«Discussion group»), затем нажмите «Переподключить» — иначе ловить посты негде."
+        )
+    if assigned_count == 0:
+        warnings.append(
+            "Нет аккаунтов в статусе assigned. Прикрепите хотя бы один рабочий аккаунт — "
+            "слушатель поднимается через assigned-аккаунт."
+        )
+
+    events = recent_events(redis, campaign_id, limit=5)
+    last_event_ts = events[0].ts if events else None
+
+    return {
+        "campaign": {
+            "id": campaign.id,
+            "enabled": bool(campaign.enabled),
+            "target_channel": campaign.target_channel,
+            "discussion_group_id": campaign.discussion_group_id,
+            "post_selection_mode": campaign.post_selection_mode,
+        },
+        "accounts": accounts,
+        "assigned_count": assigned_count,
+        "last_timeline_event_ts": last_event_ts,
+        "warnings": warnings,
+    }

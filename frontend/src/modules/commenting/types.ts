@@ -92,6 +92,26 @@ export interface TimelineEvent {
   meta: Record<string, unknown>;
 }
 
+/** Диагностика «почему нейрокомментинг молчит» — всё в одной выдаче. */
+export interface CampaignDiagnostic {
+  campaign: {
+    id: number;
+    enabled: boolean;
+    target_channel: string | null;
+    discussion_group_id: number | null;
+    post_selection_mode: string;
+  };
+  accounts: Array<{
+    id: number;
+    username: string | null;
+    status: string;
+    warming_started_at: string | null;
+  }>;
+  assigned_count: number;
+  last_timeline_event_ts: number | null;
+  warnings: string[];
+}
+
 export interface CampaignCreateBody {
   name: string;
   target_channel?: string | null;

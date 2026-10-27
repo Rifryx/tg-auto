@@ -108,6 +108,11 @@ class ListenerRegistry:
             pool = ctx["client_pool"]
             task_queue = _task_queue(ctx)
 
+            # Локальный импорт: timeline → structlog, structlog → ... циклов нет,
+            # но делаем здесь, чтобы push в error-веткaх был доступен.
+            from modules.commenting.worker.timeline import TimelineKind, push_event
+            redis = ctx.get("redis")
+
             with session_factory() as session:
                 campaign = CampaignRepository(session).get(campaign_id)
                 if campaign is None or not campaign.enabled:
@@ -115,6 +120,11 @@ class ListenerRegistry:
                         "commenting.listener.attach.skip",
                         campaign_id=campaign_id,
                         reason="missing_or_disabled",
+                    )
+                    push_event(
+                        redis, campaign_id, TimelineKind.LISTENER_OFFLINE,
+                        "Слушатель не поднят: кампания выключена или удалена",
+                        meta={"reason": "missing_or_disabled"},
                     )
                     return False
                 target_channel = campaign.target_channel
@@ -125,17 +135,63 @@ class ListenerRegistry:
                 get_logger().warning(
                     "commenting.listener.attach.no_account", campaign_id=campaign_id
                 )
+                push_event(
+                    redis, campaign_id, TimelineKind.NO_ACCOUNT,
+                    "Слушатель не поднят: нет аккаунта в статусе assigned. "
+                    "Прикрепите хотя бы один аккаунт к кампании.",
+                    meta={"reason": "no_account"},
+                )
                 return False
 
-            client = await pool.get(account.id)
-            channel = await client.get_entity(target_channel)
-            channel_id = getattr(channel, "id", None)
+            if not target_channel:
+                get_logger().warning(
+                    "commenting.listener.attach.no_target", campaign_id=campaign_id
+                )
+                push_event(
+                    redis, campaign_id, TimelineKind.LISTENER_OFFLINE,
+                    "Слушатель не поднят: у кампании не указан target_channel.",
+                    meta={"reason": "no_target_channel"},
+                )
+                return False
+
+            if discussion_group_id is None:
+                get_logger().warning(
+                    "commenting.listener.attach.no_discussion",
+                    campaign_id=campaign_id, target=target_channel,
+                )
+                push_event(
+                    redis, campaign_id, TimelineKind.LISTENER_OFFLINE,
+                    f"Слушатель не поднят: у канала «{target_channel}» нет группы обсуждений. "
+                    "Включите обсуждения в самом Telegram-канале (Discussion group) "
+                    "или укажите канал, где обсуждения уже подключены.",
+                    meta={"reason": "no_discussion_group", "target_channel": target_channel},
+                )
+                return False
+
+            try:
+                client = await pool.get(account.id)
+                channel = await client.get_entity(target_channel)
+                channel_id = getattr(channel, "id", None)
+            except Exception as exc:  # noqa: BLE001
+                get_logger().warning(
+                    "commenting.listener.attach.resolve_failed",
+                    campaign_id=campaign_id, target=target_channel, error=repr(exc),
+                )
+                push_event(
+                    redis, campaign_id, TimelineKind.LISTENER_OFFLINE,
+                    f"Слушатель не поднят: не удалось открыть канал «{target_channel}» "
+                    f"аккаунтом #{account.id}. Проверьте, что аккаунт подписан и "
+                    f"у него есть доступ. ({type(exc).__name__})",
+                    meta={"reason": "resolve_failed", "error": repr(exc)[:200]},
+                )
+                return False
+
             handler = make_new_post_handler(
                 campaign_id,
                 task_queue,
                 channel_id=channel_id,
                 session_factory=session_factory,
-                redis=ctx.get("redis"),
+                redis=redis,
             )
             event = events.NewMessage(chats=discussion_group_id)
             client.add_event_handler(handler, event)
@@ -151,12 +207,14 @@ class ListenerRegistry:
                 campaign_id=campaign_id,
                 account_id=account.id,
             )
-            # Таймлайн: пользователь увидит, что слушатель поднят.
-            from modules.commenting.worker.timeline import TimelineKind, push_event
             push_event(
-                ctx.get("redis"), campaign_id, TimelineKind.LISTENER_ONLINE,
+                redis, campaign_id, TimelineKind.LISTENER_ONLINE,
                 f"Слушатель канала подключён (аккаунт #{account.id})",
-                meta={"account_id": account.id, "discussion_group_id": discussion_group_id},
+                meta={
+                    "account_id": account.id,
+                    "discussion_group_id": discussion_group_id,
+                    "channel_id": channel_id,
+                },
             )
             return True
 
