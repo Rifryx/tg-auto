@@ -25,6 +25,7 @@ from core.queue import TaskQueue
 from core.queue.task_names import TaskName
 from core.repositories.account import AccountRepository
 from modules.commenting.repositories import CampaignAccountRepository
+from modules.commenting.worker.timeline import TimelineKind, push_event
 from worker.tasks.logging import get_logger
 
 
@@ -77,6 +78,7 @@ def make_new_post_handler(
     channel_id: int,
     session_factory: Optional[Callable[[], Any]] = None,
     rng: Optional[random.Random] = None,
+    redis: Any = None,
 ) -> Callable[[Any], Any]:
     """Возвращает async-handler: пост канала → enqueue commenting.on_new_post.
 
@@ -85,6 +87,10 @@ def make_new_post_handler(
     отсеивает посты ещё ДО постановки задачи в очередь. Так работник не
     получает шум для игнорируемых постов, а логика фильтра остаётся в одном
     месте.
+
+    Если передан ``redis`` — handler пишет события в live-таймлайн кампании
+    (modules.commenting.worker.timeline). Используется UI в детальном экране
+    кампании, чтобы видно было «пост получен → отфильтрован / поставлен».
     """
 
     _rng = rng or random.Random()
@@ -104,6 +110,11 @@ def make_new_post_handler(
                 if campaign is None or not campaign.enabled:
                     return
                 text = getattr(message, "message", None) or getattr(message, "text", None)
+                push_event(
+                    redis, campaign_id, TimelineKind.POST_RECEIVED,
+                    f"Пост #{message.id} пойман в канале",
+                    meta={"channel_msg_id": message.id, "has_text": bool(text)},
+                )
                 if not _passes_post_filter(
                     text,
                     mode=campaign.post_selection_mode,
@@ -117,6 +128,11 @@ def make_new_post_handler(
                         channel_msg_id=message.id,
                         mode=campaign.post_selection_mode,
                     )
+                    push_event(
+                        redis, campaign_id, TimelineKind.POST_FILTERED,
+                        f"Пост #{message.id} отфильтрован ({campaign.post_selection_mode})",
+                        meta={"channel_msg_id": message.id, "mode": campaign.post_selection_mode},
+                    )
                     return
 
         await task_queue.enqueue(
@@ -124,6 +140,11 @@ def make_new_post_handler(
         )
         get_logger().info(
             "commenting.listener.new_post", campaign_id=campaign_id, channel_msg_id=message.id
+        )
+        push_event(
+            redis, campaign_id, TimelineKind.POST_QUEUED,
+            f"Пост #{message.id} поставлен в очередь на коммент",
+            meta={"channel_msg_id": message.id},
         )
 
     return handler

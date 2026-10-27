@@ -14,7 +14,16 @@ from __future__ import annotations
 from typing import Optional
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+
+
+def _get_redis(request: Request) -> Any:
+    """Отдаёт app.state.redis (или None). Используется только у endpoint'ов,
+    которые читают live-данные из Redis (например, таймлайн кампании).
+    В виде Depends — иначе OpenAPI падает на forward-ref Request в сигнатуре."""
+    return getattr(request.app.state, "redis", None)
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -819,3 +828,26 @@ def list_logs(
         campaign_id, status=status_filter, limit=limit, offset=offset
     )
     return [CommentLogRead.model_validate(log) for log in logs]
+
+
+# Live-таймлайн кампании (listener + runner): пост получен → отфильтрован /
+# поставлен в очередь → опубликован / упал. Хранится в Redis (TTL 24h), не
+# в БД — для «что происходит прямо сейчас», без миграции.
+@router.get("/campaigns/{campaign_id}/timeline")
+def get_timeline(
+    campaign_id: int,
+    limit: int = 100,
+    session: Session = Depends(get_session),
+    redis: Any = Depends(_get_redis),
+) -> dict:
+    from modules.commenting.worker.timeline import recent_events
+
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    events = recent_events(redis, campaign_id, limit=max(1, min(200, limit)))
+    return {
+        "events": [
+            {"ts": e.ts, "kind": e.kind, "message": e.message, "meta": e.meta}
+            for e in events
+        ]
+    }

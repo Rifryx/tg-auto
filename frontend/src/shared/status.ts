@@ -72,6 +72,28 @@ export function accountWorkWarning(status: AccountStatus): string | null {
  *  верхнюю оценку: «не позже чем …». */
 const WARMING_READY_DAYS = 14;
 
+/** Если аккаунту уже столько суток или больше, прогрев короче: сами
+ *  аккаунты telegram не считают его подозрительным, достаточно пары
+ *  суток «обжитости» в системе. Пользователь жаловался: «аккаунтам 4
+ *  месяца, не может им 2 недели нужно». Зеркально отражает
+ *  WARMING_READY_DAYS_AGED в worker/warming/presets.py. */
+const WARMING_AGED_THRESHOLD_DAYS = 60;
+const WARMING_AGED_READY_DAYS = 3;
+
+function warmingReadyDays(account: {
+  created_at?: string | null;
+  warming_started_at?: string | null;
+}): number {
+  const createdRaw = account.created_at;
+  if (!createdRaw) return WARMING_READY_DAYS;
+  const created = new Date(createdRaw).getTime();
+  if (!Number.isFinite(created)) return WARMING_READY_DAYS;
+  const ageDays = (Date.now() - created) / 86_400_000;
+  return ageDays >= WARMING_AGED_THRESHOLD_DAYS
+    ? WARMING_AGED_READY_DAYS
+    : WARMING_READY_DAYS;
+}
+
 /** Человекочитаемая «подсказка» рядом со статусом аккаунта.
  *
  *  Пользователь жаловался: «риск бана 0 из 100, но он всё ещё на прогреве —
@@ -88,41 +110,76 @@ export function accountStatusHint(a: {
   status: AccountStatus;
   warming_started_at?: string | null;
   cooldown_until?: string | null;
-}): { label: string; detail: string | null; warn: boolean } {
+  created_at?: string | null;
+}): {
+  label: string;
+  detail: string | null;
+  shortDetail: string | null;
+  warn: boolean;
+} {
   const now = Date.now();
   switch (a.status) {
     case "pool":
-      return { label: "Готов", detail: null, warn: false };
+      return { label: "Готов", detail: null, shortDetail: null, warn: false };
     case "assigned":
-      return { label: "В работе", detail: "уже занят в кампании", warn: true };
+      return {
+        label: "В работе",
+        detail: "уже занят в кампании",
+        shortDetail: "занят",
+        warn: true,
+      };
     case "warming": {
       if (!a.warming_started_at) {
-        return { label: "Прогрев", detail: "идёт прогрев", warn: true };
+        return {
+          label: "Прогрев",
+          detail: "идёт прогрев",
+          shortDetail: "прогрев",
+          warn: true,
+        };
       }
       const started = new Date(a.warming_started_at).getTime();
-      const endsAt = started + WARMING_READY_DAYS * 86_400_000;
+      const totalDays = warmingReadyDays(a);
+      const endsAt = started + totalDays * 86_400_000;
       const left = endsAt - now;
+      if (left <= 0) {
+        return {
+          label: "Прогрев",
+          detail: "вот-вот завершится",
+          shortDetail: "скоро",
+          warn: true,
+        };
+      }
+      const long = formatDuration(left);
       return {
         label: "Прогрев",
-        detail:
-          left <= 0
-            ? "вот-вот завершится"
-            : `не позже чем через ${formatDuration(left)}`,
+        detail: `не позже чем через ${long}`,
+        shortDetail: formatDurationCompact(left),
         warn: true,
       };
     }
     case "cooldown": {
       if (!a.cooldown_until) {
-        return { label: "Пауза", detail: "кулдаун, риск/флуд", warn: true };
+        return {
+          label: "Пауза",
+          detail: "кулдаун, риск/флуд",
+          shortDetail: "пауза",
+          warn: true,
+        };
       }
       const until = new Date(a.cooldown_until).getTime();
       const left = until - now;
+      if (left <= 0) {
+        return {
+          label: "Пауза",
+          detail: "вот-вот снимется",
+          shortDetail: "скоро",
+          warn: true,
+        };
+      }
       return {
         label: "Пауза",
-        detail:
-          left <= 0
-            ? "вот-вот снимется"
-            : `освободится через ${formatDuration(left)}`,
+        detail: `освободится через ${formatDuration(left)}`,
+        shortDetail: formatDurationCompact(left),
         warn: true,
       };
     }
@@ -130,18 +187,29 @@ export function accountStatusHint(a: {
       return {
         label: "Новый",
         detail: "не вошёл / не прогрет — требует запуска",
+        shortDetail: "требует запуска",
         warn: true,
       };
     case "banned":
-      return { label: "Забанен", detail: "работа невозможна", warn: true };
+      return {
+        label: "Забанен",
+        detail: "работа невозможна",
+        shortDetail: null,
+        warn: true,
+      };
     case "retired":
-      return { label: "Выведен", detail: "выведен из работы", warn: true };
+      return {
+        label: "Выведен",
+        detail: "выведен из работы",
+        shortDetail: null,
+        warn: true,
+      };
     default:
-      return { label: a.status, detail: null, warn: false };
+      return { label: a.status, detail: null, shortDetail: null, warn: false };
   }
 }
 
-/** Форматирует миллисекунды в «3 дн», «5 ч», «40 мин», «1 мин». */
+/** Форматирует миллисекунды в «3 дня», «5 часов», «40 минут». */
 function formatDuration(ms: number): string {
   const minutes = Math.max(1, Math.floor(ms / 60_000));
   if (minutes >= 1440) {
@@ -153,6 +221,14 @@ function formatDuration(ms: number): string {
     return `${hours} ${hours === 1 ? "час" : hours < 5 ? "часа" : "часов"}`;
   }
   return `${minutes} ${minutes === 1 ? "минуту" : minutes < 5 ? "минуты" : "минут"}`;
+}
+
+/** Компактный «3 д», «5 ч», «40 м» — для бейджей/мини-карточек. */
+function formatDurationCompact(ms: number): string {
+  const minutes = Math.max(1, Math.floor(ms / 60_000));
+  if (minutes >= 1440) return `${Math.round(minutes / 1440)} д`;
+  if (minutes >= 60) return `${Math.round(minutes / 60)} ч`;
+  return `${minutes} м`;
 }
 
 /** Сортировка: идеальные (pool) — вверх, затем прочие в порядке «полезности». */

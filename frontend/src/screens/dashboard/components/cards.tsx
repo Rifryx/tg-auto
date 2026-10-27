@@ -203,15 +203,36 @@ export function ActivityRow({ item, tz }: { item: ActivityItem; tz?: string }) {
         </p>
         <p className="truncate text-[12px] text-text-tertiary">{who}</p>
       </div>
-      <span className="shrink-0 text-[12px] text-text-tertiary nums">
-        {item.timestamp
-          ? new Date(item.timestamp).toLocaleTimeString("ru-RU", {
-              hour: "2-digit",
-              minute: "2-digit",
-              ...(tz ? { timeZone: tz } : {}),
-            })
-          : ""}
+      <span className="shrink-0 text-right text-[12px] text-text-tertiary nums">
+        {item.timestamp ? formatActivityWhen(item.timestamp, tz) : ""}
       </span>
     </div>
   );
+}
+
+/** «14:51» если сегодня, «вчера 14:51» если вчера, иначе «26.10 14:51»
+ *  — пользователь просил показывать не только часы, но и дату. */
+function formatActivityWhen(ts: string, tz?: string): string {
+  const date = new Date(ts);
+  const timeOpts: Intl.DateTimeFormatOptions = {
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(tz ? { timeZone: tz } : {}),
+  };
+  const time = date.toLocaleTimeString("ru-RU", timeOpts);
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+  const now = new Date();
+  if (sameDay(date, now)) return time;
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (sameDay(date, yesterday)) return `вчера ${time}`;
+  const dateOpts: Intl.DateTimeFormatOptions = {
+    day: "2-digit",
+    month: "2-digit",
+    ...(tz ? { timeZone: tz } : {}),
+  };
+  return `${date.toLocaleDateString("ru-RU", dateOpts)} ${time}`;
 }

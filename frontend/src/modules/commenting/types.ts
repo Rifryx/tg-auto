@@ -69,6 +69,29 @@ export interface CommentLog {
   created_at: string;
 }
 
+/** Событие live-таймлайна кампании (modules/commenting/worker/timeline.py).
+ *  Хранится в Redis TTL 24h, не в БД — чтобы пользователь видел «что
+ *  происходит прямо сейчас»: listener поднят / пост получен / отфильтрован /
+ *  поставлен в очередь / опубликован. */
+export type TimelineKind =
+  | "listener_online"
+  | "listener_offline"
+  | "post_received"
+  | "post_filtered"
+  | "post_queued"
+  | "generation_started"
+  | "comment_posted"
+  | "comment_failed"
+  | "reaction_set"
+  | "no_account";
+
+export interface TimelineEvent {
+  ts: number;
+  kind: TimelineKind | string;
+  message: string;
+  meta: Record<string, unknown>;
+}
+
 export interface CampaignCreateBody {
   name: string;
   target_channel?: string | null;
