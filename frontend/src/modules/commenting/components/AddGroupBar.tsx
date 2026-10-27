@@ -4,42 +4,57 @@ import { haptic } from "../../../shared/tg";
 import type { Account } from "../../../shared/types";
 import { CapsuleButton } from "./ui";
 
-/* Кнопка «Добавить группу аккаунтов целиком».
+/* Массовые действия над группой аккаунтов (целиком).
  *
- * Кампания эксклюзивно занимает аккаунт: одновременно взять его могут
- * только те, кто сейчас в пуле. Поэтому кнопка добавляет только free.
- * Занятые (прогрев, другая кампания, cooldown) показываем счётчиком,
- * чтобы пользователь понимал, почему добавилось меньше, чем в группе.
+ * Теперь поддерживаются ДВА режима: «добавить группу» и «убрать группу».
+ * Первое отдаёт id свободных для прикрепления (не banned/retired, не в этой
+ * кампании уже) — после изменения state machine attach работает из любого
+ * рабочего статуса, warming/cooldown прервутся. Второе отдаёт id тех
+ * аккаунтов группы, которые СЕЙЧАС прикреплены к кампании (чтобы их все
+ * одной кнопкой отвязать).
  *
- * `onAdd` получает id уже отфильтрованных «свободных» аккаунтов и сам
- * решает, что с ними делать (у new campaign — Set state, у detail —
- * массовый attach).
+ * `attachedIds` — опционально. Если передан, рисуем вторую строку
+ * «Убрать всю группу» для той же группы.
  */
 export function AddGroupBar({
   groups,
-  pool,
   all,
   onAdd,
+  attachedIds,
+  onRemove,
   actionLabelPending,
+  removeLabelPending,
 }: {
   groups: { id: number; name: string }[];
-  pool: Account[];
+  /** Все аккаунты (без фильтра по статусу). Из них компонент сам возьмёт
+   *  attach-ready (status !== banned/retired). */
   all: Account[];
   onAdd: (ids: number[]) => void;
+  /** Если передан — показываем кнопку «Убрать группу». */
+  attachedIds?: number[];
+  onRemove?: (ids: number[]) => void;
   actionLabelPending?: string;
+  removeLabelPending?: string;
 }) {
   const [groupId, setGroupId] = useState<string>("");
   if (groups.length === 0) return null;
 
   const gid = groupId ? Number(groupId) : null;
-  const free = gid == null ? [] : pool.filter((a) => a.project_id === gid);
-  const total = gid == null ? 0 : all.filter((a) => a.project_id === gid).length;
-  const busy = total - free.length;
+  const inGroup = gid == null ? [] : all.filter((a) => a.project_id === gid);
+  // Attach-ready: не забанен и не выведен. Остальное state machine разберёт.
+  const attachable = inGroup.filter(
+    (a) => a.status !== "banned" && a.status !== "retired",
+  );
+  // Для «не из группы» показываем сколько реально невозможно прикрепить.
+  const unusable = inGroup.length - attachable.length;
+  const attachedSet = new Set(attachedIds ?? []);
+  const toAdd = attachable.filter((a) => !attachedSet.has(a.id));
+  const toRemove = attachable.filter((a) => attachedSet.has(a.id));
 
   return (
     <div className="mb-4 rounded-chip border border-hairline bg-surface-1 p-3">
       <p className="mb-2 px-1 text-[13px] text-text-tertiary">
-        Добавить группу аккаунтов целиком
+        {attachedIds ? "Группа аккаунтов целиком" : "Добавить группу аккаунтов целиком"}
       </p>
       <div className="flex flex-col gap-2 sm:flex-row">
         <Select
@@ -50,11 +65,11 @@ export function AddGroupBar({
           options={groups.map((g) => ({ value: String(g.id), label: g.name }))}
         />
         <CapsuleButton
-          variant={free.length > 0 && !actionLabelPending ? "accent" : "secondary"}
-          disabled={free.length === 0 || !!actionLabelPending}
+          variant={toAdd.length > 0 && !actionLabelPending ? "accent" : "secondary"}
+          disabled={toAdd.length === 0 || !!actionLabelPending}
           onClick={() => {
             haptic("light");
-            onAdd(free.map((a) => a.id));
+            onAdd(toAdd.map((a) => a.id));
           }}
           className="sm:w-auto sm:shrink-0"
         >
@@ -62,16 +77,38 @@ export function AddGroupBar({
             ? actionLabelPending
             : gid == null
               ? "Добавить группу"
-              : `Добавить ${free.length}`}
+              : `Добавить ${toAdd.length}`}
         </CapsuleButton>
       </div>
+      {attachedIds && onRemove && (
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <CapsuleButton
+            variant="secondary"
+            disabled={toRemove.length === 0 || !!removeLabelPending}
+            onClick={() => {
+              haptic("light");
+              onRemove(toRemove.map((a) => a.id));
+            }}
+            className="sm:w-auto sm:shrink-0"
+          >
+            {removeLabelPending
+              ? removeLabelPending
+              : gid == null
+                ? "Убрать группу"
+                : `Убрать ${toRemove.length}`}
+          </CapsuleButton>
+        </div>
+      )}
       {gid != null && (
         <p className="mt-2 px-1 text-[12px] text-text-tertiary">
-          {total === 0
+          {inGroup.length === 0
             ? "В группе пока нет аккаунтов — добавьте их в «Группы аккаунтов»."
-            : busy > 0
-              ? `Свободно ${free.length} из ${total}. Ещё ${busy} ${busy === 1 ? "занят" : "заняты"} (прогрев, другая кампания или отдых) — кампания может взять только свободные.`
-              : `Все ${total} аккаунтов группы свободны.`}
+            : unusable > 0
+              ? `В группе ${inGroup.length}. Можно использовать ${attachable.length} (${unusable} ${unusable === 1 ? "забанен / выведен" : "забанены / выведены"}).`
+              : `В группе ${inGroup.length} аккаунтов.`}
+          {attachedIds && toRemove.length > 0 && (
+            <> Сейчас в этой кампании: {toRemove.length}.</>
+          )}
         </p>
       )}
     </div>

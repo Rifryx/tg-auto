@@ -17,6 +17,7 @@ import { AddGroupBar } from "./components/AddGroupBar";
 import { AiProtectionCard } from "./components/AiProtectionCard";
 import { CampaignMediaSection } from "./components/CampaignMediaSection";
 import { CommentLogList } from "./components/CommentLogList";
+import { TimelineSection } from "./components/TimelineSection";
 import { LaunchAndStats } from "./components/LaunchAndStats";
 import {
   CapsuleButton,
@@ -56,7 +57,6 @@ export function CampaignDetailScreen() {
     queryFn: () => commentingApi.accounts(campaignId),
   });
   const allAccounts = useQuery({ queryKey: ["accounts", "all"], queryFn: () => accountsApi.list() });
-  const pool = useQuery({ queryKey: ["accounts", "pool"], queryFn: () => accountsApi.list("pool") });
   const groups = useQuery({ queryKey: ["projects"], queryFn: projectsApi.list });
   const personas = useQuery({ queryKey: ["personas"], queryFn: catalogApi.personas });
   const logs = useQuery({
@@ -100,6 +100,27 @@ export function CampaignDetailScreen() {
   });
   const detach = useMutation({
     mutationFn: (accountId: number) => commentingApi.detach(campaignId, accountId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campaign", campaignId, "accounts"] });
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+    },
+  });
+  // Массовое отвязывание (кнопка «Убрать группу»). Идём последовательно —
+  // Promise.all роняется при первой ошибке; тут важно пройти все id.
+  const detachMany = useMutation({
+    mutationFn: async (ids: number[]) => {
+      let ok = 0;
+      let failed = 0;
+      for (const aid of ids) {
+        try {
+          await commentingApi.detach(campaignId, aid);
+          ok += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      return { ok, failed };
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["campaign", campaignId, "accounts"] });
       qc.invalidateQueries({ queryKey: ["accounts"] });
@@ -236,10 +257,12 @@ export function CampaignDetailScreen() {
       >
         <AddGroupBar
           groups={groups.data ?? []}
-          pool={pool.data ?? []}
           all={allAccounts.data ?? []}
           onAdd={(ids) => attach.mutate(ids.filter((id) => !attachedIds.includes(id)))}
+          attachedIds={attachedIds}
+          onRemove={(ids) => detachMany.mutate(ids)}
           actionLabelPending={attach.isPending ? "Добавляем…" : undefined}
+          removeLabelPending={detachMany.isPending ? "Убираем…" : undefined}
         />
         {attachSummary && (attachSummary.ok > 0 || attachSummary.failed > 0) && (
           <div
@@ -367,6 +390,13 @@ export function CampaignDetailScreen() {
 
       <LaunchAndStats campaignId={campaignId} />
       <ChannelAlertsSection campaignId={campaignId} />
+
+      {/* Live-таймлайн: что listener/runner делал за последние ~N событий
+         (Redis TTL 24h). Виден только пока кампания активна — для долгой
+         истории ниже «Лог комментариев». */}
+      <Section title="События (live)">
+        <TimelineSection campaignId={campaignId} />
+      </Section>
 
       {/* Лог этой кампании — изолирован по campaign_id, не пересекается
          с логами других модулей (§ Этап 6). */}

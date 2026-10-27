@@ -135,6 +135,7 @@ class ListenerRegistry:
                 task_queue,
                 channel_id=channel_id,
                 session_factory=session_factory,
+                redis=ctx.get("redis"),
             )
             event = events.NewMessage(chats=discussion_group_id)
             client.add_event_handler(handler, event)
@@ -149,6 +150,13 @@ class ListenerRegistry:
                 "commenting.listener.attach",
                 campaign_id=campaign_id,
                 account_id=account.id,
+            )
+            # Таймлайн: пользователь увидит, что слушатель поднят.
+            from modules.commenting.worker.timeline import TimelineKind, push_event
+            push_event(
+                ctx.get("redis"), campaign_id, TimelineKind.LISTENER_ONLINE,
+                f"Слушатель канала подключён (аккаунт #{account.id})",
+                meta={"account_id": account.id, "discussion_group_id": discussion_group_id},
             )
             return True
 

@@ -15,6 +15,7 @@ import type {
   ChannelAlert,
   ChannelBlacklistEntry,
   CommentLog,
+  TimelineEvent,
   DelayPreset,
   DelayPresetCreateBody,
   DelayPresetUpdateBody,
@@ -47,6 +48,8 @@ export const commentingApi = {
     api.del<void>(`${BASE}/${id}/accounts/${accountId}`),
   logs: (id: number, limit = 50) =>
     api.get<CommentLog[]>(`${BASE}/${id}/logs?limit=${limit}`),
+  timeline: (id: number, limit = 100) =>
+    api.get<{ events: TimelineEvent[] }>(`${BASE}/${id}/timeline?limit=${limit}`),
   stats: (id: number) => api.get<CampaignStats>(`${BASE}/${id}/stats`),
   runtimeSummary: (id: number) =>
     api.get<CampaignRuntimeSummary>(`${BASE}/${id}/runtime-summary`),
