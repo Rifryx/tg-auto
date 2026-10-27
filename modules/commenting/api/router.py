@@ -14,7 +14,16 @@ from __future__ import annotations
 from typing import Optional
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+
+
+def _get_redis(request: Request) -> Any:
+    """Отдаёт app.state.redis (или None). Используется только у endpoint'ов,
+    которые читают live-данные из Redis (например, таймлайн кампании).
+    В виде Depends — иначе OpenAPI падает на forward-ref Request в сигнатуре."""
+    return getattr(request.app.state, "redis", None)
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -827,15 +836,14 @@ def list_logs(
 @router.get("/campaigns/{campaign_id}/timeline")
 def get_timeline(
     campaign_id: int,
-    request: Request,
     limit: int = 100,
     session: Session = Depends(get_session),
+    redis: Any = Depends(_get_redis),
 ) -> dict:
     from modules.commenting.worker.timeline import recent_events
 
     if CampaignRepository(session).get(campaign_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
-    redis = getattr(request.app.state, "redis", None)
     events = recent_events(redis, campaign_id, limit=max(1, min(200, limit)))
     return {
         "events": [
