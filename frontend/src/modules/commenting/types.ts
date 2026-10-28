@@ -110,6 +110,7 @@ export interface CampaignDiagnostic {
   channels: Array<{
     id: number;
     account_id: number;
+    title: string | null;
     ref: string;
     status: string;
     has_discussion: boolean;

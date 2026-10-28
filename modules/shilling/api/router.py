@@ -103,12 +103,19 @@ def _enforce_child_limit(
 def list_campaigns(session: Session = Depends(get_session)) -> list[CampaignRead]:
     """Список кампаний, свежие сверху (сортировка репозитория).
 
-    Валидация per-row с логированием: если одна строка не проходит
-    (например, старый enum-статус или инвариант, добавленный после создания
-    кампании), она пропускается, а остальные возвращаются. Это защищает
-    весь экран от 500, который ломает UX до неработоспособности.
+    Защита в два слоя:
+    1) list_all() обёрнут в try/except — если SQL падает (напр., миграция
+       в контейнере ещё не прогналась и в БД нет новой колонки), возвращаем
+       пустой список вместо 500. UX не ломается, в логах видно почему.
+    2) Валидация per-row: если одна строка не проходит, она пропускается,
+       остальные возвращаются.
     """
-    rows = CampaignRepository(session).list_all()
+    try:
+        rows = CampaignRepository(session).list_all()
+    except Exception as exc:  # noqa: BLE001 — защищаемся от SQL-ошибок (нет миграции)
+        log.error("shilling.campaigns.list_sql_failed", error=repr(exc))
+        session.rollback()
+        return []
     result: list[CampaignRead] = []
     for c in rows:
         try:

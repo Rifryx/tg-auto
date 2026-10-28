@@ -968,6 +968,10 @@ def get_diagnostic(
         {
             "id": r.id,
             "account_id": r.account_id,
+            # title — человекочитаемое имя канала (из Telegram). ref — техническая
+            # ссылка/id, которую юзер видел раньше как «tg:3487356734» и ничего
+            # не понимал. Теперь приоритет: title → @username → input_ref.
+            "title": r.title,
             "ref": r.channel_ref or r.input_ref,
             "status": r.status,
             "has_discussion": r.discussion_group_id is not None,
