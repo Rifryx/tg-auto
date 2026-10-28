@@ -868,6 +868,25 @@ def get_timeline(
     }
 
 
+@router.get("/accounts/campaign-counts")
+def accounts_campaign_counts(
+    session: Session = Depends(get_session),
+) -> dict[str, int]:
+    """Карта account_id → число commenting-кампаний.
+
+    Нужна UI для списка аккаунтов, чтобы показать метку «N работ» без
+    N отдельных запросов. Ключи как строки — JSON не любит int-ключи."""
+    from sqlalchemy import func, select
+
+    from modules.commenting.models import CampaignAccount
+
+    stmt = select(
+        CampaignAccount.account_id, func.count(CampaignAccount.campaign_id)
+    ).group_by(CampaignAccount.account_id)
+    rows = session.execute(stmt).all()
+    return {str(acc_id): int(cnt) for acc_id, cnt in rows}
+
+
 @router.post("/campaigns/{campaign_id}/resync-channels", status_code=status.HTTP_202_ACCEPTED)
 async def resync_channels(
     campaign_id: int,

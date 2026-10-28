@@ -1,4 +1,4 @@
-import { Check, ChevronRight } from "lucide-react";
+import { Briefcase, Check, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { accountDisplay, ageFrom, countdown } from "../../../shared/format";
 import {
@@ -25,6 +25,7 @@ export function AccountRow({
   selectable = false,
   selected = false,
   onToggleSelect,
+  campaignCount,
 }: {
   account: Account;
   groupName?: string;
@@ -32,6 +33,9 @@ export function AccountRow({
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: (id: number) => void;
+  /** Сколько commenting-кампаний у аккаунта (multi-campaign из PR #68).
+   *  Если >0 — рисуем бейдж «N работ» рядом со StatusBadge. */
+  campaignCount?: number;
 }) {
   const subtitle = account.username ? `@${account.username}` : "Без юзернейма";
   const timer = countdown(account.cooldown_until);
@@ -97,9 +101,20 @@ export function AccountRow({
       <div className="flex shrink-0 items-center gap-2">
         <div className="flex flex-col items-end gap-1">
           <StatusBadge status={account.status} />
-          <span className="text-[11px] text-text-tertiary">
-            {PROFILE_LABEL[account.warming_profile]}
-          </span>
+          {campaignCount && campaignCount > 0 ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-pill bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent"
+              title={`${campaignCount} ${campaignCount === 1 ? "кампания" : campaignCount < 5 ? "кампании" : "кампаний"} нейрокомментинга`}
+            >
+              <Briefcase className="h-3 w-3" strokeWidth={2} aria-hidden />
+              {campaignCount}{" "}
+              {campaignCount === 1 ? "работа" : campaignCount < 5 ? "работы" : "работ"}
+            </span>
+          ) : (
+            <span className="text-[11px] text-text-tertiary">
+              {PROFILE_LABEL[account.warming_profile]}
+            </span>
+          )}
         </div>
         {!selectable && (
           <ChevronRight className="h-4 w-4 text-text-tertiary" strokeWidth={1.8} aria-hidden />
