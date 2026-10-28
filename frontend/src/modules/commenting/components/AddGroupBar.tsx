@@ -63,6 +63,7 @@ export function AddGroupBar({
           onChange={setGroupId}
           placeholder="Выберите группу"
           options={groups.map((g) => ({ value: String(g.id), label: g.name }))}
+          clearable
         />
         <CapsuleButton
           variant={toAdd.length > 0 && !actionLabelPending ? "accent" : "secondary"}

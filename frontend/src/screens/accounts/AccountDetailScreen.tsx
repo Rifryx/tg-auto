@@ -111,6 +111,14 @@ export function AccountDetailScreen() {
       navigate("/accounts");
     },
   });
+  const release = useMutation({
+    mutationFn: () => accountsApi.release(accountId),
+    onSuccess: () => {
+      haptic("light");
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["account", accountId] });
+    },
+  });
   const restore = useMutation({
     mutationFn: () => accountsApi.restore(accountId),
     onSuccess: () => {
@@ -557,6 +565,17 @@ export function AccountDetailScreen() {
         {acc.status === "retired" && (
           <CapsuleButton onClick={() => restore.mutate()} disabled={restore.isPending}>
             {restore.isPending ? "Возвращаем…" : "Вернуть в пул"}
+          </CapsuleButton>
+        )}
+        {acc.status === "assigned" && (
+          <CapsuleButton
+            variant="secondary"
+            onClick={() => release.mutate()}
+            disabled={release.isPending}
+          >
+            {release.isPending
+              ? "Освобождаем…"
+              : "Освободить (вернуть в пул)"}
           </CapsuleButton>
         )}
         {acc.status !== "retired" && (

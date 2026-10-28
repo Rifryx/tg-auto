@@ -1,4 +1,4 @@
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 export interface SelectOption {
@@ -8,13 +8,19 @@ export interface SelectOption {
 
 /* Кастомный дропдаун в стиле мини-аппа (нативный <select> нельзя тематизировать):
    кнопка + всплывающий список на surface-2 с hairline, прокруткой и галочкой у
-   выбранного. Закрывается по клику вне и Esc. */
+   выбранного. Закрывается по клику вне и Esc.
+
+   clearable: если true и value непустое — показывает маленький крестик рядом
+   с ChevronDown, который очищает выбор (onChange("")). Нужен, например, в
+   AddGroupBar: пользователь выбрал группу → передумал → хочет снова увидеть
+   placeholder и чтобы кнопки действий погасли. */
 export function Select({
   value,
   onChange,
   options,
   placeholder = "Выберите…",
   disabled,
+  clearable = false,
   className = "",
 }: {
   value: string;
@@ -22,6 +28,7 @@ export function Select({
   options: SelectOption[];
   placeholder?: string;
   disabled?: boolean;
+  clearable?: boolean;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -53,11 +60,34 @@ export function Select({
         <span className={`truncate ${current ? "" : "text-text-tertiary"}`}>
           {current?.label ?? placeholder}
         </span>
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 text-text-tertiary transition-transform ${open ? "rotate-180" : ""}`}
-          strokeWidth={1.8}
-          aria-hidden
-        />
+        <span className="flex shrink-0 items-center gap-1">
+          {clearable && current && !disabled && (
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label="Очистить выбор"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  onChange("");
+                }
+              }}
+              className="flex h-5 w-5 items-center justify-center rounded-full text-text-tertiary hover:bg-surface-2 hover:text-text-primary"
+            >
+              <X className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden />
+            </span>
+          )}
+          <ChevronDown
+            className={`h-4 w-4 text-text-tertiary transition-transform ${open ? "rotate-180" : ""}`}
+            strokeWidth={1.8}
+            aria-hidden
+          />
+        </span>
       </button>
 
       {open && (

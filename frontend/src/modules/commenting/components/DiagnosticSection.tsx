@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Plus, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { channelsApi } from "../../../shared/accounts";
 import { commentingApi } from "../api";
 
 /** Диагностика «почему нейрокомментинг молчит».
@@ -113,6 +115,18 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
         </ul>
       </div>
 
+      {d.accounts.length > 0 &&
+        d.campaign.channel_source_mode === "by_account_subscriptions" && (
+          <AddChannelForm
+            accountId={d.accounts[0].id}
+            onDone={() => {
+              qc.invalidateQueries({
+                queryKey: ["campaign", campaignId, "diagnostic"],
+              });
+            }}
+          />
+        )}
+
       {d.channels.length > 0 && (
         <div className="rounded-chip border border-hairline bg-surface-1 p-3 text-[12px] text-text-secondary">
           <p className="mb-2 text-text-tertiary">Каналы кампании</p>
@@ -145,6 +159,72 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
             ))}
           </ul>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** Форма «Добавить канал по ссылке» на уровне аккаунта.
+ *
+ *  Нужна когда авто-sync подписок не подхватил нужный канал (например, он не
+ *  broadcast, нет linked chat в метаданных на момент синка, или аккаунт
+ *  подписан в архиве/папке). Пользователь руками вводит t.me/username —
+ *  бэкенд резолвит, подписывает если нужно, читает discussion_group. */
+function AddChannelForm({
+  accountId,
+  onDone,
+}: {
+  accountId: number;
+  onDone: () => void;
+}) {
+  const [ref, setRef] = useState("");
+  const add = useMutation({
+    mutationFn: (refs: string[]) => channelsApi.add(accountId, refs, false),
+    onSuccess: () => {
+      setRef("");
+      // Backend ставит resolve в очередь; реальный статус подъедет через ~5-10 с.
+      setTimeout(onDone, 5_000);
+    },
+  });
+  const refs = ref
+    .split(/[\s,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const canAdd = refs.length > 0 && !add.isPending;
+  return (
+    <div className="rounded-chip border border-hairline bg-surface-1 p-3">
+      <p className="mb-2 text-[12px] text-text-tertiary">
+        Канал не попал в автосинк? Добавьте его вручную — @username или
+        https://t.me/… (можно сразу несколько через пробел/запятую).
+      </p>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input
+          type="text"
+          value={ref}
+          onChange={(e) => setRef(e.target.value)}
+          placeholder="@mychannel или https://t.me/mychannel"
+          className="w-full rounded-xl border border-hairline bg-surface-2 p-2 text-[14px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={() => canAdd && add.mutate(refs)}
+          disabled={!canAdd}
+          className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-pill bg-accent px-4 text-[13px] font-semibold text-accent-on active:opacity-80 disabled:bg-surface-2 disabled:text-text-tertiary"
+        >
+          <Plus className="h-4 w-4" strokeWidth={2.4} aria-hidden />
+          {add.isPending ? "Добавляем…" : "Добавить"}
+        </button>
+      </div>
+      {add.isError && (
+        <p className="mt-2 text-[12px] text-status-critical">
+          Не удалось добавить. Проверьте ссылку.
+        </p>
+      )}
+      {add.isSuccess && (
+        <p className="mt-2 text-[12px] text-status-active">
+          Канал поставлен в очередь на разрешение. Через ~10 с увидите его в
+          списке каналов кампании.
+        </p>
       )}
     </div>
   );
