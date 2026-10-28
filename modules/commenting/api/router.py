@@ -853,6 +853,24 @@ def get_timeline(
     }
 
 
+@router.post("/campaigns/{campaign_id}/resync-channels", status_code=status.HTTP_202_ACCEPTED)
+async def resync_channels(
+    campaign_id: int,
+    session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> dict:
+    """Ручная «Переподключить» для кампании: ставит в очередь синхронизацию
+    каналов (resolve discussion_group, пересборку MonitoredChannel-строк).
+
+    Нужна когда в самом Telegram-канале юзер только что включил обсуждения
+    или аккаунт подписался — чтобы listener поднялся без ожидания периодической
+    задачи."""
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    await _request_sync(task_queue, campaign_id)
+    return {"queued": True}
+
+
 @router.get("/campaigns/{campaign_id}/diagnostic")
 def get_diagnostic(
     campaign_id: int,
@@ -868,6 +886,8 @@ def get_diagnostic(
     последние события в live-таймлайне."""
     from core.repositories.account import AccountRepository
     from modules.commenting.worker.timeline import recent_events
+
+    from modules.commenting.models import MonitoredChannel
 
     campaign = CampaignRepository(session).get(campaign_id)
     if campaign is None:
@@ -889,23 +909,76 @@ def get_diagnostic(
             "warming_started_at": a.warming_started_at.isoformat() if a.warming_started_at else None,
         })
 
+    # Каналы, которые кампания реально мониторит. Для режима
+    # «по подпискам» это подписки её аккаунтов, разрешённые в MonitoredChannel.
+    # Для «explicit_links» — те же MonitoredChannel со source_campaign_id = id.
+    channel_rows = (
+        session.query(MonitoredChannel)
+        .filter(MonitoredChannel.source_campaign_id == campaign_id)
+        .all()
+    )
+    # Для by_account_subscriptions дополнительно включаем ВСЕ working-подписки
+    # аккаунтов кампании (они и есть источник постов).
+    acc_ids = {a["id"] for a in accounts}
+    if campaign.channel_source_mode == "by_account_subscriptions" and acc_ids:
+        extra = (
+            session.query(MonitoredChannel)
+            .filter(MonitoredChannel.account_id.in_(acc_ids))
+            .all()
+        )
+        seen = {r.id for r in channel_rows}
+        for r in extra:
+            if r.id not in seen:
+                channel_rows.append(r)
+    channels_info = [
+        {
+            "id": r.id,
+            "account_id": r.account_id,
+            "ref": r.channel_ref or r.input_ref,
+            "status": r.status,
+            "has_discussion": r.discussion_group_id is not None,
+            "error": r.error,
+        }
+        for r in channel_rows
+    ]
+    working_with_discussion = sum(
+        1
+        for r in channel_rows
+        if r.status == "working" and r.discussion_group_id is not None
+    )
+
     # Строим список «предупреждений» — простые, человекочитаемые пункты,
     # которые пользователь может сам проверить.
     warnings: list[str] = []
     if not campaign.enabled:
         warnings.append("Кампания выключена (enabled=false). Включите в настройках.")
-    if not campaign.target_channel:
-        warnings.append("Не указан target_channel — слушателю не на что подписаться.")
-    if campaign.discussion_group_id is None:
-        warnings.append(
-            "У канала нет discussion_group_id. Включите обсуждения в самом Telegram-канале "
-            "(«Discussion group»), затем нажмите «Переподключить» — иначе ловить посты негде."
-        )
     if assigned_count == 0:
         warnings.append(
             "Нет аккаунтов в статусе assigned. Прикрепите хотя бы один рабочий аккаунт — "
             "слушатель поднимается через assigned-аккаунт."
         )
+    if campaign.channel_source_mode == "by_account_subscriptions":
+        if not channel_rows:
+            warnings.append(
+                "Режим «по подпискам аккаунта», но ни одной подписки не найдено. "
+                "Запустите синхронизацию подписок аккаунта или добавьте каналы вручную."
+            )
+        elif working_with_discussion == 0:
+            warnings.append(
+                "Ни один канал не готов к мониторингу (нет working с discussion_group_id). "
+                "Проверьте что каналы резолвятся, аккаунт подписан, и у каналов включены обсуждения."
+            )
+    else:
+        # explicit_links
+        if not channel_rows:
+            warnings.append(
+                "Режим «ссылки на каналы», но ни одного канала не задано. Добавьте ссылки."
+            )
+        elif working_with_discussion == 0:
+            warnings.append(
+                "Ни один канал не готов к мониторингу. Проверьте что канал резолвится и "
+                "у него включены обсуждения."
+            )
 
     events = recent_events(redis, campaign_id, limit=5)
     last_event_ts = events[0].ts if events else None
@@ -914,12 +987,13 @@ def get_diagnostic(
         "campaign": {
             "id": campaign.id,
             "enabled": bool(campaign.enabled),
-            "target_channel": campaign.target_channel,
-            "discussion_group_id": campaign.discussion_group_id,
+            "channel_source_mode": campaign.channel_source_mode,
             "post_selection_mode": campaign.post_selection_mode,
         },
         "accounts": accounts,
         "assigned_count": assigned_count,
+        "channels": channels_info,
+        "channels_ready_count": working_with_discussion,
         "last_timeline_event_ts": last_event_ts,
         "warnings": warnings,
     }

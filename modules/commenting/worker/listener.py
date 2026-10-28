@@ -156,6 +156,9 @@ def make_channel_post_handler(
     task_queue: TaskQueue,
     *,
     channel_tg_id: int,
+    redis: Any = None,
+    source_campaign_id: Optional[int] = None,
+    channel_ref: Optional[str] = None,
 ) -> Callable[[Any], Any]:
     """Handler для аккаунт-центричного мониторинга: пост канала → on_channel_post.
 
@@ -163,12 +166,26 @@ def make_channel_post_handler(
     channel_tg_id) и ставит ``commenting.on_channel_post`` для аккаунта-владельца.
     Человеческие комментарии игнорируются — но именно здесь будущая фича «ответить
     на чей-то коммент» подключит свою ветку (у нас есть и группа, и id поста).
+
+    Если переданы ``redis`` и ``source_campaign_id`` — handler пишет события
+    POST_RECEIVED / POST_QUEUED в live-таймлайн кампании (пользователь видит,
+    что listener реально ловит посты).
     """
 
     async def handler(event: Any) -> None:
         message = getattr(event, "message", event)
         if getattr(message, "sender_id", None) != channel_tg_id:
             return
+        if source_campaign_id is not None:
+            push_event(
+                redis, source_campaign_id, TimelineKind.POST_RECEIVED,
+                f"Пост #{message.id} в канале «{channel_ref or ''}» пойман",
+                meta={
+                    "channel_msg_id": message.id,
+                    "monitored_channel_id": monitored_channel_id,
+                    "account_id": account_id,
+                },
+            )
         await task_queue.enqueue(
             TaskName.COMMENTING_ON_CHANNEL_POST,
             account_id,
@@ -182,6 +199,15 @@ def make_channel_post_handler(
             monitored_channel_id=monitored_channel_id,
             channel_msg_id=message.id,
         )
+        if source_campaign_id is not None:
+            push_event(
+                redis, source_campaign_id, TimelineKind.POST_QUEUED,
+                f"Пост #{message.id} поставлен в очередь на коммент",
+                meta={
+                    "channel_msg_id": message.id,
+                    "monitored_channel_id": monitored_channel_id,
+                },
+            )
 
     return handler
 

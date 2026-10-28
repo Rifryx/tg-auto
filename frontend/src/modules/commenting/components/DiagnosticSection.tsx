@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 import { commentingApi } from "../api";
 
 /** Диагностика «почему нейрокомментинг молчит».
@@ -11,10 +11,23 @@ import { commentingApi } from "../api";
  *  комментов нет — значит listener поднят, но пост не ловится или
  *  runner падает (их события пишутся в live-таймлайн). */
 export function DiagnosticSection({ campaignId }: { campaignId: number }) {
+  const qc = useQueryClient();
   const q = useQuery({
     queryKey: ["campaign", campaignId, "diagnostic"],
     queryFn: () => commentingApi.diagnostic(campaignId),
     refetchInterval: 15_000,
+  });
+  const resync = useMutation({
+    mutationFn: () => commentingApi.resyncChannels(campaignId),
+    onSuccess: () => {
+      // После enqueue backend-воркер в фоне обновит MonitoredChannel.
+      // Через 3-5 с кидаем refetch диагностики — пусть юзер увидит новые
+      // статусы без ручного «обновить».
+      setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ["campaign", campaignId, "diagnostic"] });
+        qc.invalidateQueries({ queryKey: ["campaign", campaignId, "timeline"] });
+      }, 3_500);
+    },
   });
   const d = q.data;
   if (!d) {
@@ -23,6 +36,21 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
   const ok = d.warnings.length === 0;
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          onClick={() => resync.mutate()}
+          disabled={resync.isPending}
+          className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface-1 px-3 py-1.5 text-[12px] text-text-secondary hover:text-text-primary active:bg-surface-2 disabled:opacity-60"
+        >
+          <RefreshCw
+            className={`h-3.5 w-3.5 ${resync.isPending ? "animate-spin" : ""}`}
+            strokeWidth={2}
+            aria-hidden
+          />
+          {resync.isPending ? "Переподключаем…" : "Переподключить каналы"}
+        </button>
+      </div>
       {ok ? (
         <div className="flex items-start gap-2 rounded-chip border border-status-active/40 bg-status-active/10 px-3 py-2 text-[12px] text-status-active">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
@@ -51,11 +79,10 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
         <p className="mb-1 text-text-tertiary">Конфиг</p>
         <ul className="flex flex-col gap-0.5">
           <li>
-            <strong>Канал:</strong> {d.campaign.target_channel ?? "— не задан —"}
-          </li>
-          <li>
-            <strong>Discussion group id:</strong>{" "}
-            {d.campaign.discussion_group_id ?? "— нет —"}
+            <strong>Источник каналов:</strong>{" "}
+            {d.campaign.channel_source_mode === "by_account_subscriptions"
+              ? "по подпискам аккаунта"
+              : "ссылки на каналы"}
           </li>
           <li>
             <strong>Режим отбора постов:</strong> {d.campaign.post_selection_mode}
@@ -64,8 +91,12 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
             <strong>Включено:</strong> {d.campaign.enabled ? "да" : "нет"}
           </li>
           <li>
-            <strong>Прикреплено аккаунтов:</strong> {d.accounts.length} (из них в
-            работе assigned: {d.assigned_count})
+            <strong>Прикреплено аккаунтов:</strong> {d.accounts.length} (в работе
+            assigned: {d.assigned_count})
+          </li>
+          <li>
+            <strong>Каналов для мониторинга:</strong> {d.channels.length}{" "}
+            (готовы к работе: {d.channels_ready_count})
           </li>
           {d.last_timeline_event_ts != null && (
             <li>
@@ -81,6 +112,40 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
           )}
         </ul>
       </div>
+
+      {d.channels.length > 0 && (
+        <div className="rounded-chip border border-hairline bg-surface-1 p-3 text-[12px] text-text-secondary">
+          <p className="mb-2 text-text-tertiary">Каналы кампании</p>
+          <ul className="flex flex-col gap-1">
+            {d.channels.map((ch) => (
+              <li
+                key={ch.id}
+                className={`flex items-start gap-2 ${
+                  ch.status === "working" && ch.has_discussion
+                    ? ""
+                    : "text-status-warning"
+                }`}
+              >
+                <span className="shrink-0">
+                  {ch.status === "working" && ch.has_discussion ? "✓" : "⚠"}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <strong>{ch.ref}</strong>{" "}
+                  <span className="opacity-80">(акк. #{ch.account_id})</span> —{" "}
+                  статус: <strong>{ch.status}</strong>
+                  {!ch.has_discussion && ", нет обсуждений"}
+                  {ch.error && (
+                    <>
+                      <br />
+                      <span className="opacity-80">Ошибка: {ch.error}</span>
+                    </>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

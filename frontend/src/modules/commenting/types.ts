@@ -97,8 +97,7 @@ export interface CampaignDiagnostic {
   campaign: {
     id: number;
     enabled: boolean;
-    target_channel: string | null;
-    discussion_group_id: number | null;
+    channel_source_mode: string;
     post_selection_mode: string;
   };
   accounts: Array<{
@@ -108,6 +107,15 @@ export interface CampaignDiagnostic {
     warming_started_at: string | null;
   }>;
   assigned_count: number;
+  channels: Array<{
+    id: number;
+    account_id: number;
+    ref: string;
+    status: string;
+    has_discussion: boolean;
+    error: string | null;
+  }>;
+  channels_ready_count: number;
   last_timeline_event_ts: number | null;
   warnings: string[];
 }
