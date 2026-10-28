@@ -53,6 +53,8 @@ export const commentingApi = {
     api.get<{ events: TimelineEvent[] }>(`${BASE}/${id}/timeline?limit=${limit}`),
   diagnostic: (id: number) =>
     api.get<CampaignDiagnostic>(`${BASE}/${id}/diagnostic`),
+  campaignsOfAccount: (accountId: number) =>
+    api.get<CampaignAccount[]>(`/modules/commenting/accounts/${accountId}/campaigns`),
   resyncChannels: (id: number) =>
     api.post<{ queued: boolean }>(`${BASE}/${id}/resync-channels`, {}),
   stats: (id: number) => api.get<CampaignStats>(`${BASE}/${id}/stats`),

@@ -1,4 +1,10 @@
-"""Привязка аккаунта к кампании (эксклюзивная: account_id UNIQUE)."""
+"""Привязка аккаунта к кампании.
+
+С версии 0067 аккаунт МОЖЕТ быть прикреплён к нескольким кампаниям
+одновременно (многопоточность задач). PK (campaign_id, account_id)
+гарантирует «одна строка на пару», но для одного account_id может быть N
+строк (по одной на каждую кампанию).
+"""
 
 from datetime import datetime
 from typing import Optional
@@ -11,7 +17,6 @@ from sqlalchemy import (
     Integer,
     PrimaryKeyConstraint,
     String,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,7 +27,6 @@ class CampaignAccount(Base, CreatedAtMixin):
     __tablename__ = "campaign_accounts"
     __table_args__ = (
         PrimaryKeyConstraint("campaign_id", "account_id", name="pk_campaign_accounts"),
-        UniqueConstraint("account_id", name="uq_campaign_accounts_account_id"),
         CheckConstraint(
             "probability_override IS NULL OR "
             "probability_override BETWEEN 0 AND 100",

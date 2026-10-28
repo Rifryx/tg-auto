@@ -868,6 +868,21 @@ def get_timeline(
     }
 
 
+@router.get(
+    "/accounts/{account_id}/campaigns", response_model=list[CampaignAccountRead]
+)
+def list_campaigns_of_account(
+    account_id: int, session: Session = Depends(get_session)
+) -> list[CampaignAccountRead]:
+    """Все commenting-кампании, в которых прикреплён аккаунт.
+
+    С миграции 0067 аккаунт может работать в нескольких кампаниях одновременно
+    (multi-campaign). Этот endpoint нужен UI на карточке аккаунта: показывает
+    список якорей-ссылок на кампании вместо единственной assigned_container_id."""
+    links = CampaignAccountRepository(session).list_by_account(account_id)
+    return [CampaignAccountRead.model_validate(link) for link in links]
+
+
 @router.post("/campaigns/{campaign_id}/resync-channels", status_code=status.HTTP_202_ACCEPTED)
 async def resync_channels(
     campaign_id: int,
