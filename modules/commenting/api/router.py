@@ -853,6 +853,24 @@ def get_timeline(
     }
 
 
+@router.post("/campaigns/{campaign_id}/resync-channels", status_code=status.HTTP_202_ACCEPTED)
+async def resync_channels(
+    campaign_id: int,
+    session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+) -> dict:
+    """Ручная «Переподключить» для кампании: ставит в очередь синхронизацию
+    каналов (resolve discussion_group, пересборку MonitoredChannel-строк).
+
+    Нужна когда в самом Telegram-канале юзер только что включил обсуждения
+    или аккаунт подписался — чтобы listener поднялся без ожидания периодической
+    задачи."""
+    if CampaignRepository(session).get(campaign_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    await _request_sync(task_queue, campaign_id)
+    return {"queued": True}
+
+
 @router.get("/campaigns/{campaign_id}/diagnostic")
 def get_diagnostic(
     campaign_id: int,

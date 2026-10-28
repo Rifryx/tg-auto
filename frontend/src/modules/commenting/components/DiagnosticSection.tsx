@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 import { commentingApi } from "../api";
 
 /** Диагностика «почему нейрокомментинг молчит».
@@ -11,10 +11,23 @@ import { commentingApi } from "../api";
  *  комментов нет — значит listener поднят, но пост не ловится или
  *  runner падает (их события пишутся в live-таймлайн). */
 export function DiagnosticSection({ campaignId }: { campaignId: number }) {
+  const qc = useQueryClient();
   const q = useQuery({
     queryKey: ["campaign", campaignId, "diagnostic"],
     queryFn: () => commentingApi.diagnostic(campaignId),
     refetchInterval: 15_000,
+  });
+  const resync = useMutation({
+    mutationFn: () => commentingApi.resyncChannels(campaignId),
+    onSuccess: () => {
+      // После enqueue backend-воркер в фоне обновит MonitoredChannel.
+      // Через 3-5 с кидаем refetch диагностики — пусть юзер увидит новые
+      // статусы без ручного «обновить».
+      setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ["campaign", campaignId, "diagnostic"] });
+        qc.invalidateQueries({ queryKey: ["campaign", campaignId, "timeline"] });
+      }, 3_500);
+    },
   });
   const d = q.data;
   if (!d) {
@@ -23,6 +36,21 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
   const ok = d.warnings.length === 0;
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          onClick={() => resync.mutate()}
+          disabled={resync.isPending}
+          className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface-1 px-3 py-1.5 text-[12px] text-text-secondary hover:text-text-primary active:bg-surface-2 disabled:opacity-60"
+        >
+          <RefreshCw
+            className={`h-3.5 w-3.5 ${resync.isPending ? "animate-spin" : ""}`}
+            strokeWidth={2}
+            aria-hidden
+          />
+          {resync.isPending ? "Переподключаем…" : "Переподключить каналы"}
+        </button>
+      </div>
       {ok ? (
         <div className="flex items-start gap-2 rounded-chip border border-status-active/40 bg-status-active/10 px-3 py-2 text-[12px] text-status-active">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
