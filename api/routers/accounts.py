@@ -749,6 +749,33 @@ def acknowledge_ban(
     return _transition(session, publisher, account_id, AccountEvent.ACKNOWLEDGE_BAN)
 
 
+@router.post("/{account_id}/actions/release", response_model=AccountRead)
+def release_account(
+    account_id: int,
+    session: Session = Depends(get_session),
+    publisher: Optional[Publisher] = Depends(get_publisher),
+) -> AccountRead:
+    """Принудительно вернуть «зависший» assigned-аккаунт в POOL.
+
+    Нужен для случая когда кампания удалена, но status аккаунта остался
+    assigned с указателем на несуществующий container — пользователь не
+    может прикрепить его к новой кампании («уже занят»). Эндпоинт работает
+    только для аккаунтов в assigned (другие статусы не трогаем — ошибка
+    409). Фактически это CONTAINER_DETACH без привязки к конкретному
+    container_type/id."""
+    from core.repositories.account import AccountRepository
+
+    account = AccountRepository(session).get(account_id)
+    if account is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"account {account_id} not found")
+    if account.status != "assigned":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"account is '{account.status}', release применим только к 'assigned'",
+        )
+    return _transition(session, publisher, account_id, AccountEvent.CONTAINER_DETACH)
+
+
 # --- Health (этап 4 УТП) -----------------------------------------------------
 
 

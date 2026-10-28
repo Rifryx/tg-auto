@@ -224,6 +224,21 @@ def delete_campaign(
     # исчезнет кампания, иначе handler может сработать по уже удалённой кампании
     # (порядок, не гонка — acceptance #3).
     publish_campaign_lifecycle(publisher, campaign_id, ACTION_DETACH)
+    # Явно отвязываем все прикреплённые аккаунты через state machine, чтобы они
+    # вернулись в POOL. Раньше FK CASCADE удалял campaign_account, но status
+    # аккаунта оставался 'assigned' с assigned_container_id, указывающим на уже
+    # удалённую кампанию. Пользователь после «удалить кампанию» видел «аккаунт
+    # уже занят» на экране новой кампании (баг-репорт).
+    links = CampaignAccountRepository(session).list_by_campaign(campaign_id)
+    for link in links:
+        try:
+            service.detach_account(session, publisher, campaign_id, link.account_id)
+        except (service.CommentingNotFound, service.CommentingConflict) as exc:
+            # Не роняем удаление кампании: лог, идём дальше.
+            get_logger().warning(
+                "commenting.delete_campaign.detach_failed",
+                campaign_id=campaign_id, account_id=link.account_id, error=str(exc),
+            )
     # «Кампанийные» строки мониторинга удаляем явно: FK у них SET NULL, иначе
     # они стали бы ручными каналами аккаунтов и продолжили бы работать.
     _drop_campaign_monitoring(session, publisher, campaign_id)

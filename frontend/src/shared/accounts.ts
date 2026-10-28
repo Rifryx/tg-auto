@@ -148,6 +148,7 @@ export const accountsApi = {
     api.del<void>(`/accounts/${id}/warming-scenario`),
   retire: (id: number) => api.post<Account>(`/accounts/${id}/actions/retire`),
   restore: (id: number) => api.post<Account>(`/accounts/${id}/actions/restore`),
+  release: (id: number) => api.post<Account>(`/accounts/${id}/actions/release`),
   remove: (id: number) => api.del<void>(`/accounts/${id}`),
   // Pre-check номера на этапе ввода: занят ли уже (UI показывает подсказку до SMS).
   checkPhone: (phone: string) =>
