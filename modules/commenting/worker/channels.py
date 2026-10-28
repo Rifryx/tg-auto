@@ -282,6 +282,28 @@ async def resolve_channel(ctx: dict, channel_id: int) -> str:
                 )
             log.info("commenting.resolve_channel.not_subscribed", channel_id=channel_id)
             return "not_subscribed"
+        # Канал без обсуждений (linked_chat не включён в самом Telegram-канале)
+        # не является «работающим» для нейрокомментинга: комментировать негде.
+        # Раньше такой канал помечался working с discussion_group_id=NULL и
+        # пользователь видел в диагностике «Alliance Orders ✓ working», что
+        # вводило в заблуждение. Теперь явный fail с человекочитаемой причиной.
+        if info.get("discussion_group_id") is None:
+            with session_factory() as session:
+                MonitoredChannelRepository(session).mark_failed(
+                    channel_id,
+                    "no_discussion_group: у канала не включены обсуждения — комментировать негде",
+                )
+                session.commit()
+                raise_alert(
+                    session, publisher, campaign_id=campaign_id, account_id=account_id,
+                    channel_ref=input_ref, kind="no_discussion",
+                    detail="У канала нет группы обсуждений — коммент невозможен. Включите Discussion group в самом Telegram-канале и нажмите «Переподключить каналы».",
+                )
+            log.info(
+                "commenting.resolve_channel.no_discussion",
+                channel_id=channel_id, account_id=account_id,
+            )
+            return "no_discussion"
         with session_factory() as session:
             MonitoredChannelRepository(session).mark_working(channel_id, **info)
             session.commit()
