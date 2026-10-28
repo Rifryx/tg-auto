@@ -133,7 +133,9 @@ class ListenerRegistry:
                 # discussion_group_id на самой кампании вообще не задаются
                 # (поле target_channel помечено как «легаси»). Если попали
                 # сюда в этом режиме — просто тихо выходим, без error-плашек.
-                if campaign.channel_source_mode == "by_account_subscriptions":
+                # getattr: тесты в test_commenting_lifecycle используют
+                # SimpleNamespace без channel_source_mode; дефолт — старый режим.
+                if getattr(campaign, "channel_source_mode", "explicit_links") == "by_account_subscriptions":
                     get_logger().info(
                         "commenting.listener.attach.skip",
                         campaign_id=campaign_id,
