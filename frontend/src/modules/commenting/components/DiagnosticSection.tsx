@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Plus, RefreshCw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { channelsApi } from "../../../shared/accounts";
 import { commentingApi } from "../api";
@@ -29,6 +29,18 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
         qc.invalidateQueries({ queryKey: ["campaign", campaignId, "diagnostic"] });
         qc.invalidateQueries({ queryKey: ["campaign", campaignId, "timeline"] });
       }, 3_500);
+    },
+  });
+  // Быстрое удаление канала из мониторинга кампании. Канал — это строка
+  // MonitoredChannel конкретного аккаунта (id + account_id из diagnostic),
+  // поэтому переиспользуем account-эндпоинт DELETE /accounts/{id}/channels/{id}.
+  // unsubscribe=false: снимаем с мониторинга (listener гаснет без рестарта),
+  // но подписку аккаунта в Telegram не трогаем.
+  const removeChannel = useMutation({
+    mutationFn: (vars: { accountId: number; channelId: number }) =>
+      channelsApi.remove(vars.accountId, vars.channelId, false),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campaign", campaignId, "diagnostic"] });
     },
   });
   const d = q.data;
@@ -142,6 +154,9 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
                 ch.title ||
                 (uglyRef ? "Без названия" : ch.ref) ||
                 "Канал";
+              const removing =
+                removeChannel.isPending &&
+                removeChannel.variables?.channelId === ch.id;
               return (
                 <li
                   key={ch.id}
@@ -168,6 +183,33 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
                       </>
                     )}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (removeChannel.isPending) return;
+                      if (
+                        !window.confirm(
+                          `Убрать канал «${displayName}» из мониторинга кампании? ` +
+                            "Комментирование в нём остановится. Подписка аккаунта в Telegram сохранится.",
+                        )
+                      )
+                        return;
+                      removeChannel.mutate({
+                        accountId: ch.account_id,
+                        channelId: ch.id,
+                      });
+                    }}
+                    disabled={removeChannel.isPending}
+                    title="Убрать из мониторинга"
+                    aria-label={`Убрать канал ${displayName} из мониторинга`}
+                    className="shrink-0 rounded-md p-1 text-text-tertiary hover:text-status-critical hover:bg-surface-2 active:bg-surface-3 disabled:opacity-50"
+                  >
+                    <Trash2
+                      className={`h-3.5 w-3.5 ${removing ? "animate-pulse" : ""}`}
+                      strokeWidth={2}
+                      aria-hidden
+                    />
+                  </button>
                 </li>
               );
             })}

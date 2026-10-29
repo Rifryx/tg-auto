@@ -29,6 +29,32 @@ from modules.commenting.worker.timeline import TimelineKind, push_event
 from worker.tasks.logging import get_logger
 
 
+def _is_channel_sender(sender_id: Optional[int], channel_tg_id: Optional[int]) -> bool:
+    """True, если сообщение в discussion-группе отправлено самим каналом.
+
+    Тонкость Telethon: у авто-форварда поста канала в группе обсуждений
+    ``message.sender_id`` приходит в «bot API» форме канала —
+    ``-(1000000000000 + raw)`` (то есть ``-100<raw>``), потому что он считается
+    как ``utils.get_peer_id(from_id)`` над ``PeerChannel``. Мы же храним
+    ``channel_tg_id`` как «сырой» положительный ``entity.id``. Поэтому прямое
+    сравнение ``sender_id == channel_tg_id`` НИКОГДА не совпадало на реальных
+    данных (в юнит-тестах оба — одно и то же число, поэтому баг там не ловился),
+    и слушатель молча игнорировал каждый пост: ни события в таймлайне, ни
+    задачи в очереди, ни строки в логе.
+
+    Сравниваем обе формы: прямое равенство (на случай, если где-то уже
+    нормализовано / для тестов) и маркированную форму канала.
+    """
+    if sender_id is None or channel_tg_id is None:
+        return False
+    if sender_id == channel_tg_id:
+        return True
+    # Маркированная форма канала (bot API): -(1000000000000 + raw).
+    if channel_tg_id > 0 and sender_id == -(1000000000000 + channel_tg_id):
+        return True
+    return False
+
+
 def _post_date_kwargs(message: Any) -> dict:
     """Время публикации поста → kwarg для окна «после поста» (E2.2).
 
@@ -98,7 +124,7 @@ def make_new_post_handler(
     async def handler(event: Any) -> None:
         message = getattr(event, "message", event)
         # Только сообщения самого канала (не комментарии участников/ботов).
-        if getattr(message, "sender_id", None) != channel_id:
+        if not _is_channel_sender(getattr(message, "sender_id", None), channel_id):
             return
 
         if session_factory is not None:
@@ -174,7 +200,7 @@ def make_channel_post_handler(
 
     async def handler(event: Any) -> None:
         message = getattr(event, "message", event)
-        if getattr(message, "sender_id", None) != channel_tg_id:
+        if not _is_channel_sender(getattr(message, "sender_id", None), channel_tg_id):
             return
         if source_campaign_id is not None:
             push_event(

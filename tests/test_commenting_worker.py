@@ -204,6 +204,25 @@ async def test_new_post_schedules_unique_comments(session):
     assert len(set(run_ats)) == count             # разные задержки
 
 
+async def test_new_post_handler_accepts_marked_channel_sender():
+    """Регрессия: Telethon отдаёт sender_id авто-форварда поста в «bot API»
+    форме канала (-(1000000000000+raw)), а мы храним raw entity.id. Handler
+    обязан ловить обе формы — иначе ни одного поста не поймаем (пустой лог).
+    """
+    spy = _SpyTaskQueue()
+    raw = 777
+    marked = -(1000000000000 + raw)  # как приходит из реальной discussion-группы
+    handler = listener.make_new_post_handler(1, spy, channel_id=raw)
+    await handler(SimpleNamespace(message=SimpleNamespace(sender_id=marked, id=100)))
+    await handler(SimpleNamespace(message=SimpleNamespace(sender_id=raw, id=101)))
+    # чужой коммент (положительный user id) — игнор
+    await handler(SimpleNamespace(message=SimpleNamespace(sender_id=42, id=102)))
+    assert spy.enqueued == [
+        (TaskName.COMMENTING_ON_NEW_POST, (1, 100), {}),
+        (TaskName.COMMENTING_ON_NEW_POST, (1, 101), {}),
+    ]
+
+
 # --- 2. post_comment отправляет и пишет CommentLog ---------------------------
 
 

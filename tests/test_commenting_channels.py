@@ -395,8 +395,11 @@ async def test_channel_registry_attach_fires_on_channel_post(session):
     assert len(client.added) == 1
     handler, _event = client.added[0]
 
-    # пост самого канала (sender_id == channel_tg_id) → on_channel_post
-    await handler(SimpleNamespace(message=SimpleNamespace(sender_id=777, id=100)))
+    # пост самого канала: Telethon отдаёт sender_id в маркированной форме
+    # канала (-(1000000000000+raw)), а channel_tg_id хранится как raw. Handler
+    # обязан поймать именно её (регрессия «пустой лог / не ловит посты»).
+    marked = -(1000000000000 + 777)
+    await handler(SimpleNamespace(message=SimpleNamespace(sender_id=marked, id=100)))
     # чужой коммент — игнор
     await handler(SimpleNamespace(message=SimpleNamespace(sender_id=42, id=101)))
     assert spy.enqueued == [
