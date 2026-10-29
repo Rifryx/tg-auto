@@ -191,7 +191,13 @@ def test_account_assignment_pair_consistency(session):
         session.flush()
 
 
-def test_campaign_account_unique_account_id(session):
+def test_campaign_account_multi_campaign_allows_same_account(session):
+    """Многоканальность (миграция 0067): один аккаунт — в N разных кампаниях.
+
+    Раньше стоял UNIQUE(account_id) и вторая привязка падала. Теперь аккаунт
+    может работать в нескольких commenting-кампаниях одновременно, поэтому
+    привязка к c1 и c2 должна проходить. Защита от дубля осталась — но только
+    в ОДНУ кампанию, через PK (campaign_id, account_id)."""
     from sqlalchemy.exc import IntegrityError
 
     acc = _make_account(phone="+10000000009")
@@ -200,8 +206,13 @@ def test_campaign_account_unique_account_id(session):
     session.add_all([acc, c1, c2])
     session.flush()
 
+    # Один и тот же аккаунт в двух РАЗНЫХ кампаниях — теперь разрешено.
     session.add(CampaignAccount(campaign_id=c1.id, account_id=acc.id))
     session.flush()
     session.add(CampaignAccount(campaign_id=c2.id, account_id=acc.id))
+    session.flush()  # не падает
+
+    # Но дубль в ОДНУ кампанию ловит PK (campaign_id, account_id).
+    session.add(CampaignAccount(campaign_id=c1.id, account_id=acc.id))
     with pytest.raises(IntegrityError):
         session.flush()

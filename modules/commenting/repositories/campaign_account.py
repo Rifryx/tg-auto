@@ -11,7 +11,8 @@ from modules.commenting.schemas.campaign_account import CampaignAccountUpdate
 
 
 class CampaignAccountRepository(BaseRepository[CampaignAccount]):
-    """Привязки аккаунтов к кампаниям. account_id эксклюзивен (UNIQUE)."""
+    """Привязки аккаунтов к кампаниям. С миграции 0067 account_id НЕ UNIQUE —
+    один аккаунт может работать в нескольких кампаниях одновременно."""
 
     model = CampaignAccount
 
@@ -24,8 +25,19 @@ class CampaignAccountRepository(BaseRepository[CampaignAccount]):
         return self.session.get(CampaignAccount, (campaign_id, account_id))
 
     def get_by_account(self, account_id: int) -> Optional[CampaignAccount]:
+        """Первая привязка аккаунта. С multi-campaign (миграция 0067) оставлено
+        для backward-compat; новые пути используют list_by_account."""
         stmt = select(CampaignAccount).where(CampaignAccount.account_id == account_id)
-        return self.session.execute(stmt).scalar_one_or_none()
+        return self.session.execute(stmt).scalars().first()
+
+    def list_by_account(self, account_id: int) -> list[CampaignAccount]:
+        """Все кампании, к которым привязан аккаунт (multi-campaign)."""
+        stmt = (
+            select(CampaignAccount)
+            .where(CampaignAccount.account_id == account_id)
+            .order_by(CampaignAccount.created_at.desc())
+        )
+        return list(self.session.execute(stmt).scalars().all())
 
     def list_by_campaign(self, campaign_id: int) -> list[CampaignAccount]:
         stmt = (

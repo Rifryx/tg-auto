@@ -62,9 +62,13 @@ def attach_account(
         raise CommentingConflict(
             f"account {account_id} is '{account.status}', нельзя прикрепить к кампании"
         )
-    # Эксклюзивность: аккаунт не должен быть уже привязан (UNIQUE account_id).
-    if CampaignAccountRepository(session).get_by_account(account_id) is not None:
-        raise CommentingConflict(f"account {account_id} is already attached to a campaign")
+    # Multi-campaign (миграция 0067): аккаунт МОЖЕТ быть прикреплён к нескольким
+    # commenting-кампаниям одновременно. Защита от дубля в ОДНУ кампанию —
+    # PK (campaign_id, account_id).
+    if CampaignAccountRepository(session).get(campaign_id, account_id) is not None:
+        raise CommentingConflict(
+            f"account {account_id} уже прикреплён к этой кампании"
+        )
 
     try:
         CampaignAccountRepository(session).create(
@@ -75,13 +79,19 @@ def attach_account(
                 probability_override=probability_override,
             )
         )
-        # transition коммитит всю транзакцию (вставку + смену статуса).
-        AccountStateMachine(session, publisher).transition(
-            account_id,
-            AccountEvent.CONTAINER_ATTACH,
-            Initiator.USER,
-            meta={"container_type": CONTAINER_TYPE, "container_id": campaign_id},
-        )
+        # Если аккаунт уже assigned (на другую commenting-кампанию или на
+        # shilling/priming) — не повторяем transition, status и
+        # assigned_container_type/id уже выставлены первой привязкой.
+        # Иначе — переводим POOL/WARMING/COOLDOWN/CREATED → ASSIGNED как и раньше.
+        if account.status != AccountStatus.ASSIGNED.value:
+            AccountStateMachine(session, publisher).transition(
+                account_id,
+                AccountEvent.CONTAINER_ATTACH,
+                Initiator.USER,
+                meta={"container_type": CONTAINER_TYPE, "container_id": campaign_id},
+            )
+        else:
+            session.flush()  # фиксируем campaign_account без transition
     except (TransitionError, IntegrityError) as exc:
         session.rollback()
         raise CommentingConflict(str(exc)) from exc
@@ -102,9 +112,27 @@ def detach_account(
         )
     try:
         CampaignAccountRepository(session).delete(campaign_id, account_id)
-        AccountStateMachine(session, publisher).transition(
-            account_id, AccountEvent.CONTAINER_DETACH, Initiator.USER
-        )
+        # Multi-campaign (миграция 0067): если после удаления этой привязки у
+        # аккаунта ещё есть другие commenting-кампании, оставляем его в
+        # ASSIGNED — он продолжает работать там. CONTAINER_DETACH и возврат
+        # в POOL только если это была ПОСЛЕДНЯЯ commenting-привязка.
+        remaining = CampaignAccountRepository(session).list_by_account(account_id)
+        if not remaining:
+            AccountStateMachine(session, publisher).transition(
+                account_id, AccountEvent.CONTAINER_DETACH, Initiator.USER
+            )
+        else:
+            # Если это был «ведущий» контейнер (assigned_container_id == campaign_id),
+            # переназначаем на одну из оставшихся — чтобы assigned_container_* не
+            # указывали на уже удалённую привязку.
+            account = AccountRepository(session).get(account_id)
+            if (
+                account is not None
+                and account.assigned_container_type == CONTAINER_TYPE
+                and account.assigned_container_id == campaign_id
+            ):
+                account.assigned_container_id = remaining[0].campaign_id
+            session.flush()
     except (TransitionError, LookupError) as exc:
         session.rollback()
         raise CommentingConflict(str(exc)) from exc

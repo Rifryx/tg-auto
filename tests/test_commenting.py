@@ -142,10 +142,13 @@ def test_attach_from_cooldown_prempts(session, client):
     assert CampaignAccountRepository(session).get(campaign_id, account_id) is not None
 
 
-# --- 3. attach уже привязанного аккаунта → 409 (эксклюзивность) ---------------
+# --- 3. multi-campaign: разные кампании OK, дубль в ту же → 409 ---------------
+# Миграция 0067 сняла UNIQUE(account_id): аккаунт работает в N commenting-
+# кампаниях одновременно. Эксклюзивность осталась только в рамках ОДНОЙ
+# кампании (PK campaign_id+account_id).
 
 
-def test_attach_already_attached_conflict(session, client):
+def test_attach_same_account_to_second_campaign_allowed(session, client):
     _clean(session)
     campaign_a = _make_campaign(session, "A")
     campaign_b = _make_campaign(session, "B")
@@ -157,16 +160,40 @@ def test_attach_already_attached_conflict(session, client):
     )
     assert ok.status_code == 201
 
-    conflict = client.post(
+    # Вторая кампания — теперь разрешено (многоканальность).
+    second = client.post(
         f"/modules/commenting/campaigns/{campaign_b}/accounts",
         json={"account_id": account_id},
     )
-    assert conflict.status_code == 409
+    assert second.status_code == 201, second.text
 
-    # привязка только к A, аккаунт всё ещё assigned на A
-    assert CampaignAccountRepository(session).get(campaign_b, account_id) is None
+    # Обе привязки на месте, аккаунт остаётся assigned; «ведущий» контейнер —
+    # первая кампания (повторный transition не вызывается).
+    repo = CampaignAccountRepository(session)
+    assert repo.get(campaign_a, account_id) is not None
+    assert repo.get(campaign_b, account_id) is not None
     account = AccountRepository(session).get(account_id)
+    assert account.status == "assigned"
     assert account.assigned_container_id == campaign_a
+
+
+def test_attach_duplicate_same_campaign_conflict(session, client):
+    _clean(session)
+    campaign_id = _make_campaign(session, "A")
+    account_id = _make_account(session, status="pool")
+
+    ok = client.post(
+        f"/modules/commenting/campaigns/{campaign_id}/accounts",
+        json={"account_id": account_id},
+    )
+    assert ok.status_code == 201
+
+    # Повторная привязка в ТУ ЖЕ кампанию — конфликт.
+    conflict = client.post(
+        f"/modules/commenting/campaigns/{campaign_id}/accounts",
+        json={"account_id": account_id},
+    )
+    assert conflict.status_code == 409
 
 
 # --- 4. detach → назад в pool, запись удалена, SM вызвана --------------------

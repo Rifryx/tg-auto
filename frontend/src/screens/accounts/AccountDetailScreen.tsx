@@ -15,6 +15,7 @@ import {
 import { haptic } from "../../shared/tg";
 import type { MonitoredChannel, MonitoredChannelStatus, WarmingProfile } from "../../shared/types";
 import { Field, TextArea, Toggle } from "../../modules/commenting/components/ui";
+import { AccountCampaignsBlock } from "./components/AccountCampaignsBlock";
 import { AccountLogsSection } from "./components/AccountLogsSection";
 import { AiProfileSection } from "./components/AiProfileSection";
 import { PinChannelSection } from "./components/PinChannelSection";
@@ -338,6 +339,14 @@ export function AccountDetailScreen() {
             </div>
           );
         })()}
+        {acc.status === "assigned" && (
+          <AccountCampaignsBlock
+            accountId={accountId}
+            assignedType={acc.assigned_container_type}
+            assignedId={acc.assigned_container_id}
+            commentingCampaigns={campaignsList.data ?? []}
+          />
+        )}
         {history.data && history.data.length > 0 ? (
           <ol className="flex flex-col">
             {history.data
