@@ -6,6 +6,7 @@ import { ScreenHeader } from "../../app/layout/AppLayout";
 import { EmptyState } from "../../components/EmptyState";
 import { accountsApi, catalogApi } from "../../shared/accounts";
 import { projectsApi } from "../../shared/projects";
+import { commentingApi } from "../../modules/commenting/api";
 import { Select } from "../../shared/Select";
 import { LimitBanner } from "../../shared/LimitBanner";
 import { useLimit } from "../../shared/limits";
@@ -42,6 +43,13 @@ export function AccountsListScreen() {
     [groups.data],
   );
   const proxies = useQuery({ queryKey: ["proxies"], queryFn: catalogApi.proxies });
+  // Multi-campaign (PR #68): сколько кампаний на каждом аккаунте — для бейджа
+  // «N работ» в правом углу карточки. Один запрос на весь список.
+  const campaignCounts = useQuery({
+    queryKey: ["commenting", "account-campaign-counts"],
+    queryFn: commentingApi.accountCampaignCounts,
+    refetchInterval: 30_000,
+  });
   const proxyById = useMemo(
     () => new Map((proxies.data ?? []).map((p) => [p.id, p])),
     [proxies.data],
@@ -189,6 +197,7 @@ export function AccountsListScreen() {
               selectable={selectMode}
               selected={selected.has(a.id)}
               onToggleSelect={toggleSelect}
+              campaignCount={campaignCounts.data?.[String(a.id)] ?? 0}
             />
           ))}
         </div>

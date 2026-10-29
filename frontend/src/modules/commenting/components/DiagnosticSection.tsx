@@ -130,33 +130,47 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
       {d.channels.length > 0 && (
         <div className="rounded-chip border border-hairline bg-surface-1 p-3 text-[12px] text-text-secondary">
           <p className="mb-2 text-text-tertiary">Каналы кампании</p>
-          <ul className="flex flex-col gap-1">
-            {d.channels.map((ch) => (
-              <li
-                key={ch.id}
-                className={`flex items-start gap-2 ${
-                  ch.status === "working" && ch.has_discussion
-                    ? ""
-                    : "text-status-warning"
-                }`}
-              >
-                <span className="shrink-0">
-                  {ch.status === "working" && ch.has_discussion ? "✓" : "⚠"}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <strong>{ch.ref}</strong>{" "}
-                  <span className="opacity-80">(акк. #{ch.account_id})</span> —{" "}
-                  статус: <strong>{ch.status}</strong>
-                  {!ch.has_discussion && ", нет обсуждений"}
-                  {ch.error && (
-                    <>
-                      <br />
-                      <span className="opacity-80">Ошибка: {ch.error}</span>
-                    </>
-                  )}
-                </span>
-              </li>
-            ))}
+          <ul className="flex flex-col gap-1.5">
+            {d.channels.map((ch) => {
+              const ok = ch.status === "working" && ch.has_discussion;
+              // Приоритет имени: title → @username → невнятный ref. Для невнятных
+              // (tg:12345 / +invitehash) показываем «без названия» вместо
+              // технической строки, которую пользователь не понимает.
+              const uglyRef =
+                ch.ref.startsWith("tg:") || ch.ref.startsWith("+");
+              const displayName =
+                ch.title ||
+                (uglyRef ? "Без названия" : ch.ref) ||
+                "Канал";
+              return (
+                <li
+                  key={ch.id}
+                  className={`flex items-start gap-2 ${
+                    ok ? "" : "text-status-warning"
+                  }`}
+                >
+                  <span className="shrink-0">{ok ? "✓" : "⚠"}</span>
+                  <span className="min-w-0 flex-1">
+                    <strong>{displayName}</strong>
+                    {ch.title && (
+                      <span className="opacity-70"> · {ch.ref}</span>
+                    )}
+                    <span className="opacity-70"> · акк. #{ch.account_id}</span>
+                    <br />
+                    статус: <strong>{ch.status}</strong>
+                    {!ch.has_discussion && (
+                      <> · <span className="font-medium">нет обсуждений — коммент невозможен</span></>
+                    )}
+                    {ch.error && (
+                      <>
+                        <br />
+                        <span className="opacity-80">Ошибка: {ch.error}</span>
+                      </>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

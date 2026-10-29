@@ -55,6 +55,8 @@ export const commentingApi = {
     api.get<CampaignDiagnostic>(`${BASE}/${id}/diagnostic`),
   campaignsOfAccount: (accountId: number) =>
     api.get<CampaignAccount[]>(`/modules/commenting/accounts/${accountId}/campaigns`),
+  accountCampaignCounts: () =>
+    api.get<Record<string, number>>(`/modules/commenting/accounts/campaign-counts`),
   resyncChannels: (id: number) =>
     api.post<{ queued: boolean }>(`${BASE}/${id}/resync-channels`, {}),
   stats: (id: number) => api.get<CampaignStats>(`${BASE}/${id}/stats`),
