@@ -57,6 +57,17 @@ def _task_queue(ctx: dict) -> TaskQueue:
     return ctx.get("task_queue") or TaskQueue(redis=ctx.get("redis"))
 
 
+def _timeline_redis(ctx: dict) -> Any:
+    """Синхронный redis-клиент для live-таймлайна (timeline.push_event).
+
+    НЕ использовать ctx['redis'] — это АСИНХРОННЫЙ arq-клиент, а push_event
+    синхронный (pipeline().execute()); с async-клиентом события молча не
+    пишутся (симптом «Таймлайн пуст»). Воркер кладёт синхронный клиент в
+    ctx['redis_sync'] (worker/main.py). В тестах ключа нет → None → push_event
+    просто no-op, что и нужно."""
+    return ctx.get("redis_sync")
+
+
 class ListenerRegistry:
     """Реестр активных слушателей: campaign_id → подключённый handler.
 
@@ -111,7 +122,7 @@ class ListenerRegistry:
             # Локальный импорт: timeline → structlog, structlog → ... циклов нет,
             # но делаем здесь, чтобы push в error-веткaх был доступен.
             from modules.commenting.worker.timeline import TimelineKind, push_event
-            redis = ctx.get("redis")
+            redis = _timeline_redis(ctx)
 
             with session_factory() as session:
                 campaign = CampaignRepository(session).get(campaign_id)
@@ -424,7 +435,7 @@ class ChannelListenerRegistry:
 
         from modules.commenting.worker.timeline import TimelineKind, push_event
 
-        redis = ctx.get("redis")
+        redis = _timeline_redis(ctx)
         async with self._lock:
             if channel_id in self._channel_account:
                 return True
