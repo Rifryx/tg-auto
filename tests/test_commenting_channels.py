@@ -442,3 +442,49 @@ async def test_channel_registry_shares_client_across_channels(session):
     # снятие второго — отпускает
     await reg.detach(ids[1])
     assert ctx["client_pool"].released == [account_id]
+
+
+# --- _ensure_joined_discussion: членство в группе обсуждений ------------------
+# Регрессия «ничего не ловится»: Telethon отдаёт NewMessage(chats=discussion
+# group) только участникам группы. resolve подписывает лишь на канал, поэтому
+# listener поднимался, но постов не видел. attach теперь best-effort вступает.
+
+
+async def test_ensure_joined_discussion_calls_join():
+    from telethon.tl.functions.channels import JoinChannelRequest
+
+    calls: list = []
+
+    class _JoinClient:
+        async def __call__(self, req):
+            calls.append(req)
+            return None
+
+    await registry._ensure_joined_discussion(
+        {"session_factory": None, "publisher": None},
+        _JoinClient(),
+        account_id=1,
+        discussion_group_id=555,
+        channel_ref="durov",
+        source_campaign_id=None,
+        redis=None,
+    )
+    assert len(calls) == 1
+    assert isinstance(calls[0], JoinChannelRequest)
+
+
+async def test_ensure_joined_discussion_swallows_errors():
+    class _BoomClient:
+        async def __call__(self, req):
+            raise RuntimeError("boom")
+
+    # Не должно пробросить — attach обязан продолжиться даже если join упал.
+    await registry._ensure_joined_discussion(
+        {"session_factory": None, "publisher": None},
+        _BoomClient(),
+        account_id=1,
+        discussion_group_id=555,
+        channel_ref="durov",
+        source_campaign_id=None,
+        redis=None,
+    )

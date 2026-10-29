@@ -39,6 +39,16 @@ async def startup(ctx: dict) -> None:
     # Синхронный публикатор (не arq-редис ctx['redis'], который async — иначе
     # publish возвращал бы неожиданную корутину и событие не уходило).
     ctx["publisher"] = build_redis_publisher(settings.redis_url)
+    # Синхронный redis-клиент для live-таймлайна кампаний. ВАЖНО: ctx['redis'] —
+    # это АСИНХРОННЫЙ arq-клиент, а push_event/recent_events (timeline.py)
+    # синхронные (pipeline().execute()). С async-клиентом execute() вернул бы
+    # неожидаемую корутину, и в таймлайн НЕ ПИСАЛОСЬ БЫ НИЧЕГО (симптом:
+    # «Таймлайн пуст» в диагностике, хотя listener поднят и ловит посты). API
+    # читает таймлайн тем же синхронным redis.Redis (api/asgi.py), поэтому и
+    # воркер обязан писать синхронным клиентом на тот же redis_url.
+    import redis as _redis_sync
+
+    ctx["redis_sync"] = _redis_sync.Redis.from_url(settings.redis_url)
 
     # ClientPool кладём в ctx СРАЗУ и явно (не лениво): от него зависят и
     # слушатели кампаний, и login/warming/commenting-задачи (аудит #12).
