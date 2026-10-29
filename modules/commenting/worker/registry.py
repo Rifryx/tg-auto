@@ -68,6 +68,64 @@ def _timeline_redis(ctx: dict) -> Any:
     return ctx.get("redis_sync")
 
 
+async def _ensure_joined_discussion(
+    ctx: dict,
+    client: Any,
+    *,
+    account_id: int,
+    discussion_group_id: int,
+    channel_ref: Optional[str],
+    source_campaign_id: Optional[int],
+    redis: Any,
+) -> None:
+    """Best-effort: вступить аккаунтом в discussion-группу канала.
+
+    КЛЮЧЕВОЕ для живого мониторинга: Telethon доставляет
+    ``NewMessage(chats=discussion_group_id)`` только если аккаунт — УЧАСТНИК
+    этой группы. ``resolve_channel`` подписывает лишь на сам канал (broadcast),
+    в группу обсуждений не вступает. Без членства handler никогда не срабатывает:
+    listener «поднят», но постов не видит — ни события в таймлайне, ни коммента
+    (главный симптом «ничего не происходит»). Вступаем идемпотентно (повторный
+    JoinChannel на уже-вступившего безвреден) и заодно прогреваем entity-кэш
+    сессии, чтобы последующий ``send_message(discussion_group_id)`` резолвил
+    группу. Ошибку НЕ роняем: handler регистрируем в любом случае."""
+    from telethon.tl.functions.channels import JoinChannelRequest
+
+    from modules.commenting.worker.timeline import TimelineKind, push_event
+    from worker.health import around_telethon_call
+
+    try:
+        await around_telethon_call(
+            lambda: client(JoinChannelRequest(discussion_group_id)),
+            account_id=account_id,
+            session_factory=ctx["session_factory"],
+            publisher=ctx.get("publisher"),
+        )
+        get_logger().info(
+            "commenting.channel_listener.joined_discussion",
+            account_id=account_id,
+            discussion_group_id=discussion_group_id,
+        )
+    except Exception as exc:  # noqa: BLE001 — join best-effort, attach не рушим
+        get_logger().warning(
+            "commenting.channel_listener.join_discussion_failed",
+            account_id=account_id,
+            discussion_group_id=discussion_group_id,
+            error=repr(exc),
+        )
+        if source_campaign_id is not None:
+            push_event(
+                redis, source_campaign_id, TimelineKind.LISTENER_OFFLINE,
+                f"Не удалось вступить в группу обсуждений канала «{channel_ref or ''}» "
+                f"аккаунтом #{account_id} — посты могут не ловиться. "
+                f"({type(exc).__name__})",
+                meta={
+                    "reason": "join_discussion_failed",
+                    "discussion_group_id": discussion_group_id,
+                },
+            )
+
+
 class ListenerRegistry:
     """Реестр активных слушателей: campaign_id → подключённый handler.
 
@@ -500,6 +558,17 @@ class ChannelListenerRegistry:
                 client = await pool.get(account_id)
                 entry = _AccountChannels(client=client, pool=pool, handlers={})
                 self._accounts[account_id] = entry
+
+            # Без членства в discussion-группе Telethon не отдаёт её апдейты —
+            # handler ниже не сработает ни на один пост. Вступаем best-effort.
+            await _ensure_joined_discussion(
+                ctx, entry.client,
+                account_id=account_id,
+                discussion_group_id=discussion_group_id,
+                channel_ref=channel_ref,
+                source_campaign_id=source_campaign_id,
+                redis=redis,
+            )
 
             handler = make_channel_post_handler(
                 account_id, channel_id, task_queue,
