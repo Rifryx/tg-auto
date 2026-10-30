@@ -1,5 +1,5 @@
 import { ExternalLink } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { isBrowserDev, isTelegram } from "../../shared/tg";
 import { Toaster } from "../../shared/toast";
@@ -15,6 +15,19 @@ import { DesktopSidebar } from "./DesktopSidebar";
 export function AppLayout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const chromeless = pathname.endsWith("/new");
+
+  // Глобально: прокрутка мышки над числовым полем НЕ должна менять его значение
+  // (частая жалоба). Снимаем фокус с number-инпута при wheel — браузер его не
+  // крутит, а страница скроллится как обычно.
+  useEffect(() => {
+    const onWheel = () => {
+      const el = document.activeElement as HTMLInputElement | null;
+      if (el && el.tagName === "INPUT" && el.type === "number") el.blur();
+    };
+    document.addEventListener("wheel", onWheel, { passive: true });
+    return () => document.removeEventListener("wheel", onWheel);
+  }, []);
+
   return (
     <div className="flex min-h-full overflow-x-clip bg-bg-base">
       <DesktopSidebar />

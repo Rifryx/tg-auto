@@ -79,6 +79,7 @@ async def parse_channel_commenters(
     progress.log(f"Открываю {chat_ref}, ищу группу обсуждений…")
     client = await pool.get(collector_account_id)
     raw_senders: dict[int, dict[str, Any]] = {}
+    qualified = 0  # авторы, набравшие min_messages — по ним считаем max_targets
     linked_missing = False
     scanned = 0
     try:
@@ -108,16 +109,18 @@ async def parse_channel_commenters(
                     continue
                 info = raw_senders.setdefault(int(sender_id), {"count": 0})
                 info["count"] += 1
+                if info["count"] == min_messages:
+                    qualified += 1
                 sender = getattr(message, "sender", None)
                 if sender is not None and "sender" not in info:
                     info["sender"] = _sender_snapshot(sender)
                 if scanned % 200 == 0:
                     progress.log(
-                        f"Просмотрено {scanned} коммент., уникальных авторов "
-                        f"{len(raw_senders)}…"
+                        f"Просмотрено {scanned} коммент., подходящих авторов "
+                        f"{qualified}…"
                     )
-                    await progress.heartbeat(raw=len(raw_senders))
-                if apply_max_targets(max_targets, len(raw_senders)):
+                    await progress.heartbeat(raw=qualified)
+                if apply_max_targets(max_targets, qualified):
                     progress.log(
                         f"Достигнут лимит {max_targets} авторов — останавливаю сбор."
                     )
