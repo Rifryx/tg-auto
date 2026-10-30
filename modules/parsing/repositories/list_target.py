@@ -52,3 +52,32 @@ class ParsedListTargetRepository(BaseRepository[ParsedListTarget]):
         inserted = list(self.session.execute(stmt).scalars())
         self.session.flush()
         return len(inserted)
+
+    def count_by_list(self, list_id: int) -> int:
+        from sqlalchemy import func
+
+        return int(
+            self.session.execute(
+                select(func.count())
+                .select_from(ParsedListTarget)
+                .where(ParsedListTarget.list_id == list_id)
+            ).scalar_one()
+        )
+
+    def delete_targets(self, list_id: int, target_ids: list[int]) -> int:
+        """Удаляет указанные строки списка. Возвращает число удалённых.
+
+        Жалоба: «в базе нет возможности удалять спаршеных». ``target_ids``
+        ограничиваем ``list_id``, чтобы нельзя было задеть чужой список."""
+        if not target_ids:
+            return 0
+        from sqlalchemy import delete as sa_delete
+
+        result = self.session.execute(
+            sa_delete(ParsedListTarget).where(
+                ParsedListTarget.list_id == list_id,
+                ParsedListTarget.id.in_(target_ids),
+            )
+        )
+        self.session.flush()
+        return int(result.rowcount or 0)

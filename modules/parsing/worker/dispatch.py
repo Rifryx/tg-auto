@@ -213,6 +213,7 @@ async def _dispatch_kind(ctx: dict, kind: str, payload: dict[str, Any]):
             collector_account_id=int(payload["collector_account_id"]),
             chat_ref=str(payload["chat_ref"]),
             only_recently_seen=bool(payload.get("only_recently_seen", True)),
+            max_targets=payload.get("max_targets"),
             filter_options=filter_options,
         )
     elif kind == "channel_commenters":

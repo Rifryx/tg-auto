@@ -41,6 +41,7 @@ async def parse_chat_members(
     collector_account_id: int,
     chat_ref: str,
     only_recently_seen: bool = True,
+    max_targets: Optional[int] = None,
     filter_options: Optional[FilterOptions] = None,
 ) -> Optional[ParseResult]:
     log = get_logger()
@@ -83,7 +84,17 @@ async def parse_chat_members(
     total_seen = 0
     try:
         entity = await client.get_entity(chat_ref)
-        async for participant in client.iter_participants(entity):
+        # Чтобы перечислять участников, аккаунт обычно должен СОСТОЯТЬ в чате:
+        # у не-участника Telegram отдаёт лишь админов (или пусто) — отсюда
+        # «на чат 15k вернуло 2 юзернейма». Вступаем best-effort перед сбором.
+        await _ensure_member(client, entity, progress, log,
+                             account_id=collector_account_id,
+                             session_factory=session_factory,
+                             publisher=ctx.get("publisher"))
+        # aggressive=True заставляет Telethon обходить участников по буквам
+        # (а не упираться в ~первые отданные сервером), иначе на крупных группах
+        # собирается лишь малая часть.
+        async for participant in client.iter_participants(entity, aggressive=True):
             total_seen += 1
             snap = _snapshot(participant, now)
             if only_recently_seen and snap["last_seen_bucket"] not in {
@@ -95,11 +106,25 @@ async def parse_chat_members(
                 )
                 continue
             raw_rows.append(snap)
-            if total_seen % 50 == 0:
+            if len(raw_rows) % 50 == 0:
                 progress.log(f"Просмотрено {total_seen}, собрано {len(raw_rows)}…")
                 await progress.heartbeat(raw=len(raw_rows))
+            # Остановка по запрошенному лимиту «сколько юзеров нужно».
+            if max_targets is not None and len(raw_rows) >= max_targets:
+                progress.log(f"Достигнут лимит {max_targets} — останавливаю сбор.")
+                break
     finally:
         await pool.release(collector_account_id)
+    # Диагностика «вернуло подозрительно мало»: у не-участника/закрытого чата
+    # так и будет — подсказываем пользователю, почему.
+    if total_seen <= 5:
+        progress.log(
+            f"⚠ Из «{chat_ref}» видно лишь {total_seen} участников. Обычно это "
+            "значит, что аккаунт-парсер не состоит в чате, либо чат скрывает "
+            "список участников (большие/закрытые группы). Добавьте аккаунт в чат "
+            "вручную и повторите, либо используйте парсинг по комментаторам/"
+            "сообщениям."
+        )
     progress.log(
         f"Сбор завершён: просмотрено {total_seen}, собрано {len(raw_rows)}. "
         f"Применяю фильтры…"
@@ -160,6 +185,42 @@ async def parse_chat_members(
         list_id=list_id, raw_count=total_seen,
         inserted=inserted, filters_breakdown=breakdown,
     )
+
+
+async def _ensure_member(
+    client: Any,
+    entity: Any,
+    progress: Any,
+    log: Any,
+    *,
+    account_id: int,
+    session_factory: Any,
+    publisher: Any,
+) -> None:
+    """Best-effort: вступить аккаунтом-парсером в чат перед перечислением.
+
+    Для не-участника Telegram почти всегда отдаёт лишь админов — список
+    получается в единицы вместо тысяч. Если аккаунт уже в чате — JoinChannel
+    идемпотентен. Ошибку не роняем: просто попробуем читать как есть."""
+    if getattr(entity, "left", None) is False:
+        return  # уже участник — вступать не нужно
+    from telethon.tl.functions.channels import JoinChannelRequest
+
+    from worker.health import around_telethon_call
+
+    try:
+        await around_telethon_call(
+            lambda: client(JoinChannelRequest(entity)),
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+        )
+    except Exception as exc:  # noqa: BLE001 — join best-effort
+        log.info("parsing.chat_members.join_skipped", error=repr(exc))
+        progress.log(
+            "Не удалось вступить в чат аккаунтом-парсером — читаю как есть "
+            f"({type(exc).__name__})."
+        )
 
 
 def _snapshot(user: Any, now: datetime) -> dict[str, Any]:

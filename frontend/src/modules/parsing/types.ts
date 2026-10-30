@@ -104,6 +104,7 @@ export interface RunChatMembersBody extends AudienceFilters {
   collector_account_id: number;
   chat_ref: string;
   only_recently_seen?: boolean;
+  max_targets?: number | null;
 }
 
 export interface RunPostReactorsBody extends AudienceFilters {

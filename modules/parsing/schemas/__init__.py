@@ -109,6 +109,10 @@ class RunChatMembersRequest(_FilterFields):
     # "онлайн/недавно", и список часто получался пустым. Явный last_seen_max_days
     # в фильтрах даёт более точный контроль.
     only_recently_seen: bool = False
+    # Сколько кандидатов собрать максимум (жалоба: «нет настройки сколько мне
+    # нужно пользователей»). None — собрать всех доступных. Фильтры применяются
+    # после сбора, поэтому финальный список может быть немного меньше.
+    max_targets: Optional[int] = Field(default=None, ge=1, le=100000)
 
 
 class RunChannelCommentersRequest(_FilterFields):
