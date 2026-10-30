@@ -262,6 +262,37 @@ def test_warming_activity_repo(session):
     assert len(items) == 2
 
 
+def test_warming_activity_trim_keeps_latest(session):
+    acc = AccountRepository(session).create(_account_create())
+    repo = WarmingActivityRepository(session)
+
+    created = []
+    for _ in range(10):
+        created.append(
+            repo.create(
+                WarmingActivityCreate(
+                    account_id=acc.id,
+                    kind=WarmingActivityKind.MAINTENANCE,
+                    action_type=WarmingActionType.IDLE_ONLINE,
+                    status=WarmingActivityStatus.DONE,
+                )
+            )
+        )
+    session.flush()
+
+    removed = repo.trim_account(acc.id, keep=4)
+    assert removed == 6
+    remaining = repo.list_by_account(acc.id, limit=100)
+    assert len(remaining) == 4
+    # Остаются именно самые свежие (последние по id).
+    assert {r.id for r in remaining} == {c.id for c in created[-4:]}
+
+    # Повторный trim ничего не трогает; keep<=0 — защита от полной очистки.
+    assert repo.trim_account(acc.id, keep=4) == 0
+    assert repo.trim_account(acc.id, keep=0) == 0
+    assert len(repo.list_by_account(acc.id, limit=100)) == 4
+
+
 # --------------------------------------------------------------------------- #
 # HealthEventRepository
 # --------------------------------------------------------------------------- #

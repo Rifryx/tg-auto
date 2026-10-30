@@ -40,11 +40,13 @@ export function AccountLogsSection({ accountId }: { accountId: number }) {
             <span className="text-status-active">Опубликовано: {posted}</span>
             {failed > 0 && <span className="text-status-critical">Ошибок: {failed}</span>}
           </div>
-          <ul className="flex flex-col">
-            {rows.map((log, i) => (
-              <LogRow key={log.id} log={log} border={i > 0} />
-            ))}
-          </ul>
+          <div className="-my-1 max-h-80 overflow-y-auto overscroll-contain pr-1">
+            <ul className="flex flex-col">
+              {rows.map((log, i) => (
+                <LogRow key={log.id} log={log} border={i > 0} />
+              ))}
+            </ul>
+          </div>
         </>
       )}
     </Section>

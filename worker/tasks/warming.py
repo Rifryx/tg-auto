@@ -225,7 +225,8 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
         await pool.release(account_id)
 
     with session_factory() as session:
-        WarmingActivityRepository(session).create(
+        wa_repo = WarmingActivityRepository(session)
+        wa_repo.create(
             WarmingActivityCreate(
                 account_id=account_id,
                 kind=kind,
@@ -235,6 +236,8 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
                 meta=result.meta,
             )
         )
+        # Обрезаем ленту, чтобы она не росла бесконечно (накопительный эффект).
+        wa_repo.trim_account(account_id)
         session.commit()
         if kind is WarmingActivityKind.INITIAL:
             _maybe_complete_warming(session, publisher, account_id, now)
