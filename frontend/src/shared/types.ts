@@ -287,4 +287,7 @@ export interface AccountHealth {
   has_avatar: boolean | null;
   has_bio: boolean | null;
   age_days: number | null;
+  last_full_check_at: string | null;
+  last_session_check_at: string | null;
+  last_spam_check_at: string | null;
 }

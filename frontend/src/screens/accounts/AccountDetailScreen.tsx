@@ -17,6 +17,7 @@ import type { MonitoredChannel, MonitoredChannelStatus, WarmingProfile } from ".
 import { Field, TextArea, Toggle } from "../../modules/commenting/components/ui";
 import { AccountCampaignsBlock } from "./components/AccountCampaignsBlock";
 import { AccountLogsSection } from "./components/AccountLogsSection";
+import { LastCheckCard } from "./components/LastCheckCard";
 import { AiProfileSection } from "./components/AiProfileSection";
 import { PinChannelSection } from "./components/PinChannelSection";
 import { BanRiskCard } from "./components/BanRiskCard";
@@ -206,6 +207,9 @@ export function AccountDetailScreen() {
         username={acc.username}
         onSave={(v) => patchProfile.mutate({ display_name: v })}
       />
+
+      {/* Результат последней проверки (bulk «Проверить») — сразу под шапкой. */}
+      <LastCheckCard accountId={accountId} />
 
       {/* 2-колоночная вёрстка на действительно широком экране. Порог lg: (1024px)
           слишком ранний — на типовых ноутбучных окнах 1280-1366 после сайдбара
@@ -539,28 +543,32 @@ export function AccountDetailScreen() {
       {/* 6b. Конструктор сценариев прогрева — кастом поверх пресета. */}
       <WarmingScenarioSection accountId={accountId} profile={acc.warming_profile} />
 
-      {/* 7. Активность прогрева */}
+      {/* 7. Активность прогрева. Лента длинная — крутится в своём блоке
+          (max-h + overflow), а не растягивает весь экран. На бэке лента
+          обрезается до 150 последних записей (накопительный эффект). */}
       <Section title="Активность">
         {warming.data && warming.data.length > 0 ? (
-          <ul className="flex flex-col">
-            {warming.data.slice(0, 12).map((a, i) => (
-              <li
-                key={a.id}
-                className={`flex items-center justify-between py-2 ${i > 0 ? "border-t border-hairline" : ""}`}
-              >
-                <span className="min-w-0 flex-1 truncate pr-2 text-[13px] text-text-primary">
-                  {a.detail?.trim() || a.action_type}
-                </span>
-                <span className="flex shrink-0 items-center gap-2 text-[12px] text-text-tertiary">
-                  {timeAgo(a.created_at)}
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${a.status === "done" ? "bg-status-active" : a.status === "failed" ? "bg-status-critical" : "bg-status-neutral"}`}
-                    aria-hidden
-                  />
-                </span>
-              </li>
-            ))}
-          </ul>
+          <div className="-my-1 max-h-80 overflow-y-auto overscroll-contain pr-1">
+            <ul className="flex flex-col">
+              {warming.data.map((a, i) => (
+                <li
+                  key={a.id}
+                  className={`flex items-center justify-between py-2 ${i > 0 ? "border-t border-hairline" : ""}`}
+                >
+                  <span className="min-w-0 flex-1 truncate pr-2 text-[13px] text-text-primary">
+                    {a.detail?.trim() || a.action_type}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2 text-[12px] text-text-tertiary">
+                    {timeAgo(a.created_at)}
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${a.status === "done" ? "bg-status-active" : a.status === "failed" ? "bg-status-critical" : "bg-status-neutral"}`}
+                      aria-hidden
+                    />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : (
           <Muted>Пока нет активности.</Muted>
         )}
