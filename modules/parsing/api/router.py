@@ -216,6 +216,7 @@ async def run_chat_messages(
             "chat_ref": body.chat_ref,
             "days_window": body.days_window,
             "min_messages": body.min_messages,
+            "max_targets": body.max_targets,
             **_filter_payload(body),
         },
     )
@@ -257,6 +258,7 @@ async def run_channel_commenters(
             "chat_ref": body.chat_ref,
             "days_window": body.days_window,
             "min_messages": body.min_messages,
+            "max_targets": body.max_targets,
             **_filter_payload(body),
         },
     )
@@ -279,6 +281,7 @@ async def run_post_reactors(
             "posts_limit": body.posts_limit,
             "reactions_per_post": body.reactions_per_post,
             "min_reactions": body.min_reactions,
+            "max_targets": body.max_targets,
             **_filter_payload(body),
         },
     )

@@ -97,6 +97,7 @@ export interface RunChatMessagesBody extends AudienceFilters {
   chat_ref: string;
   days_window?: number;
   min_messages?: number;
+  max_targets?: number | null;
 }
 
 export interface RunChatMembersBody extends AudienceFilters {
@@ -114,6 +115,7 @@ export interface RunPostReactorsBody extends AudienceFilters {
   posts_limit?: number;
   reactions_per_post?: number;
   min_reactions?: number;
+  max_targets?: number | null;
 }
 
 /* Discovery сообществ (этап 2). */

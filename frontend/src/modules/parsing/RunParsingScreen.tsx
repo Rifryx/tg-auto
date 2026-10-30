@@ -124,7 +124,14 @@ export function RunParsingScreen() {
         last_seen_max_days: lastSeenMaxDays === "" ? null : Number(lastSeenMaxDays),
         phone_country_prefixes: prefixes.length > 0 ? prefixes : null,
       };
-      const base = { name: name.trim(), collector_account_id: collectorId, chat_ref: chatRef.trim(), ...filters };
+      // «Сколько юзеров нужно» применимо ко всем режимам сбора юзеров.
+      const base = {
+        name: name.trim(),
+        collector_account_id: collectorId,
+        chat_ref: chatRef.trim(),
+        max_targets: maxTargets === "" ? null : Number(maxTargets),
+        ...filters,
+      };
       if (kind === "chat_messages")
         return parsingApi.runChatMessages({ ...base, days_window: daysWindow, min_messages: minMessages });
       if (kind === "channel_commenters")
@@ -133,11 +140,7 @@ export function RunParsingScreen() {
         return parsingApi.runPostReactors({
           ...base, posts_limit: postsLimit, reactions_per_post: reactionsPerPost, min_reactions: minReactions,
         });
-      return parsingApi.runChatMembers({
-        ...base,
-        only_recently_seen: onlyRecentlySeen,
-        max_targets: maxTargets === "" ? null : Number(maxTargets),
-      });
+      return parsingApi.runChatMembers({ ...base, only_recently_seen: onlyRecentlySeen });
     },
     // Открываем окно прогресса с живым логом (вместо «тихого» возврата к спискам).
     onSuccess: (res) => navigate(`/modules/parsing/run/${res.job_id}`),
@@ -250,34 +253,34 @@ export function RunParsingScreen() {
             </div>
           )}
 
-          {kind === "chat_members" && (
-            <div className="mt-4 flex flex-col gap-4">
-              <label className="block">
-                <span className="mb-1 block text-[13px] text-text-secondary">
-                  Сколько юзеров нужно
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  inputMode="numeric"
-                  value={maxTargets}
-                  onChange={(e) => setMaxTargets(e.target.value)}
-                  placeholder="напр. 1000 — пусто = собрать всех"
-                  className="w-full rounded-xl border border-hairline bg-surface-2 p-2.5 text-[14px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
-                />
-                <span className="mt-1 block text-[12px] text-text-tertiary">
-                  Сбор остановится по достижении лимита. Фильтры применяются
-                  после сбора — итог может быть чуть меньше.
-                </span>
-              </label>
+          <div className="mt-4 flex flex-col gap-4">
+            <label className="block">
+              <span className="mb-1 block text-[13px] text-text-secondary">
+                Сколько юзеров нужно
+              </span>
+              <input
+                type="number"
+                min={1}
+                inputMode="numeric"
+                value={maxTargets}
+                onChange={(e) => setMaxTargets(e.target.value)}
+                placeholder="напр. 1000 — пусто = собрать всех"
+                className="w-full rounded-xl border border-hairline bg-surface-2 p-2.5 text-[14px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
+              />
+              <span className="mt-1 block text-[12px] text-text-tertiary">
+                Сбор остановится по достижении лимита. Фильтры применяются
+                после сбора — итог может быть чуть меньше.
+              </span>
+            </label>
+            {kind === "chat_members" && (
               <Checkbox
                 checked={onlyRecentlySeen}
                 onChange={setOnlyRecentlySeen}
                 label="Только «был недавно»"
                 description="Активные за ~7 дней. Внимание: Telegram у большинства скрывает last-seen, так что эта галочка сильно урезает список."
               />
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         <div className="card relative overflow-hidden p-5">

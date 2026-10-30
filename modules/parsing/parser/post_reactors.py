@@ -13,6 +13,7 @@ from typing import Any, Optional
 import structlog
 from telethon.tl.functions.messages import GetMessageReactionsListRequest
 
+from modules.parsing.parser._common import apply_max_targets, diagnose_scarce
 from modules.parsing.parser.chat_members import _snapshot
 from modules.parsing.parser.chat_messages import ParseResult
 from modules.parsing.parser.filters import FilterOptions, apply_filters
@@ -20,6 +21,7 @@ from modules.parsing.repositories import (
     ParsedListRepository,
     ParsedListTargetRepository,
 )
+from modules.parsing.worker.progress import NullProgress
 from modules.priming.repositories import BlacklistRepository
 from modules.priming.schemas.enums import ParserSourceKind, TargetLastSeen
 
@@ -38,6 +40,7 @@ async def parse_post_reactors(
     posts_limit: int = 20,
     reactions_per_post: int = 100,
     min_reactions: int = 1,
+    max_targets: Optional[int] = None,
     filter_options: Optional[FilterOptions] = None,
 ) -> Optional[ParseResult]:
     log = get_logger()
@@ -51,6 +54,7 @@ async def parse_post_reactors(
         from worker.health import Governor as _Governor
         governor = _Governor(ctx.get("redis"))
     now = ctx.get("now") or datetime.now(timezone.utc)
+    progress = ctx.get("parsing_progress") or NullProgress()
 
     if not await governor.check_and_reserve(collector_account_id, PARSER_ACTION_TYPE):
         log.info("parsing.post_reactors.rate_limited",
@@ -68,9 +72,11 @@ async def parse_post_reactors(
         list_id = parsed_list.id
         session.commit()
 
+    progress.log(f"Открываю {chat_ref}, читаю последние {posts_limit} постов…")
     client = await pool.get(collector_account_id)
     # tg_user_id -> {"count": N, "snap": {...}}
     reactors: dict[int, dict[str, Any]] = {}
+    posts_done = 0
     try:
         entity = await client.get_entity(chat_ref)
         messages = await client.get_messages(entity, limit=posts_limit)
@@ -95,8 +101,19 @@ async def parse_post_reactors(
                     reactors[int(uid)] = {"count": 1, "snap": _snapshot(user, now)}
                 else:
                     rec["count"] += 1
+            posts_done += 1
+            progress.log(
+                f"Пост {posts_done}/{len(messages)}: уникальных реакторов "
+                f"{len(reactors)}…"
+            )
+            await progress.heartbeat(raw=len(reactors))
+            if apply_max_targets(max_targets, len(reactors)):
+                progress.log(f"Достигнут лимит {max_targets} — останавливаю сбор.")
+                break
     finally:
         await pool.release(collector_account_id)
+    diagnose_scarce(progress, chat_ref, len(reactors))
+    progress.log(f"Сбор завершён: {len(reactors)} реакторов. Применяю фильтры…")
 
     picked_rows: list[dict[str, Any]] = []
     below_min = 0
@@ -143,6 +160,8 @@ async def parse_post_reactors(
         })
         session.commit()
 
+    progress.set_counts(raw=len(reactors), inserted=inserted)
+    progress.log(f"Фильтры применены: добавлено {inserted} из {len(reactors)}.")
     log.info("parsing.post_reactors.done", list_id=list_id,
              raw=len(reactors), inserted=inserted, breakdown=breakdown)
     return ParseResult(

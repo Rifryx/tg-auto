@@ -11,6 +11,11 @@ from typing import Any, Optional
 
 import structlog
 
+from modules.parsing.parser._common import (
+    apply_max_targets,
+    diagnose_scarce,
+    ensure_member,
+)
 from modules.parsing.parser.filters import FilterOptions, apply_filters
 from modules.parsing.repositories import (
     ParsedListRepository,
@@ -87,10 +92,11 @@ async def parse_chat_members(
         # Чтобы перечислять участников, аккаунт обычно должен СОСТОЯТЬ в чате:
         # у не-участника Telegram отдаёт лишь админов (или пусто) — отсюда
         # «на чат 15k вернуло 2 юзернейма». Вступаем best-effort перед сбором.
-        await _ensure_member(client, entity, progress, log,
-                             account_id=collector_account_id,
-                             session_factory=session_factory,
-                             publisher=ctx.get("publisher"))
+        await ensure_member(
+            client, entity, account_id=collector_account_id,
+            session_factory=session_factory, publisher=ctx.get("publisher"),
+            progress=progress, log=log,
+        )
         # aggressive=True заставляет Telethon обходить участников по буквам
         # (а не упираться в ~первые отданные сервером), иначе на крупных группах
         # собирается лишь малая часть.
@@ -110,21 +116,14 @@ async def parse_chat_members(
                 progress.log(f"Просмотрено {total_seen}, собрано {len(raw_rows)}…")
                 await progress.heartbeat(raw=len(raw_rows))
             # Остановка по запрошенному лимиту «сколько юзеров нужно».
-            if max_targets is not None and len(raw_rows) >= max_targets:
+            if apply_max_targets(max_targets, len(raw_rows)):
                 progress.log(f"Достигнут лимит {max_targets} — останавливаю сбор.")
                 break
     finally:
         await pool.release(collector_account_id)
     # Диагностика «вернуло подозрительно мало»: у не-участника/закрытого чата
     # так и будет — подсказываем пользователю, почему.
-    if total_seen <= 5:
-        progress.log(
-            f"⚠ Из «{chat_ref}» видно лишь {total_seen} участников. Обычно это "
-            "значит, что аккаунт-парсер не состоит в чате, либо чат скрывает "
-            "список участников (большие/закрытые группы). Добавьте аккаунт в чат "
-            "вручную и повторите, либо используйте парсинг по комментаторам/"
-            "сообщениям."
-        )
+    diagnose_scarce(progress, chat_ref, total_seen)
     progress.log(
         f"Сбор завершён: просмотрено {total_seen}, собрано {len(raw_rows)}. "
         f"Применяю фильтры…"
@@ -185,42 +184,6 @@ async def parse_chat_members(
         list_id=list_id, raw_count=total_seen,
         inserted=inserted, filters_breakdown=breakdown,
     )
-
-
-async def _ensure_member(
-    client: Any,
-    entity: Any,
-    progress: Any,
-    log: Any,
-    *,
-    account_id: int,
-    session_factory: Any,
-    publisher: Any,
-) -> None:
-    """Best-effort: вступить аккаунтом-парсером в чат перед перечислением.
-
-    Для не-участника Telegram почти всегда отдаёт лишь админов — список
-    получается в единицы вместо тысяч. Если аккаунт уже в чате — JoinChannel
-    идемпотентен. Ошибку не роняем: просто попробуем читать как есть."""
-    if getattr(entity, "left", None) is False:
-        return  # уже участник — вступать не нужно
-    from telethon.tl.functions.channels import JoinChannelRequest
-
-    from worker.health import around_telethon_call
-
-    try:
-        await around_telethon_call(
-            lambda: client(JoinChannelRequest(entity)),
-            account_id=account_id,
-            session_factory=session_factory,
-            publisher=publisher,
-        )
-    except Exception as exc:  # noqa: BLE001 — join best-effort
-        log.info("parsing.chat_members.join_skipped", error=repr(exc))
-        progress.log(
-            "Не удалось вступить в чат аккаунтом-парсером — читаю как есть "
-            f"({type(exc).__name__})."
-        )
 
 
 def _snapshot(user: Any, now: datetime) -> dict[str, Any]:
