@@ -40,6 +40,9 @@ class GenerateAndApplyPayload(BaseModel):
     llm_provider: str = "deepseek"
     apply_username: bool = True
     apply_bio: bool = True
+    # Свободное описание желаемого оформления от пользователя. Если задано — ИИ
+    # генерит ПО ПРОМПТУ (персона не обязательна); иначе — из персоны аккаунта.
+    prompt: Optional[str] = None
 
 
 async def _run(
@@ -52,20 +55,28 @@ async def _run(
     generator: Optional[ProfileGenerator] = None,
     **_: object,
 ) -> BulkActionResult:
-    # Читаем персону аккаунта в короткоживущей сессии.
+    user_prompt = (payload.prompt or "").strip()
+
+    # С промптом персона не обязательна — генерим по описанию пользователя.
+    # Без промпта нужна персона (как раньше).
+    persona = None
     with session_factory() as session:
         account = AccountRepository(session).get(account_id)
         if account is None:
             return BulkActionResult(ok=False, skipped=True, detail={"reason": "account_missing"})
-        if account.persona_id is None:
-            return BulkActionResult(ok=False, skipped=True, detail={"reason": "no_persona"})
-        persona = PersonaRepository(session).get(account.persona_id)
-        if persona is None:
-            return BulkActionResult(ok=False, skipped=True, detail={"reason": "persona_missing"})
+        if not user_prompt:
+            if account.persona_id is None:
+                return BulkActionResult(ok=False, skipped=True, detail={"reason": "no_persona"})
+            persona = PersonaRepository(session).get(account.persona_id)
+            if persona is None:
+                return BulkActionResult(ok=False, skipped=True, detail={"reason": "persona_missing"})
 
     gen = generator or default_generator(payload.llm_provider)
     try:
-        generated = await gen.generate(persona)
+        if user_prompt:
+            generated = await gen.generate_from_prompt(user_prompt)
+        else:
+            generated = await gen.generate(persona)
     except ProfileGenerationError as exc:
         return BulkActionResult(ok=False, detail={"reason": "generation_failed", "error": str(exc)})
 

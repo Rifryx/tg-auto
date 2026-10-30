@@ -200,3 +200,43 @@ async def test_apply_profile_noop_when_all_fields_none(session):
     assert result.updated_bio is False
     assert result.applied_username is None
     assert client.calls == []
+
+
+async def test_generate_and_apply_uses_prompt_without_persona(session):
+    """«Профиль ИИ» по промпту: персона не обязательна, генерим по описанию."""
+    from types import SimpleNamespace
+
+    from core.enums import BulkActionType
+    from modules.bulk.actions import ACTION_REGISTRY
+    from modules.bulk.actions.generate_and_apply_profile import (
+        GenerateAndApplyPayload,
+    )
+
+    _clean(session)
+    account_id = _make_account(session)  # без персоны
+    client = _FakeClient()
+
+    class _Gen:
+        async def generate_from_prompt(self, prompt):
+            assert prompt == "крипто-трейдер"
+            return SimpleNamespace(
+                first_name="Иван", last_name="Петров", bio="trader",
+                username_candidates=["ivan_t"],
+                as_dict=lambda: {"first_name": "Иван"},
+            )
+
+        async def generate(self, persona):  # не должен вызываться
+            raise AssertionError("ожидали генерацию по промпту")
+
+    action = ACTION_REGISTRY[BulkActionType.GENERATE_AND_APPLY_PROFILE.value]
+    payload = GenerateAndApplyPayload(prompt="крипто-трейдер")
+    result = await action.run(
+        account_id=account_id,
+        payload=payload,
+        session_factory=_factory(session),
+        publisher=None,
+        client=client,
+        generator=_Gen(),
+    )
+    assert result.ok is True
+    assert result.skipped is False  # нет персоны, но не пропущено — по промпту

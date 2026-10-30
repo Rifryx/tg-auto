@@ -23,11 +23,12 @@ export function PoolProfileSheet({
   onApply: (payload: Record<string, unknown>) => void;
   onCancel: () => void;
 }) {
-  const [firstName, setFirstName] = useState(true);
-  const [lastName, setLastName] = useState(false);
+  // Пул оформления поддерживает только avatar и bio (имя/фамилия/username
+  // из пула больше не заводятся — их в «Пул оформления» не добавить, см.
+  // ProfileAssetsScreen.KINDS). Тумблеры для них убраны как неактуальные;
+  // для случайных имён есть «Профиль ИИ».
   const [bio, setBio] = useState(true);
   const [avatar, setAvatar] = useState(true);
-  const [username, setUsername] = useState(false);
   const [tags, setTags] = useState("");
 
   // Загружаем пул, чтобы понять, какие виды ассетов вообще есть, и не
@@ -40,37 +41,25 @@ export function PoolProfileSheet({
   const pool = useMemo(() => {
     const items = assets.data ?? [];
     return {
-      first_name: items.filter((a) => a.kind === "first_name").length,
-      last_name: items.filter((a) => a.kind === "last_name").length,
       bio: items.filter((a) => a.kind === "bio").length,
       avatar: items.filter((a) => a.kind === "avatar").length,
-      username: items.filter((a) => a.kind === "username_template").length,
     };
   }, [assets.data]);
 
   // Поле включено, но его в пуле нет → джобу запускать нельзя (нечему
   // применяться). Эти поля подсвечиваем предупреждением и блокируем кнопку.
   const missing: string[] = [];
-  if (firstName && pool.first_name === 0) missing.push("Имя");
-  if (lastName && pool.last_name === 0) missing.push("Фамилия");
   if (bio && pool.bio === 0) missing.push("BIO");
   if (avatar && pool.avatar === 0) missing.push("Аватар");
-  if (username && pool.username === 0) missing.push("Username");
 
-  const anyField = firstName || lastName || bio || avatar || username;
+  const anyField = bio || avatar;
   const canApply = anyField && missing.length === 0 && !assets.isLoading;
 
   const build = (): Record<string, unknown> => {
     const t = tags.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
     const p: Record<string, unknown> = {};
-    if (firstName) p.first_name_tags = t;
-    if (lastName) p.last_name_tags = t;
     if (bio) p.bio_tags = t;
     if (avatar) p.avatar_tags = t;
-    if (username) {
-      p.username_from_pool = true;
-      p.username_tags = t;
-    }
     return p;
   };
 
@@ -90,11 +79,8 @@ export function PoolProfileSheet({
         </p>
 
         <div className="mt-4 overflow-hidden rounded-card border border-hairline">
-          <ToggleRow label="Имя" checked={firstName} onChange={setFirstName} count={pool.first_name} />
-          <ToggleRow label="Фамилия" checked={lastName} onChange={setLastName} count={pool.last_name} />
           <ToggleRow label="О себе (BIO)" checked={bio} onChange={setBio} count={pool.bio} />
-          <ToggleRow label="Аватар" checked={avatar} onChange={setAvatar} count={pool.avatar} />
-          <ToggleRow label="Username (из шаблонов)" checked={username} onChange={setUsername} count={pool.username} last />
+          <ToggleRow label="Аватар" checked={avatar} onChange={setAvatar} count={pool.avatar} last />
         </div>
 
         {missing.length > 0 && (

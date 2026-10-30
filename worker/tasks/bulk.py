@@ -231,7 +231,10 @@ async def item_impl(ctx: dict, job_id: int, item_id: int) -> dict[str, Any]:
             item_id,
             status=status,
             result=result.detail,
-            error=None if result.ok else "action_returned_not_ok",
+            # Раньше тут всегда писалась невнятная «action_returned_not_ok».
+            # Действия возвращают реальную причину в detail (reason/error) —
+            # показываем её пользователю, иначе непонятно, что пошло не так.
+            error=None if result.ok else _error_from_detail(result.detail),
             finished_at=finished_at,
         )
         repo.recompute_counters(job_id)
@@ -285,6 +288,34 @@ async def _reschedule_rate_limited(
                 "reason": "rate_limited",
             },
         )
+
+
+# Человекочитаемые подписи причин отказа, которые действия кладут в detail.
+_REASON_LABELS = {
+    "account_missing": "аккаунт не найден",
+    "no_persona": "у аккаунта не задана персона (профиль ИИ генерируется из неё)",
+    "persona_missing": "персона аккаунта не найдена",
+    "generation_failed": "LLM не сгенерировал профиль",
+    "apply_failed": "Telegram отклонил применение профиля",
+    "no_proxy": "у аккаунта не назначен прокси",
+    "no_media": "нет медиа для публикации",
+    "no_session": "нет активной сессии аккаунта",
+}
+
+
+def _error_from_detail(detail: Any) -> str:
+    """Понятная причина отказа из detail действия.
+
+    Действия кладут ``{"reason": "...", "error": "..."}``; показываем метку
+    reason (+ текст error, если есть) вместо невнятной «action_returned_not_ok»,
+    чтобы пользователь видел, ЧТО пошло не так."""
+    if not isinstance(detail, dict):
+        return "action_returned_not_ok"
+    reason = detail.get("reason")
+    err = detail.get("error")
+    label = _REASON_LABELS.get(reason, reason) if reason else None
+    parts = [str(p) for p in (label, err) if p]
+    return ": ".join(parts) if parts else "action_returned_not_ok"
 
 
 def _finalize_failed(
