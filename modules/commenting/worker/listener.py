@@ -185,6 +185,7 @@ def make_channel_post_handler(
     redis: Any = None,
     source_campaign_id: Optional[int] = None,
     channel_ref: Optional[str] = None,
+    channel_title: Optional[str] = None,
 ) -> Callable[[Any], Any]:
     """Handler для аккаунт-центричного мониторинга: пост канала → on_channel_post.
 
@@ -198,6 +199,9 @@ def make_channel_post_handler(
     что listener реально ловит посты).
     """
 
+    # Человекочитаемое имя канала для таймлайна: title → @username → ref.
+    _name = channel_title or channel_ref or "?"
+
     async def handler(event: Any) -> None:
         message = getattr(event, "message", event)
         if not _is_channel_sender(getattr(message, "sender_id", None), channel_tg_id):
@@ -205,7 +209,7 @@ def make_channel_post_handler(
         if source_campaign_id is not None:
             push_event(
                 redis, source_campaign_id, TimelineKind.POST_RECEIVED,
-                f"Пост #{message.id} в канале «{channel_ref or ''}» пойман",
+                f"Пост #{message.id} в канале «{_name}» пойман",
                 meta={
                     "channel_msg_id": message.id,
                     "monitored_channel_id": monitored_channel_id,
@@ -228,7 +232,7 @@ def make_channel_post_handler(
         if source_campaign_id is not None:
             push_event(
                 redis, source_campaign_id, TimelineKind.POST_QUEUED,
-                f"Пост #{message.id} поставлен в очередь на коммент",
+                f"Пост #{message.id} из «{_name}» принят в обработку (генерация ответа)",
                 meta={
                     "channel_msg_id": message.id,
                     "monitored_channel_id": monitored_channel_id,

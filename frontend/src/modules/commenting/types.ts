@@ -80,8 +80,10 @@ export type TimelineKind =
   | "post_filtered"
   | "post_queued"
   | "generation_started"
+  | "comment_scheduled"
   | "comment_posted"
   | "comment_failed"
+  | "comment_skipped"
   | "reaction_set"
   | "no_account";
 

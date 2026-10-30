@@ -39,8 +39,10 @@ class TimelineKind(str, Enum):
     POST_FILTERED = "post_filtered"          # отсеян фильтром кампании
     POST_QUEUED = "post_queued"              # поставлен в очередь
     GENERATION_STARTED = "generation_started"  # LLM пошёл генерить коммент
+    COMMENT_SCHEDULED = "comment_scheduled"  # коммент сгенерён, отправка через задержку
     COMMENT_POSTED = "comment_posted"        # коммент опубликован
     COMMENT_FAILED = "comment_failed"        # ошибка при публикации
+    COMMENT_SKIPPED = "comment_skipped"      # пропуск (часы/лимит/ЧС/короткий)
     REACTION_SET = "reaction_set"            # поставлена реакция
     NO_ACCOUNT = "no_account"                # не нашлось свободного аккаунта
 
