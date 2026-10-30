@@ -436,3 +436,20 @@ def test_retry_failed_resets_failed_items(session):
     assert it.status == BulkItemStatus.PENDING.value
     assert it.error is None
     assert repo.get(job.id).status == BulkJobStatus.QUEUED.value
+
+
+def test_error_from_detail_surfaces_real_reason():
+    from worker.tasks.bulk import _error_from_detail
+
+    # Невнятного дефолта больше нет, когда есть reason/error.
+    assert _error_from_detail({"reason": "no_persona"}) == (
+        "у аккаунта не задана персона (профиль ИИ генерируется из неё)"
+    )
+    assert _error_from_detail(
+        {"reason": "generation_failed", "error": "LLM timeout"}
+    ) == "LLM не сгенерировал профиль: LLM timeout"
+    # Неизвестный reason показываем как есть.
+    assert _error_from_detail({"reason": "weird"}) == "weird"
+    # Нет полезного — падаем в прежний дефолт.
+    assert _error_from_detail({}) == "action_returned_not_ok"
+    assert _error_from_detail(None) == "action_returned_not_ok"

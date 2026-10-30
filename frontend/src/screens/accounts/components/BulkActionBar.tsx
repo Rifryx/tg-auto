@@ -16,6 +16,7 @@ import { accountsApi, bulkApi } from "../../../shared/accounts";
 import { watchChecks } from "../../../shared/checkWatch";
 import { haptic } from "../../../shared/tg";
 import { showToast } from "../../../shared/toast";
+import { AiProfileSheet } from "./AiProfileSheet";
 import { BulkJobsSheet } from "./BulkJobsSheet";
 import { PoolProfileSheet } from "./PoolProfileSheet";
 import { StoriesSheet } from "./StoriesSheet";
@@ -37,6 +38,7 @@ export function BulkActionBar({
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<null | "retire" | "delete">(null);
   const [poolOpen, setPoolOpen] = useState(false);
+  const [aiProfileOpen, setAiProfileOpen] = useState(false);
   const [storiesOpen, setStoriesOpen] = useState(false);
   const [watchingJobId, setWatchingJobId] = useState<number | null>(null);
 
@@ -97,6 +99,24 @@ export function BulkActionBar({
       setWatchingJobId(job.id);
     } catch {
       showToast("Не удалось запустить «Профиль из пула»", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runAiProfile = async (payload: Record<string, unknown>) => {
+    setBusy(true);
+    try {
+      const job = await bulkApi.create(
+        "generate_and_apply_profile",
+        selectedIds,
+        payload,
+      );
+      haptic("light");
+      setAiProfileOpen(false);
+      setWatchingJobId(job.id);
+    } catch {
+      showToast("Не удалось запустить «Профиль ИИ»", "error");
     } finally {
       setBusy(false);
     }
@@ -194,7 +214,7 @@ export function BulkActionBar({
               icon={<Sparkles className="h-4 w-4" strokeWidth={1.8} />}
               label="Профиль ИИ"
               disabled={busy}
-              onClick={() => runJob("generate_and_apply_profile", "Профиль ИИ")}
+              onClick={() => setAiProfileOpen(true)}
             />
             <ActionChip
               icon={<Images className="h-4 w-4" strokeWidth={1.8} />}
@@ -268,6 +288,14 @@ export function BulkActionBar({
           busy={busy}
           onApply={runPool}
           onCancel={() => setPoolOpen(false)}
+        />
+      )}
+      {aiProfileOpen && (
+        <AiProfileSheet
+          count={n}
+          busy={busy}
+          onApply={runAiProfile}
+          onCancel={() => setAiProfileOpen(false)}
         />
       )}
       {storiesOpen && (
