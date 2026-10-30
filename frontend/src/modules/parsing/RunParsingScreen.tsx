@@ -36,6 +36,36 @@ const USES_WINDOW = new Set<Kind>(["chat_messages", "channel_commenters"]);
 const inputCls =
   "mt-1 w-full rounded-xl border border-hairline bg-surface-2 p-2 text-[15px] tabular-nums text-text-primary";
 
+/* Числовое поле: значение-строка (можно полностью стереть), и скролл мышки
+ * НЕ меняет значение (жалоба: «сделай не по скролу, дай стереть ноль»).
+ * onWheel снимает фокус — браузер не крутит число. */
+function NumInput({
+  value,
+  onChange,
+  min,
+  max,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  min?: number;
+  max?: number;
+  className?: string;
+}) {
+  return (
+    <input
+      type="number"
+      inputMode="numeric"
+      min={min}
+      max={max}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onWheel={(e) => e.currentTarget.blur()}
+      className={className ?? inputCls}
+    />
+  );
+}
+
 // Самые частые страны для парсинга аудитории: RU/UA/BY/KZ/UZ + популярные
 // англоязычные. Список намеренно короткий: редкие страны пользователь впишет
 // в текстовое поле (prefix через запятую).
@@ -58,9 +88,10 @@ export function RunParsingScreen() {
   const [kind, setKind] = useState<Kind>("chat_messages");
   const [chatRef, setChatRef] = useState("");
   const [collectorId, setCollectorId] = useState<number | null>(null);
-  // messages / commenters
-  const [daysWindow, setDaysWindow] = useState(14);
-  const [minMessages, setMinMessages] = useState(2);
+  // messages / commenters. Числовые поля держим строками, чтобы можно было
+  // очистить (стереть «0») и чтобы скролл мышки не менял значение (NumInput).
+  const [daysWindow, setDaysWindow] = useState("14");
+  const [minMessages, setMinMessages] = useState("2");
   // members. По умолчанию выключено: «только недавно онлайн» отсекает почти
   // всех (Telegram у большинства скрывает last-seen → бакет unknown), и список
   // получался пустым/в пару человек. Включать осознанно.
@@ -68,9 +99,9 @@ export function RunParsingScreen() {
   // «Сколько юзеров нужно» — пусто = собрать всех доступных.
   const [maxTargets, setMaxTargets] = useState("");
   // reactors
-  const [postsLimit, setPostsLimit] = useState(20);
-  const [reactionsPerPost, setReactionsPerPost] = useState(100);
-  const [minReactions, setMinReactions] = useState(1);
+  const [postsLimit, setPostsLimit] = useState("20");
+  const [reactionsPerPost, setReactionsPerPost] = useState("100");
+  const [minReactions, setMinReactions] = useState("1");
   // filters
   // По умолчанию выключено: раньше галочка стояла, и парсер отсеивал
   // большинство участников (многие в чатах без @username) — пользователь
@@ -132,13 +163,25 @@ export function RunParsingScreen() {
         max_targets: maxTargets === "" ? null : Number(maxTargets),
         ...filters,
       };
+      // Пустые/битые числовые поля заменяем дефолтами при отправке.
+      const num = (s: string, def: number) => {
+        const n = Number(s);
+        return Number.isFinite(n) && n > 0 ? n : def;
+      };
       if (kind === "chat_messages")
-        return parsingApi.runChatMessages({ ...base, days_window: daysWindow, min_messages: minMessages });
+        return parsingApi.runChatMessages({
+          ...base, days_window: num(daysWindow, 14), min_messages: num(minMessages, 1),
+        });
       if (kind === "channel_commenters")
-        return parsingApi.runChannelCommenters({ ...base, days_window: daysWindow, min_messages: minMessages });
+        return parsingApi.runChannelCommenters({
+          ...base, days_window: num(daysWindow, 14), min_messages: num(minMessages, 1),
+        });
       if (kind === "post_reactors")
         return parsingApi.runPostReactors({
-          ...base, posts_limit: postsLimit, reactions_per_post: reactionsPerPost, min_reactions: minReactions,
+          ...base,
+          posts_limit: num(postsLimit, 20),
+          reactions_per_post: num(reactionsPerPost, 100),
+          min_reactions: num(minReactions, 1),
         });
       return parsingApi.runChatMembers({ ...base, only_recently_seen: onlyRecentlySeen });
     },
@@ -222,13 +265,11 @@ export function RunParsingScreen() {
             <div className="mt-4 grid grid-cols-2 gap-3">
               <label className="text-[13px] font-medium text-text-secondary">
                 Окно, дней
-                <input type="number" min={1} max={60} value={daysWindow}
-                  onChange={(e) => setDaysWindow(Number(e.target.value))} className={inputCls} />
+                <NumInput min={1} max={60} value={daysWindow} onChange={setDaysWindow} />
               </label>
               <label className="text-[13px] font-medium text-text-secondary">
                 Мин. сообщений
-                <input type="number" min={1} value={minMessages}
-                  onChange={(e) => setMinMessages(Number(e.target.value))} className={inputCls} />
+                <NumInput min={1} value={minMessages} onChange={setMinMessages} />
               </label>
             </div>
           )}
@@ -237,18 +278,15 @@ export function RunParsingScreen() {
             <div className="mt-4 grid grid-cols-3 gap-3">
               <label className="text-[13px] font-medium text-text-secondary">
                 Постов
-                <input type="number" min={1} max={200} value={postsLimit}
-                  onChange={(e) => setPostsLimit(Number(e.target.value))} className={inputCls} />
+                <NumInput min={1} max={200} value={postsLimit} onChange={setPostsLimit} />
               </label>
               <label className="text-[13px] font-medium text-text-secondary">
                 Реакций/пост
-                <input type="number" min={1} max={100} value={reactionsPerPost}
-                  onChange={(e) => setReactionsPerPost(Number(e.target.value))} className={inputCls} />
+                <NumInput min={1} max={100} value={reactionsPerPost} onChange={setReactionsPerPost} />
               </label>
               <label className="text-[13px] font-medium text-text-secondary">
                 Мин. реакций
-                <input type="number" min={1} value={minReactions}
-                  onChange={(e) => setMinReactions(Number(e.target.value))} className={inputCls} />
+                <NumInput min={1} value={minReactions} onChange={setMinReactions} />
               </label>
             </div>
           )}
@@ -264,6 +302,7 @@ export function RunParsingScreen() {
                 inputMode="numeric"
                 value={maxTargets}
                 onChange={(e) => setMaxTargets(e.target.value)}
+                onWheel={(e) => e.currentTarget.blur()}
                 placeholder="напр. 1000 — пусто = собрать всех"
                 className="w-full rounded-xl border border-hairline bg-surface-2 p-2.5 text-[14px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
               />
