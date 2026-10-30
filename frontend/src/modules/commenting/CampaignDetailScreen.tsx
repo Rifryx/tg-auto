@@ -386,7 +386,13 @@ export function CampaignDetailScreen() {
       </div>
 
       <div className="min-w-0">
-      <CampaignChannelsSection campaignId={campaignId} />
+      {/* «Целевые каналы» (явные ссылки) актуальны только для режима
+          explicit_links. В режиме «по подпискам аккаунта» каналы берутся из
+          подписок и добавляются вручную в блоке диагностики ниже — чтобы не
+          было двух непонятных полей ввода для одного и того же. */}
+      {c.channel_source_mode === "explicit_links" && (
+        <CampaignChannelsSection campaignId={campaignId} />
+      )}
       <CampaignBlacklistSection campaignId={campaignId} />
 
       <LaunchAndStats campaignId={campaignId} />
