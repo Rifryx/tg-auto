@@ -65,8 +65,10 @@ function TimelineIcon({ kind }: { kind: TimelineKind | string }) {
     post_filtered: { Icon: AlertCircle, cls: "text-text-tertiary" },
     post_queued: { Icon: Clock, cls: "text-status-warning" },
     generation_started: { Icon: Loader2, cls: "text-text-secondary" },
+    comment_scheduled: { Icon: Clock, cls: "text-status-warning" },
     comment_posted: { Icon: Send, cls: "text-status-active" },
     comment_failed: { Icon: XCircle, cls: "text-status-critical" },
+    comment_skipped: { Icon: AlertCircle, cls: "text-text-tertiary" },
     reaction_set: { Icon: CheckCircle2, cls: "text-status-active" },
     no_account: { Icon: AlertCircle, cls: "text-status-warning" },
   };

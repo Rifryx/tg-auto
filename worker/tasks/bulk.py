@@ -209,7 +209,7 @@ async def item_impl(ctx: dict, job_id: int, item_id: int) -> dict[str, Any]:
         )
         return {"failed": True, "reason": "timeout"}
     except Exception as exc:  # noqa: BLE001 — фиксируем как failed
-        _finalize_failed(session_factory, publisher, job_id, item_id, repr(exc), now)
+        _finalize_failed(session_factory, publisher, job_id, item_id, _humanize_exc(exc), now)
         get_logger().warning(
             "bulk.item.failed",
             job_id=job_id, item_id=item_id, action=action_name, error=repr(exc),
@@ -301,6 +301,27 @@ _REASON_LABELS = {
     "no_media": "нет медиа для публикации",
     "no_session": "нет активной сессии аккаунта",
 }
+
+
+# Подсказки по типовым ошибкам Telegram — чтобы в UI была человекочитаемая
+# причина, а не голый repr исключения.
+_EXC_HINTS = {
+    "PremiumAccountRequiredError": "нужен Telegram Premium (публикация Stories от обычных аккаунтов ограничена)",
+    "FloodWaitError": "слишком часто — Telegram просит подождать (flood wait)",
+    "ChatWriteForbiddenError": "аккаунту запрещено писать здесь",
+    "ChatAdminRequiredError": "нужны права администратора",
+    "UserBannedInChannelError": "аккаунт забанен в канале",
+    "UserDeactivatedBanError": "аккаунт заблокирован Telegram",
+    "AuthKeyUnregisteredError": "сессия аккаунта недействительна — нужен повторный вход",
+    "SessionRevokedError": "сессия аккаунта отозвана — нужен повторный вход",
+}
+
+
+def _humanize_exc(exc: Exception) -> str:
+    """Человекочитаемая причина по типу исключения (иначе голый repr)."""
+    name = type(exc).__name__
+    hint = _EXC_HINTS.get(name)
+    return f"{name}: {hint}" if hint else repr(exc)
 
 
 def _error_from_detail(detail: Any) -> str:
