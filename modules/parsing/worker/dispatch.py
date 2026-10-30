@@ -203,6 +203,7 @@ async def _dispatch_kind(ctx: dict, kind: str, payload: dict[str, Any]):
             chat_ref=str(payload["chat_ref"]),
             days_window=int(payload.get("days_window", 14)),
             min_messages=int(payload.get("min_messages", 1)),
+            max_targets=payload.get("max_targets"),
             filter_options=filter_options,
         )
     elif kind == "chat_members":
@@ -213,6 +214,7 @@ async def _dispatch_kind(ctx: dict, kind: str, payload: dict[str, Any]):
             collector_account_id=int(payload["collector_account_id"]),
             chat_ref=str(payload["chat_ref"]),
             only_recently_seen=bool(payload.get("only_recently_seen", True)),
+            max_targets=payload.get("max_targets"),
             filter_options=filter_options,
         )
     elif kind == "channel_commenters":
@@ -224,6 +226,7 @@ async def _dispatch_kind(ctx: dict, kind: str, payload: dict[str, Any]):
             chat_ref=str(payload["chat_ref"]),
             days_window=int(payload.get("days_window", 14)),
             min_messages=int(payload.get("min_messages", 1)),
+            max_targets=payload.get("max_targets"),
             filter_options=filter_options,
         )
     elif kind == "post_reactors":
@@ -236,6 +239,7 @@ async def _dispatch_kind(ctx: dict, kind: str, payload: dict[str, Any]):
             posts_limit=int(payload.get("posts_limit", 20)),
             reactions_per_post=int(payload.get("reactions_per_post", 100)),
             min_reactions=int(payload.get("min_reactions", 1)),
+            max_targets=payload.get("max_targets"),
             filter_options=filter_options,
         )
     elif kind == "communities":

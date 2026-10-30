@@ -14,12 +14,18 @@ from typing import Any, Optional
 import structlog
 from telethon.tl.functions.channels import GetFullChannelRequest
 
+from modules.parsing.parser._common import (
+    apply_max_targets,
+    diagnose_scarce,
+    ensure_member,
+)
 from modules.parsing.parser.chat_messages import ParseResult, _sender_snapshot, _to_utc
 from modules.parsing.parser.filters import FilterOptions, apply_filters
 from modules.parsing.repositories import (
     ParsedListRepository,
     ParsedListTargetRepository,
 )
+from modules.parsing.worker.progress import NullProgress
 from modules.priming.repositories import BlacklistRepository
 from modules.priming.schemas.enums import ParserSourceKind, TargetLastSeen
 
@@ -37,6 +43,7 @@ async def parse_channel_commenters(
     chat_ref: str,
     days_window: int,
     min_messages: int = 1,
+    max_targets: Optional[int] = None,
     filter_options: Optional[FilterOptions] = None,
 ) -> Optional[ParseResult]:
     log = get_logger()
@@ -50,6 +57,7 @@ async def parse_channel_commenters(
         from worker.health import Governor as _Governor
         governor = _Governor(ctx.get("redis"))
     now = ctx.get("now") or datetime.now(timezone.utc)
+    progress = ctx.get("parsing_progress") or NullProgress()
 
     if not await governor.check_and_reserve(collector_account_id, PARSER_ACTION_TYPE):
         log.info("parsing.channel_commenters.rate_limited",
@@ -68,22 +76,33 @@ async def parse_channel_commenters(
         list_id = parsed_list.id
         session.commit()
 
+    progress.log(f"Открываю {chat_ref}, ищу группу обсуждений…")
     client = await pool.get(collector_account_id)
     raw_senders: dict[int, dict[str, Any]] = {}
     linked_missing = False
+    scanned = 0
     try:
         channel = await client.get_entity(chat_ref)
         full = await client(GetFullChannelRequest(channel=channel))
         linked_id = getattr(full.full_chat, "linked_chat_id", None)
         if not linked_id:
             linked_missing = True
+            progress.log("У канала нет группы обсуждений — комментаторов нет.")
         else:
             discussion = await client.get_entity(linked_id)
+            # Историю обсуждения читаем как участник — иначе доступ урезан.
+            await ensure_member(
+                client, discussion, account_id=collector_account_id,
+                session_factory=session_factory, publisher=ctx.get("publisher"),
+                progress=progress, log=log,
+            )
+            progress.log(f"Читаю комментарии за {days_window} дн…")
             min_dt = now - timedelta(days=days_window)
             async for message in client.iter_messages(discussion):
                 msg_dt = getattr(message, "date", None)
                 if msg_dt is not None and _to_utc(msg_dt) < min_dt:
                     break
+                scanned += 1
                 sender_id = getattr(message, "sender_id", None)
                 if sender_id is None:
                     continue
@@ -92,8 +111,25 @@ async def parse_channel_commenters(
                 sender = getattr(message, "sender", None)
                 if sender is not None and "sender" not in info:
                     info["sender"] = _sender_snapshot(sender)
+                if scanned % 200 == 0:
+                    progress.log(
+                        f"Просмотрено {scanned} коммент., уникальных авторов "
+                        f"{len(raw_senders)}…"
+                    )
+                    await progress.heartbeat(raw=len(raw_senders))
+                if apply_max_targets(max_targets, len(raw_senders)):
+                    progress.log(
+                        f"Достигнут лимит {max_targets} авторов — останавливаю сбор."
+                    )
+                    break
     finally:
         await pool.release(collector_account_id)
+    if not linked_missing:
+        diagnose_scarce(progress, chat_ref, len(raw_senders))
+    progress.log(
+        f"Сбор завершён: {len(raw_senders)} авторов из {scanned} комментариев. "
+        "Применяю фильтры…"
+    )
 
     picked_rows: list[dict[str, Any]] = []
     below_min = 0
@@ -159,6 +195,8 @@ async def parse_channel_commenters(
         })
         session.commit()
 
+    progress.set_counts(raw=len(raw_senders), inserted=inserted)
+    progress.log(f"Фильтры применены: добавлено {inserted} из {len(raw_senders)}.")
     log.info("parsing.channel_commenters.done", list_id=list_id,
              raw=len(raw_senders), inserted=inserted, breakdown=breakdown)
     return ParseResult(

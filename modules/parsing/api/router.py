@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
@@ -160,6 +161,33 @@ def list_targets(
     return [ParsedListTargetRead.model_validate(r) for r in rows]
 
 
+class DeleteTargetsBody(BaseModel):
+    target_ids: list[int] = Field(..., min_length=1, max_length=5000)
+
+
+@router.post("/lists/{list_id}/targets/delete")
+def delete_targets(
+    list_id: int,
+    body: DeleteTargetsBody,
+    session: Session = Depends(get_session),
+):
+    """Удаляет выбранные строки списка и пересчитывает счётчик.
+
+    Жалоба: «в базе нет возможности удалять спаршеных». Поддерживает пакетное
+    удаление (несколько id за раз)."""
+    if ParsedListRepository(session).get_by_id(list_id) is None:
+        raise HTTPException(status_code=404, detail={
+            "error": "not_found", "message": f"parsed list {list_id} not found",
+        })
+    target_repo = ParsedListTargetRepository(session)
+    removed = target_repo.delete_targets(list_id, body.target_ids)
+    remaining = target_repo.count_by_list(list_id)
+    # after_filters_count = реальное число строк в списке после удаления.
+    ParsedListRepository(session).update(list_id, {"after_filters_count": remaining})
+    session.commit()
+    return {"removed": removed, "remaining": remaining}
+
+
 @router.delete(
     "/lists/{list_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None,
 )
@@ -188,6 +216,7 @@ async def run_chat_messages(
             "chat_ref": body.chat_ref,
             "days_window": body.days_window,
             "min_messages": body.min_messages,
+            "max_targets": body.max_targets,
             **_filter_payload(body),
         },
     )
@@ -207,6 +236,7 @@ async def run_chat_members(
             "collector_account_id": body.collector_account_id,
             "chat_ref": body.chat_ref,
             "only_recently_seen": body.only_recently_seen,
+            "max_targets": body.max_targets,
             **_filter_payload(body),
         },
     )
@@ -228,6 +258,7 @@ async def run_channel_commenters(
             "chat_ref": body.chat_ref,
             "days_window": body.days_window,
             "min_messages": body.min_messages,
+            "max_targets": body.max_targets,
             **_filter_payload(body),
         },
     )
@@ -250,6 +281,7 @@ async def run_post_reactors(
             "posts_limit": body.posts_limit,
             "reactions_per_post": body.reactions_per_post,
             "min_reactions": body.min_reactions,
+            "max_targets": body.max_targets,
             **_filter_payload(body),
         },
     )

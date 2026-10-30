@@ -11,6 +11,11 @@ from typing import Any, Optional
 
 import structlog
 
+from modules.parsing.parser._common import (
+    apply_max_targets,
+    diagnose_scarce,
+    ensure_member,
+)
 from modules.parsing.parser.filters import FilterOptions, apply_filters
 from modules.parsing.repositories import (
     ParsedListRepository,
@@ -41,6 +46,7 @@ async def parse_chat_members(
     collector_account_id: int,
     chat_ref: str,
     only_recently_seen: bool = True,
+    max_targets: Optional[int] = None,
     filter_options: Optional[FilterOptions] = None,
 ) -> Optional[ParseResult]:
     log = get_logger()
@@ -83,7 +89,18 @@ async def parse_chat_members(
     total_seen = 0
     try:
         entity = await client.get_entity(chat_ref)
-        async for participant in client.iter_participants(entity):
+        # Чтобы перечислять участников, аккаунт обычно должен СОСТОЯТЬ в чате:
+        # у не-участника Telegram отдаёт лишь админов (или пусто) — отсюда
+        # «на чат 15k вернуло 2 юзернейма». Вступаем best-effort перед сбором.
+        await ensure_member(
+            client, entity, account_id=collector_account_id,
+            session_factory=session_factory, publisher=ctx.get("publisher"),
+            progress=progress, log=log,
+        )
+        # aggressive=True заставляет Telethon обходить участников по буквам
+        # (а не упираться в ~первые отданные сервером), иначе на крупных группах
+        # собирается лишь малая часть.
+        async for participant in client.iter_participants(entity, aggressive=True):
             total_seen += 1
             snap = _snapshot(participant, now)
             if only_recently_seen and snap["last_seen_bucket"] not in {
@@ -95,11 +112,18 @@ async def parse_chat_members(
                 )
                 continue
             raw_rows.append(snap)
-            if total_seen % 50 == 0:
+            if len(raw_rows) % 50 == 0:
                 progress.log(f"Просмотрено {total_seen}, собрано {len(raw_rows)}…")
                 await progress.heartbeat(raw=len(raw_rows))
+            # Остановка по запрошенному лимиту «сколько юзеров нужно».
+            if apply_max_targets(max_targets, len(raw_rows)):
+                progress.log(f"Достигнут лимит {max_targets} — останавливаю сбор.")
+                break
     finally:
         await pool.release(collector_account_id)
+    # Диагностика «вернуло подозрительно мало»: у не-участника/закрытого чата
+    # так и будет — подсказываем пользователю, почему.
+    diagnose_scarce(progress, chat_ref, total_seen)
     progress.log(
         f"Сбор завершён: просмотрено {total_seen}, собрано {len(raw_rows)}. "
         f"Применяю фильтры…"

@@ -17,8 +17,26 @@ const BASE = "/modules/parsing/lists";
 export const parsingApi = {
   list: () => api.get<ParsedList[]>(BASE),
   get: (id: number) => api.get<ParsedList>(`${BASE}/${id}`),
-  targets: (id: number) => api.get<ParsedListTarget[]>(`${BASE}/${id}/targets`),
+  // Тянем ВСЕ строки постранично: раньше брали дефолтные 100 и список на 137
+  // показывал только 100 («137 целей, а по факту 100»). Теперь совпадает.
+  targets: async (id: number): Promise<ParsedListTarget[]> => {
+    const pageSize = 1000;
+    const all: ParsedListTarget[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      const page = await api.get<ParsedListTarget[]>(
+        `${BASE}/${id}/targets?limit=${pageSize}&offset=${offset}`,
+      );
+      all.push(...page);
+      if (page.length < pageSize) break;
+    }
+    return all;
+  },
   remove: (id: number) => api.del<void>(`${BASE}/${id}`),
+  deleteTargets: (listId: number, targetIds: number[]) =>
+    api.post<{ removed: number; remaining: number }>(
+      `${BASE}/${listId}/targets/delete`,
+      { target_ids: targetIds },
+    ),
   runChatMessages: (body: RunChatMessagesBody) =>
     api.post<{ job_id: number }>(`${BASE}/run/chat-messages`, body),
   runChatMembers: (body: RunChatMembersBody) =>

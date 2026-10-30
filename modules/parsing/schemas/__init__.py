@@ -99,6 +99,7 @@ class RunChatMessagesRequest(_FilterFields):
     chat_ref: str = Field(..., min_length=1)
     days_window: int = Field(default=14, ge=1, le=60)
     min_messages: int = Field(default=1, ge=1)
+    max_targets: Optional[int] = Field(default=None, ge=1, le=100000)
 
 
 class RunChatMembersRequest(_FilterFields):
@@ -109,6 +110,10 @@ class RunChatMembersRequest(_FilterFields):
     # "онлайн/недавно", и список часто получался пустым. Явный last_seen_max_days
     # в фильтрах даёт более точный контроль.
     only_recently_seen: bool = False
+    # Сколько кандидатов собрать максимум (жалоба: «нет настройки сколько мне
+    # нужно пользователей»). None — собрать всех доступных. Фильтры применяются
+    # после сбора, поэтому финальный список может быть немного меньше.
+    max_targets: Optional[int] = Field(default=None, ge=1, le=100000)
 
 
 class RunChannelCommentersRequest(_FilterFields):
@@ -117,6 +122,7 @@ class RunChannelCommentersRequest(_FilterFields):
     chat_ref: str = Field(..., min_length=1)
     days_window: int = Field(default=14, ge=1, le=60)
     min_messages: int = Field(default=1, ge=1)
+    max_targets: Optional[int] = Field(default=None, ge=1, le=100000)
 
 
 class RunPostReactorsRequest(_FilterFields):
@@ -126,6 +132,7 @@ class RunPostReactorsRequest(_FilterFields):
     posts_limit: int = Field(default=20, ge=1, le=200)
     reactions_per_post: int = Field(default=100, ge=1, le=100)
     min_reactions: int = Field(default=1, ge=1)
+    max_targets: Optional[int] = Field(default=None, ge=1, le=100000)
 
 
 class RunCommunitiesRequest(_ParsingBase):

@@ -52,6 +52,21 @@ export function UserListScreen() {
     },
   });
 
+  // Удаление спарсенных строк (по одной или выбранных пачкой).
+  const removeTargets = useMutation({
+    mutationFn: (ids: number[]) => parsingApi.deleteTargets(listId, ids),
+    onSuccess: (_res, ids) => {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        ids.forEach((i) => next.delete(i));
+        return next;
+      });
+      qc.invalidateQueries({ queryKey: ["parsing", "targets", listId] });
+      qc.invalidateQueries({ queryKey: ["parsing", "list", listId] });
+      qc.invalidateQueries({ queryKey: ["parsing", "lists"] });
+    },
+  });
+
   const rows = items.data ?? [];
   const publicRows = useMemo(() => rows.filter((r) => !!r.username), [rows]);
 
@@ -63,11 +78,12 @@ export function UserListScreen() {
       return next;
     });
 
-  const allSelected =
-    publicRows.length > 0 && publicRows.every((r) => selected.has(r.id));
+  // Выбор/удаление работает по ВСЕМ строкам (в т.ч. без @username) — копирование
+  // ниже само берёт только тех, у кого есть @.
+  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
   const selectAll = () => {
     if (allSelected) setSelected(new Set());
-    else setSelected(new Set(publicRows.map((r) => r.id)));
+    else setSelected(new Set(rows.map((r) => r.id)));
   };
 
   const linksFor = (ids: Set<number>): string =>
@@ -144,11 +160,29 @@ export function UserListScreen() {
               {allSelected ? "Снять выбор" : "Выбрать все"}
             </button>
             <span className="text-[12px] text-text-tertiary">
-              Выбрано: {selected.size} / {publicRows.length}
+              Выбрано: {selected.size} / {rows.length}
               {publicRows.length < rows.length && (
                 <> (без @ — {rows.length - publicRows.length})</>
               )}
             </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (selected.size === 0 || removeTargets.isPending) return;
+                if (
+                  !window.confirm(
+                    `Удалить ${selected.size} выбранных из списка? Отменить нельзя.`,
+                  )
+                )
+                  return;
+                removeTargets.mutate([...selected]);
+              }}
+              disabled={selected.size === 0 || removeTargets.isPending}
+              className="inline-flex h-9 items-center gap-1.5 rounded-pill border border-hairline bg-surface-1 px-3 text-[13px] font-medium text-status-critical active:bg-surface-2 disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" strokeWidth={1.9} aria-hidden />
+              {removeTargets.isPending ? "Удаляем…" : "Удалить выбранные"}
+            </button>
             <div className="ml-auto flex flex-wrap gap-2">
               <button
                 type="button"
@@ -210,6 +244,8 @@ export function UserListScreen() {
                 r={r}
                 selected={selected.has(r.id)}
                 onToggle={() => toggle(r.id)}
+                onDelete={() => removeTargets.mutate([r.id])}
+                deleting={removeTargets.isPending}
               />
             ))}
           </div>
@@ -231,10 +267,14 @@ function UserRow({
   r,
   selected,
   onToggle,
+  onDelete,
+  deleting,
 }: {
   r: ParsedListTarget;
   selected: boolean;
   onToggle: () => void;
+  onDelete: () => void;
+  deleting: boolean;
 }) {
   const link = r.username ? `https://t.me/${r.username}` : null;
   const fullName =
@@ -247,24 +287,20 @@ function UserRow({
         selected ? "border-strong bg-surface-2/70" : "",
       ].join(" ")}
     >
-      {r.username ? (
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={selected}
-          onClick={onToggle}
-          className={[
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors",
-            selected
-              ? "border-transparent bg-accent text-accent-on"
-              : "border-hairline bg-surface-2",
-          ].join(" ")}
-        >
-          {selected && <Check className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />}
-        </button>
-      ) : (
-        <span className="h-5 w-5 shrink-0" aria-hidden />
-      )}
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={selected}
+        onClick={onToggle}
+        className={[
+          "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors",
+          selected
+            ? "border-transparent bg-accent text-accent-on"
+            : "border-hairline bg-surface-2",
+        ].join(" ")}
+      >
+        {selected && <Check className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />}
+      </button>
       <Avatar name={displayName} photoUrl={r.photo_url} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
@@ -298,6 +334,19 @@ function UserRow({
           <span className="capitalize">{lastSeenLabel(r.last_seen_bucket)}</span>
         </div>
       </div>
+      <button
+        type="button"
+        onClick={() => {
+          if (deleting) return;
+          onDelete();
+        }}
+        disabled={deleting}
+        aria-label="Удалить из списка"
+        title="Удалить из списка"
+        className="shrink-0 rounded-md p-1.5 text-text-tertiary hover:bg-surface-2 hover:text-status-critical active:bg-surface-3 disabled:opacity-50"
+      >
+        <Trash2 className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+      </button>
     </div>
   );
 }

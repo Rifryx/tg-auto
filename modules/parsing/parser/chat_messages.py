@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 import structlog
 
+from modules.parsing.parser._common import apply_max_targets, ensure_member
 from modules.parsing.parser.filters import FilterOptions, apply_filters
 from modules.parsing.repositories import (
     ParsedListRepository,
@@ -43,6 +44,7 @@ async def parse_chat_messages(
     chat_ref: str,
     days_window: int,
     min_messages: int = 1,
+    max_targets: Optional[int] = None,
     filter_options: Optional[FilterOptions] = None,
 ) -> Optional[ParseResult]:
     log = get_logger()
@@ -83,6 +85,12 @@ async def parse_chat_messages(
     client = await pool.get(collector_account_id)
     try:
         entity = await client.get_entity(chat_ref)
+        # Приватную историю не-участник не прочитает — вступаем best-effort.
+        await ensure_member(
+            client, entity, account_id=collector_account_id,
+            session_factory=session_factory, publisher=ctx.get("publisher"),
+            progress=progress, log=log,
+        )
         min_dt = now - timedelta(days=days_window)
         raw_senders: dict[int, dict[str, Any]] = {}
         scanned = 0
@@ -105,6 +113,10 @@ async def parse_chat_messages(
                     f"Просмотрено {scanned} сообщ., уникальных авторов {len(raw_senders)}…"
                 )
                 await progress.heartbeat(raw=len(raw_senders))
+            # Лимит «сколько юзеров нужно» — по числу уникальных авторов.
+            if apply_max_targets(max_targets, len(raw_senders)):
+                progress.log(f"Достигнут лимит {max_targets} авторов — останавливаю сбор.")
+                break
     finally:
         await pool.release(collector_account_id)
     progress.log(
