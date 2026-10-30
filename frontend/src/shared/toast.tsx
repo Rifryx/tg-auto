@@ -9,6 +9,7 @@ interface ToastItem {
   id: number;
   message: string;
   kind: ToastKind;
+  leaving: boolean;
 }
 
 type Listener = (toasts: ToastItem[]) => void;
@@ -17,17 +18,27 @@ let toasts: ToastItem[] = [];
 const listeners = new Set<Listener>();
 let seq = 0;
 
+// Длительность fade-out: toast сначала помечается leaving (запускает анимацию
+// исчезновения), и только через FADE_MS удаляется из списка.
+const FADE_MS = 260;
+
 function emit() {
   for (const l of listeners) l(toasts);
 }
 
 export function showToast(message: string, kind: ToastKind = "info", ttl = 3000): void {
   const id = ++seq;
-  toasts = [...toasts, { id, message, kind }];
+  toasts = [...toasts, { id, message, kind, leaving: false }];
   emit();
+  // Плавное появление и исчезновение: держим ttl, затем помечаем leaving и
+  // убираем после завершения анимации.
   setTimeout(() => {
-    toasts = toasts.filter((t) => t.id !== id);
+    toasts = toasts.map((t) => (t.id === id ? { ...t, leaving: true } : t));
     emit();
+    setTimeout(() => {
+      toasts = toasts.filter((t) => t.id !== id);
+      emit();
+    }, FADE_MS);
   }, ttl);
 }
 
@@ -51,13 +62,29 @@ export function Toaster() {
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex flex-col items-center gap-2 px-4">
       {items.map((t) => (
-        <div
-          key={t.id}
-          className={`pointer-events-auto max-w-[92%] rounded-pill border bg-bg-elevated px-4 py-2 text-[13px] shadow-lg ${KIND_CLS[t.kind]}`}
-        >
-          {t.message}
-        </div>
+        <ToastRow key={t.id} item={t} />
       ))}
+    </div>
+  );
+}
+
+function ToastRow({ item }: { item: ToastItem }) {
+  // entered: false на маунте → true на следующий кадр, чтобы сыграл fade-IN.
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    const r = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(r);
+  }, []);
+  const visible = entered && !item.leaving;
+  return (
+    <div
+      className={`pointer-events-auto max-w-[92%] rounded-pill border bg-bg-elevated px-4 py-2 text-[13px] shadow-lg transition-all duration-[260ms] ease-out ${KIND_CLS[item.kind]} ${
+        visible
+          ? "translate-y-0 scale-100 opacity-100"
+          : "translate-y-2 scale-95 opacity-0"
+      }`}
+    >
+      {item.message}
     </div>
   );
 }

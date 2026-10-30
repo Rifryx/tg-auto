@@ -454,8 +454,16 @@ async def test_ensure_joined_discussion_calls_join():
     from telethon.tl.functions.channels import JoinChannelRequest
 
     calls: list = []
+    disc = SimpleNamespace(id=555, left=None, title="Disc")
 
     class _JoinClient:
+        # Группа уже резолвится напрямую (как если бы была в диалогах).
+        async def get_dialogs(self, **_kw):
+            return []
+
+        async def get_entity(self, ref):
+            return disc
+
         async def __call__(self, req):
             calls.append(req)
             return None
@@ -464,25 +472,79 @@ async def test_ensure_joined_discussion_calls_join():
         {"session_factory": None, "publisher": None},
         _JoinClient(),
         account_id=1,
+        channel_tg_id=None,  # резолвим группу напрямую
         discussion_group_id=555,
         channel_ref="durov",
         source_campaign_id=None,
         redis=None,
     )
-    assert len(calls) == 1
-    assert isinstance(calls[0], JoinChannelRequest)
+    join_calls = [c for c in calls if isinstance(c, JoinChannelRequest)]
+    assert len(join_calls) == 1
+
+
+async def test_ensure_joined_resolves_group_via_channel_when_id_unresolved():
+    """Регрессия ValueError: на StringSession прямой resolve группы по id падает.
+    Берём её из GetFullChannel(channel).full.chats (там access_hash) и вступаем."""
+    from telethon.tl.functions.channels import (
+        GetFullChannelRequest,
+        JoinChannelRequest,
+    )
+
+    disc = SimpleNamespace(id=555, access_hash=42, title="Disc")
+    channel = SimpleNamespace(id=777, access_hash=7, title="Chan")
+    joined: list = []
+
+    class _Client:
+        async def get_dialogs(self, **_kw):
+            return []
+
+        async def get_entity(self, ref):
+            if ref == 777:
+                return channel
+            # Прямой resolve группы по id — как в проде: нет access_hash.
+            raise ValueError("Could not find the input entity for 555")
+
+        async def __call__(self, req):
+            if isinstance(req, GetFullChannelRequest):
+                return SimpleNamespace(
+                    full_chat=SimpleNamespace(linked_chat_id=555),
+                    chats=[channel, disc],
+                )
+            if isinstance(req, JoinChannelRequest):
+                joined.append(req)
+                return None
+            return None
+
+    await registry._ensure_joined_discussion(
+        {"session_factory": None, "publisher": None},
+        _Client(),
+        account_id=1,
+        channel_tg_id=777,
+        discussion_group_id=555,
+        channel_ref="chan",
+        source_campaign_id=None,
+        redis=None,
+    )
+    assert len(joined) == 1  # вступили, несмотря на неразрешимый id
 
 
 async def test_ensure_joined_discussion_swallows_errors():
     class _BoomClient:
+        async def get_dialogs(self, **_kw):
+            return []
+
+        async def get_entity(self, _ref):
+            raise RuntimeError("boom")
+
         async def __call__(self, req):
             raise RuntimeError("boom")
 
-    # Не должно пробросить — attach обязан продолжиться даже если join упал.
+    # Не должно пробросить — attach обязан продолжиться даже если resolve/join упал.
     await registry._ensure_joined_discussion(
         {"session_factory": None, "publisher": None},
         _BoomClient(),
         account_id=1,
+        channel_tg_id=None,
         discussion_group_id=555,
         channel_ref="durov",
         source_campaign_id=None,

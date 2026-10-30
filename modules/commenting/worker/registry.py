@@ -68,11 +68,63 @@ def _timeline_redis(ctx: dict) -> Any:
     return ctx.get("redis_sync")
 
 
+async def _resolve_discussion_entity(
+    client: Any,
+    _call: Any,
+    *,
+    channel_tg_id: Optional[int],
+    discussion_group_id: int,
+) -> Any:
+    """Entity группы обсуждений с валидным access_hash.
+
+    Клиент работает на ``StringSession`` (in-memory): на старте воркера
+    entity-кэш ПУСТ, поэтому resolve по «сырому» id падает ``ValueError`` —
+    access_hash группы неизвестен. Это и есть причина «Не удалось вступить…
+    (ValueError)» и того, что ``NewMessage(chats=discussion_group_id)`` ни с чем
+    не совпадает. Лечим прогревом кэша:
+
+    1. ``get_dialogs`` кладёт в кэш каналы, на которые аккаунт подписан;
+    2. ``GetFullChannel(channel)`` отдаёт связанную группу в ``full.chats``
+       уже С access_hash — берём её оттуда;
+    3. фолбэк — прямой ``get_entity(discussion_group_id)``.
+    """
+    from telethon.tl.functions.channels import GetFullChannelRequest
+
+    if not getattr(client, "_nc_dialogs_warmed", False):
+        try:
+            await _call(lambda: client.get_dialogs(limit=None))
+        except Exception as exc:  # noqa: BLE001 — прогрев best-effort
+            get_logger().info(
+                "commenting.channel_listener.warm_dialogs_failed", error=repr(exc)
+            )
+        setattr(client, "_nc_dialogs_warmed", True)
+
+    if channel_tg_id is not None:
+        try:
+            channel_entity = await client.get_entity(channel_tg_id)
+            full = await _call(lambda: client(GetFullChannelRequest(channel_entity)))
+            linked_id = (
+                getattr(getattr(full, "full_chat", None), "linked_chat_id", None)
+                or discussion_group_id
+            )
+            for chat in getattr(full, "chats", None) or []:
+                if getattr(chat, "id", None) == linked_id:
+                    return chat
+        except Exception as exc:  # noqa: BLE001 — попробуем прямой resolve ниже
+            get_logger().info(
+                "commenting.channel_listener.resolve_via_channel_failed",
+                error=repr(exc),
+            )
+
+    return await client.get_entity(discussion_group_id)
+
+
 async def _ensure_joined_discussion(
     ctx: dict,
     client: Any,
     *,
     account_id: int,
+    channel_tg_id: Optional[int],
     discussion_group_id: int,
     channel_ref: Optional[str],
     source_campaign_id: Optional[int],
@@ -94,13 +146,21 @@ async def _ensure_joined_discussion(
     from modules.commenting.worker.timeline import TimelineKind, push_event
     from worker.health import around_telethon_call
 
-    try:
-        await around_telethon_call(
-            lambda: client(JoinChannelRequest(discussion_group_id)),
+    async def _call(factory):
+        return await around_telethon_call(
+            factory,
             account_id=account_id,
             session_factory=ctx["session_factory"],
             publisher=ctx.get("publisher"),
         )
+
+    try:
+        disc_entity = await _resolve_discussion_entity(
+            client, _call,
+            channel_tg_id=channel_tg_id,
+            discussion_group_id=discussion_group_id,
+        )
+        await _call(lambda: client(JoinChannelRequest(disc_entity)))
         get_logger().info(
             "commenting.channel_listener.joined_discussion",
             account_id=account_id,
@@ -564,6 +624,7 @@ class ChannelListenerRegistry:
             await _ensure_joined_discussion(
                 ctx, entry.client,
                 account_id=account_id,
+                channel_tg_id=channel_tg_id,
                 discussion_group_id=discussion_group_id,
                 channel_ref=channel_ref,
                 source_campaign_id=source_campaign_id,
