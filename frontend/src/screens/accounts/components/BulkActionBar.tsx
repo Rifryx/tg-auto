@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { accountsApi, bulkApi } from "../../../shared/accounts";
+import { watchChecks } from "../../../shared/checkWatch";
 import { haptic } from "../../../shared/tg";
 import { showToast } from "../../../shared/toast";
 import { BulkJobsSheet } from "./BulkJobsSheet";
@@ -55,9 +56,11 @@ export function BulkActionBar({
       showToast(
         `Проверка запущена: ${r.enqueued.length}` +
           (r.throttled.length ? `, пропущено ${r.throttled.length}` : "") +
-          " — результат появится на карточке каждого аккаунта.",
+          " — результат всплывёт по готовности.",
         "success",
       );
+      // Следим за завершением и покажем всплывающий вердикт на любом экране.
+      void watchChecks(r.enqueued.map((e) => e.account_id));
       haptic("light");
     } catch {
       showToast("Не удалось запустить проверку", "error");

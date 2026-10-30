@@ -34,20 +34,26 @@ export function TimelineSection({ campaignId }: { campaignId: number }) {
     );
   }
   return (
-    <ul className="flex flex-col">
-      {events.map((e, i) => (
-        <li
-          key={`${e.ts}-${i}`}
-          className={`flex items-start gap-3 py-2.5 ${i > 0 ? "border-t border-hairline" : ""}`}
-        >
-          <TimelineIcon kind={e.kind} />
-          <div className="min-w-0 flex-1">
-            <p className="text-[14px] text-text-primary">{e.message}</p>
-            <p className="text-[12px] text-text-tertiary">{formatWhen(e.ts)}</p>
-          </div>
-        </li>
-      ))}
-    </ul>
+    // Своя прокрутка: событий копится много (listener переподключается часто),
+    // и раньше они растягивали весь экран. Крутим внутри блока. Бэкенд держит
+    // хвост в Redis (capped-list, см. timeline.py), так что лента не растёт без
+    // границы.
+    <div className="max-h-96 overflow-y-auto overscroll-contain rounded-chip border border-hairline bg-surface-1/40 px-3">
+      <ul className="flex flex-col">
+        {events.map((e, i) => (
+          <li
+            key={`${e.ts}-${i}`}
+            className={`flex items-start gap-3 py-2.5 ${i > 0 ? "border-t border-hairline" : ""}`}
+          >
+            <TimelineIcon kind={e.kind} />
+            <div className="min-w-0 flex-1">
+              <p className="text-[14px] text-text-primary">{e.message}</p>
+              <p className="text-[12px] text-text-tertiary">{formatWhen(e.ts)}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
