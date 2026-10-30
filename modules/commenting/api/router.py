@@ -999,6 +999,11 @@ def get_diagnostic(
         for r in channel_rows
         if r.status == "working" and r.discussion_group_id is not None
     )
+    # Каналы, которые воркер ещё разрешает (подписка + поиск группы обсуждений).
+    # Пока они pending, «нет чата / не готов» — это НЕ ошибка, а незаконченный
+    # resolve: раньше пользователь сразу видел «кучу предупреждений», которые
+    # потом сами исчезали. Теперь на время resolve показываем нейтральный статус.
+    pending_count = sum(1 for r in channel_rows if r.status == "pending")
 
     # Строим список «предупреждений» — простые, человекочитаемые пункты,
     # которые пользователь может сам проверить.
@@ -1016,7 +1021,7 @@ def get_diagnostic(
                 "Режим «по подпискам аккаунта», но ни одной подписки не найдено. "
                 "Запустите синхронизацию подписок аккаунта или добавьте каналы вручную."
             )
-        elif working_with_discussion == 0:
+        elif working_with_discussion == 0 and pending_count == 0:
             warnings.append(
                 "Ни один канал не готов к мониторингу (нет working с discussion_group_id). "
                 "Проверьте что каналы резолвятся, аккаунт подписан, и у каналов включены обсуждения."
@@ -1027,7 +1032,7 @@ def get_diagnostic(
             warnings.append(
                 "Режим «ссылки на каналы», но ни одного канала не задано. Добавьте ссылки."
             )
-        elif working_with_discussion == 0:
+        elif working_with_discussion == 0 and pending_count == 0:
             warnings.append(
                 "Ни один канал не готов к мониторингу. Проверьте что канал резолвится и "
                 "у него включены обсуждения."
@@ -1047,6 +1052,7 @@ def get_diagnostic(
         "assigned_count": assigned_count,
         "channels": channels_info,
         "channels_ready_count": working_with_discussion,
+        "channels_pending_count": pending_count,
         "last_timeline_event_ts": last_event_ts,
         "warnings": warnings,
     }

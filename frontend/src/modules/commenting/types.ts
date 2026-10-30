@@ -117,6 +117,7 @@ export interface CampaignDiagnostic {
     error: string | null;
   }>;
   channels_ready_count: number;
+  channels_pending_count: number;
   last_timeline_event_ts: number | null;
   warnings: string[];
 }

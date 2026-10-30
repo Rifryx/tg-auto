@@ -17,7 +17,10 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
   const q = useQuery({
     queryKey: ["campaign", campaignId, "diagnostic"],
     queryFn: () => commentingApi.diagnostic(campaignId),
-    refetchInterval: 15_000,
+    // Пока каналы разрешаются — поллим часто (чтобы статус стал актуальным сам
+    // за секунды, а не «через время»); дальше реже.
+    refetchInterval: (query) =>
+      (query.state.data?.channels_pending_count ?? 0) > 0 ? 3_000 : 15_000,
   });
   const resync = useMutation({
     mutationFn: () => commentingApi.resyncChannels(campaignId),
@@ -65,6 +68,15 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
           {resync.isPending ? "Переподключаем…" : "Переподключить каналы"}
         </button>
       </div>
+      {d.channels_pending_count > 0 && (
+        <div className="flex items-start gap-2 rounded-chip border border-hairline bg-surface-1 px-3 py-2 text-[12px] text-text-secondary">
+          <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin" strokeWidth={2} aria-hidden />
+          <span>
+            Каналы разрешаются ({d.channels_pending_count})… Статус обновится сам
+            через несколько секунд — подписка и поиск группы обсуждений идут в фоне.
+          </span>
+        </div>
+      )}
       {ok ? (
         <div className="flex items-start gap-2 rounded-chip border border-status-active/40 bg-status-active/10 px-3 py-2 text-[12px] text-status-active">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
@@ -145,6 +157,9 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
           <ul className="flex flex-col gap-1.5">
             {d.channels.map((ch) => {
               const ok = ch.status === "working" && ch.has_discussion;
+              // pending — канал ещё разрешается воркером (подписка + поиск
+              // группы обсуждений). Это НЕ ошибка: не пугаем «нет обсуждений».
+              const pending = ch.status === "pending";
               // Приоритет имени: title → @username → невнятный ref. Для невнятных
               // (tg:12345 / +invitehash) показываем «без названия» вместо
               // технической строки, которую пользователь не понимает.
@@ -161,10 +176,10 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
                 <li
                   key={ch.id}
                   className={`flex items-start gap-2 ${
-                    ok ? "" : "text-status-warning"
+                    ok ? "" : pending ? "text-text-tertiary" : "text-status-warning"
                   }`}
                 >
-                  <span className="shrink-0">{ok ? "✓" : "⚠"}</span>
+                  <span className="shrink-0">{ok ? "✓" : pending ? "⏳" : "⚠"}</span>
                   <span className="min-w-0 flex-1">
                     <strong>{displayName}</strong>
                     {ch.title && (
@@ -172,11 +187,17 @@ export function DiagnosticSection({ campaignId }: { campaignId: number }) {
                     )}
                     <span className="opacity-70"> · акк. #{ch.account_id}</span>
                     <br />
-                    статус: <strong>{ch.status}</strong>
-                    {!ch.has_discussion && (
-                      <> · <span className="font-medium">нет обсуждений — коммент невозможен</span></>
+                    {pending ? (
+                      <span className="font-medium">разрешается… (подписка и группа обсуждений)</span>
+                    ) : (
+                      <>
+                        статус: <strong>{ch.status}</strong>
+                        {!ch.has_discussion && (
+                          <> · <span className="font-medium">нет обсуждений — коммент невозможен</span></>
+                        )}
+                      </>
                     )}
-                    {ch.error && (
+                    {ch.error && !pending && (
                       <>
                         <br />
                         <span className="opacity-80">Ошибка: {ch.error}</span>
