@@ -2,6 +2,7 @@ import { api } from "./api";
 import type {
   Account,
   AccountHealth,
+  AccountHealthSummary,
   AccountRole,
   AccountDialog,
   BulkJobDetail,
@@ -108,6 +109,8 @@ export const accountsApi = {
   history: (id: number) => api.get<StatusHistoryRecord[]>(`/accounts/${id}/history`),
   warming: (id: number) => api.get<WarmingActivity[]>(`/accounts/${id}/warming`),
   health: (id: number) => api.get<AccountHealth>(`/accounts/${id}/health`),
+  healthSummary: () =>
+    api.get<AccountHealthSummary[]>(`/accounts/health-summary`),
   // Созданные аккаунтом каналы (project_channels).
   projectChannels: (id: number) =>
     api.get<ProjectChannel[]>(`/accounts/${id}/project-channels`),

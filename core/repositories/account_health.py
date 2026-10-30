@@ -46,3 +46,10 @@ class AccountHealthRepository(BaseRepository[AccountHealth]):
             .limit(limit)
         )
         return list(self.session.execute(stmt).scalars().all())
+
+    def list_for_accounts(self, account_ids: list[int]) -> list[AccountHealth]:
+        """Снапшоты для набора аккаунтов (для пометок проверки в списке)."""
+        if not account_ids:
+            return []
+        stmt = select(AccountHealth).where(AccountHealth.account_id.in_(account_ids))
+        return list(self.session.execute(stmt).scalars().all())

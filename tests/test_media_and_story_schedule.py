@@ -87,6 +87,25 @@ def test_get_or_create_isolated_between_users(session):
     assert a.sha256 == b.sha256
 
 
+def test_list_for_user_does_not_load_bytes(session):
+    """Перф: листинг медиа НЕ тянет байты из БД (defer) — иначе список на
+    десятки МБ грузился мучительно. Метаданные доступны, bytes — ленивы."""
+    from sqlalchemy import inspect as sa_inspect
+
+    _clean(session)
+    repo = MediaAssetRepository(session)
+    repo.get_or_create(user_id="u1", blob=b"x" * 5000, mime="image/jpeg", filename="a.jpg")
+    session.commit()
+    session.expire_all()  # сброс кэша идентичности, чтобы проверить реальную загрузку
+
+    rows = repo.list_for_user("u1")
+    assert len(rows) == 1
+    # bytes ещё НЕ загружены (deferred), а size_bytes/mime — есть.
+    assert "bytes" in sa_inspect(rows[0]).unloaded
+    assert rows[0].size_bytes == 5000
+    assert rows[0].mime == "image/jpeg"
+
+
 # ── scheduled_at ──────────────────────────────────────────────────────────
 
 

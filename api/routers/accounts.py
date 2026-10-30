@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -122,6 +123,38 @@ def list_accounts(
         tag=tag,
     )
     return [AccountRead.model_validate(a) for a in accounts]
+
+
+class AccountHealthSummary(BaseModel):
+    """Компактный срез здоровья для пометок результата проверки в списке."""
+
+    account_id: int
+    health_score: int
+    session_alive: Optional[bool]
+    spam_blocked: Optional[bool]
+    last_full_check_at: Optional[datetime]
+
+
+@router.get("/health-summary", response_model=list[AccountHealthSummary])
+def accounts_health_summary(
+    session: Session = Depends(get_session),
+) -> list[AccountHealthSummary]:
+    """Здоровье всех аккаунтов одним запросом — для пометки «проверен: вердикт»
+    на карточках в списке (без N запросов health по одному)."""
+    from core.repositories.account_health import AccountHealthRepository
+
+    ids = [a.id for a in accounts_service.list_accounts(session)]
+    rows = AccountHealthRepository(session).list_for_accounts(ids)
+    return [
+        AccountHealthSummary(
+            account_id=r.account_id,
+            health_score=r.health_score,
+            session_alive=r.session_alive,
+            spam_blocked=r.spam_blocked,
+            last_full_check_at=r.last_full_check_at,
+        )
+        for r in rows
+    ]
 
 
 class PhoneCheckResult(BaseModel):
