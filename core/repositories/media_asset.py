@@ -6,7 +6,7 @@ import hashlib
 from typing import Optional
 
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import defer
 
 from core.models.media_asset import MediaAsset
 from core.repositories.base import BaseRepository
@@ -26,8 +26,11 @@ class MediaAssetRepository(BaseRepository[MediaAsset]):
         """Дедуп по (user_id, sha256): один и тот же файл сохраняем один раз."""
         digest = hashlib.sha256(blob).hexdigest()
 
+        # Дедуп по sha256 — байты не нужны (сравниваем хэш), не тянем их из БД.
         existing = self.session.execute(
-            select(MediaAsset).where(
+            select(MediaAsset)
+            .options(defer(MediaAsset.bytes))
+            .where(
                 MediaAsset.user_id == user_id,
                 MediaAsset.sha256 == digest,
             )
@@ -46,8 +49,13 @@ class MediaAssetRepository(BaseRepository[MediaAsset]):
         return self._add(obj)
 
     def list_for_user(self, user_id: str) -> list[MediaAsset]:
+        # КЛЮЧЕВОЕ для скорости: НЕ грузим bytes (LargeBinary) при листинге —
+        # раньше список тянул из БД все байты всех ассетов (десятки МБ) только
+        # ради метаданных, отсюда «очень долгая загрузка медиа». defer() грузит
+        # байты лениво, только если кто-то реально обратится к .bytes.
         stmt = (
             select(MediaAsset)
+            .options(defer(MediaAsset.bytes))
             .where(MediaAsset.user_id == user_id)
             .order_by(MediaAsset.created_at.desc())
         )

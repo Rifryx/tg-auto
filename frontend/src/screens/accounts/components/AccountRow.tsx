@@ -1,13 +1,13 @@
 import { Briefcase, Check, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
-import { accountDisplay, ageFrom, countdown } from "../../../shared/format";
+import { accountDisplay, ageFrom, countdown, timeAgo } from "../../../shared/format";
 import {
   accountStatusHint,
   CONTAINER_LABEL,
   PROFILE_LABEL,
   ROLE_LABEL,
 } from "../../../shared/status";
-import type { Account, Proxy } from "../../../shared/types";
+import type { Account, AccountHealthSummary, Proxy } from "../../../shared/types";
 import { StatusBadge, StatusDot } from "./ui";
 
 /* Строка аккаунта в списке — мини-карточка (§4/§9 брифа).
@@ -26,6 +26,7 @@ export function AccountRow({
   selected = false,
   onToggleSelect,
   campaignCount,
+  check,
 }: {
   account: Account;
   groupName?: string;
@@ -36,6 +37,8 @@ export function AccountRow({
   /** Сколько commenting-кампаний у аккаунта (multi-campaign из PR #68).
    *  Если >0 — рисуем бейдж «N работ» рядом со StatusBadge. */
   campaignCount?: number;
+  /** Срез последней проверки (health-summary) — пометка на карточке. */
+  check?: AccountHealthSummary;
 }) {
   const subtitle = account.username ? `@${account.username}` : "Без юзернейма";
   const timer = countdown(account.cooldown_until);
@@ -47,6 +50,16 @@ export function AccountRow({
   // пользователь понимал когда аккаунт станет готовым, а не ломал глаза
   // в поисках абстрактного «ещё на прогреве» без цифры.
   const statusHint = accountStatusHint(account);
+
+  // Пометка результата последней проверки (bulk «Проверить») прямо на карточке.
+  const checkVerdict =
+    check && check.last_full_check_at
+      ? check.session_alive === false
+        ? { icon: "⛔", text: "сессия", cls: "text-status-critical" }
+        : check.spam_blocked === true
+          ? { icon: "⚠", text: "спамблок", cls: "text-status-warning" }
+          : { icon: "✓", text: "ок", cls: "text-status-active" }
+      : null;
 
   const meta: string[] = [];
   if (proxy?.geo) meta.push(proxy.geo.toUpperCase());
@@ -94,6 +107,14 @@ export function AccountRow({
           {timer && <span className="text-status-warning"> · ⏳ {timer}</span>}
           {statusHint.shortDetail && !timer && (
             <span className="text-status-warning"> · ⏳ {statusHint.shortDetail}</span>
+          )}
+          {checkVerdict && (
+            <span
+              className={checkVerdict.cls}
+              title={`Проверен ${timeAgo(check!.last_full_check_at!)}`}
+            >
+              {" "}· {checkVerdict.icon} {checkVerdict.text}
+            </span>
           )}
         </p>
       </div>

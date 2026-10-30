@@ -276,6 +276,14 @@ export interface WarmingScenario {
   ready_days: number | null;
 }
 
+export interface AccountHealthSummary {
+  account_id: number;
+  health_score: number;
+  session_alive: boolean | null;
+  spam_blocked: boolean | null;
+  last_full_check_at: string | null;
+}
+
 export interface AccountHealth {
   account_id: number;
   health_score: number;

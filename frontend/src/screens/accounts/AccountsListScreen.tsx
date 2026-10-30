@@ -50,6 +50,16 @@ export function AccountsListScreen() {
     queryFn: commentingApi.accountCampaignCounts,
     refetchInterval: 30_000,
   });
+  // Здоровье одним запросом — для пометки результата проверки на карточках.
+  const healthSummary = useQuery({
+    queryKey: ["accounts", "health-summary"],
+    queryFn: accountsApi.healthSummary,
+    refetchInterval: 15_000,
+  });
+  const healthById = useMemo(
+    () => new Map((healthSummary.data ?? []).map((h) => [h.account_id, h])),
+    [healthSummary.data],
+  );
   const proxyById = useMemo(
     () => new Map((proxies.data ?? []).map((p) => [p.id, p])),
     [proxies.data],
@@ -198,6 +208,7 @@ export function AccountsListScreen() {
               selected={selected.has(a.id)}
               onToggleSelect={toggleSelect}
               campaignCount={campaignCounts.data?.[String(a.id)] ?? 0}
+              check={healthById.get(a.id)}
             />
           ))}
         </div>
