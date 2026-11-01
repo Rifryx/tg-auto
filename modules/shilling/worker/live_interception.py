@@ -44,7 +44,7 @@ from modules.shilling.repositories import (
     CampaignRepository,
     ProductRepository,
 )
-from worker.llm import get_provider
+from worker.llm import get_provider, with_direct_output
 from worker.llm.base import Message
 from worker.tasks.logging import get_logger
 
@@ -60,7 +60,7 @@ _STALE_HOURS = 24
 _RATE_WINDOW_SEC = 10 * 60
 _MAX_REPLIES = 3
 _HISTORY_LIMIT = 8  # сколько последних сообщений треда идёт в контекст
-_LLM_SYSTEM = (
+_LLM_SYSTEM = with_direct_output(
     "Ты — участник Telegram-чата, который только что обсуждал тему. "
     "Пользователь задал уточняющий вопрос реплаем на твоё сообщение. "
     "Ответь ЕСТЕСТВЕННО, одной короткой репликой (1–3 предложения), в стиле "

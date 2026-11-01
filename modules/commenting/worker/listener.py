@@ -65,6 +65,14 @@ def _post_date_kwargs(message: Any) -> dict:
     return {"post_date_ts": date.timestamp()} if date is not None else {}
 
 
+def _post_text_kwargs(message: Any) -> dict:
+    """Текст поста → kwarg для генерации коммента (модели нужно, НА ЧТО отвечать).
+
+    Пусто/медиа-пост — kwarg не добавляем: генератор сам даст fallback-контекст."""
+    text = getattr(message, "message", None)
+    return {"post_text": text} if text else {}
+
+
 def _passes_post_filter(
     text: Optional[str],
     *,
@@ -162,7 +170,9 @@ def make_new_post_handler(
                     return
 
         await task_queue.enqueue(
-            TaskName.COMMENTING_ON_NEW_POST, campaign_id, message.id, **_post_date_kwargs(message)
+            TaskName.COMMENTING_ON_NEW_POST, campaign_id, message.id,
+            **_post_text_kwargs(message),
+            **_post_date_kwargs(message),
         )
         get_logger().info(
             "commenting.listener.new_post", campaign_id=campaign_id, channel_msg_id=message.id
@@ -221,6 +231,7 @@ def make_channel_post_handler(
             account_id,
             monitored_channel_id,
             message.id,
+            **_post_text_kwargs(message),
             **_post_date_kwargs(message),
         )
         get_logger().info(

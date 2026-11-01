@@ -138,6 +138,19 @@ def test_factory_routes_through_anymodel_when_key_set(monkeypatch):
     assert get_provider("deepseek") is ds
 
 
+# --- 3c. Правило «выводи сразу готовый текст» --------------------------------
+
+
+def test_with_direct_output_appends_rule():
+    from worker.llm import with_direct_output
+
+    out = with_direct_output("Ты — читатель канала.")
+    assert out.startswith("Ты — читатель канала.")
+    # Ключевой запрет: без «вот несколько вариантов».
+    assert "вариант" in out.lower()
+    assert "СРАЗУ готовый текст" in out
+
+
 # --- 4. randomizer детерминирован --------------------------------------------
 
 

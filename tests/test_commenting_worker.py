@@ -223,6 +223,28 @@ async def test_new_post_handler_accepts_marked_channel_sender():
     ]
 
 
+async def test_new_post_handler_passes_post_text():
+    """Текст поста уходит в задачу — модели нужно, НА ЧТО отвечать."""
+    spy = _SpyTaskQueue()
+    handler = listener.make_new_post_handler(1, spy, channel_id=777)
+    await handler(SimpleNamespace(message=SimpleNamespace(
+        sender_id=777, id=9, message="Привет, как дела?")))
+    assert spy.enqueued == [
+        (TaskName.COMMENTING_ON_NEW_POST, (1, 9), {"post_text": "Привет, как дела?"}),
+    ]
+
+
+def test_thread_context_feeds_post_text(session):
+    """_thread_context отдаёт модели ТЕКСТ поста, а не его номер."""
+    msgs = runner._thread_context(session, 1, 57, "Сегодня отличная погода")
+    assert msgs[0].role == "user"
+    assert "Сегодня отличная погода" in msgs[0].content
+    assert "#57" not in msgs[0].content  # больше не «Пост #57»
+    # Медиа-пост без текста — внятный fallback, снова без номера.
+    empty = runner._thread_context(session, 1, 57, None)
+    assert "без текста" in empty[0].content.lower()
+
+
 # --- 2. post_comment отправляет и пишет CommentLog ---------------------------
 
 
