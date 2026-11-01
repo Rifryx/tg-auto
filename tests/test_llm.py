@@ -18,6 +18,7 @@ from worker.llm import (
     DeepSeekProvider,
     GeminiProvider,
     Message,
+    OpenAICompatProvider,
     StyleRandomizer,
     get_provider,
     reset_cache,
@@ -86,6 +87,55 @@ def test_factory_maps_and_caches():
     assert get_provider("deepseek") is get_provider("deepseek")
     with pytest.raises(ValueError):
         get_provider("openai")
+
+
+# --- 3b. AnyModel: единый ключ маршрутизирует оба имени ----------------------
+
+
+@pytest.mark.asyncio
+async def test_openai_compat_generate_returns_content():
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json = MagicMock(
+        return_value={"choices": [{"message": {"content": "привет из anymodel"}}]}
+    )
+    client = MagicMock()
+    client.post = AsyncMock(return_value=response)
+
+    provider = OpenAICompatProvider(
+        "k", base_url="https://anymodel.org/v1/", model="ds/deepseek-v4-flash", client=client
+    )
+    out = await provider.generate("sys", [Message("user", "hi")], max_tokens=50)
+
+    assert out == "привет из anymodel"
+    args, kwargs = client.post.call_args
+    # базовый URL без хвостового слэша + /chat/completions
+    assert args[0] == "https://anymodel.org/v1/chat/completions"
+    assert kwargs["json"]["model"] == "ds/deepseek-v4-flash"
+    roles = [m["role"] for m in kwargs["json"]["messages"]]
+    assert roles == ["system", "user"]
+    assert kwargs["headers"]["Authorization"] == "Bearer k"
+
+
+def test_factory_routes_through_anymodel_when_key_set(monkeypatch):
+    monkeypatch.setenv("ANYMODEL_API_KEY", "any-key")
+    monkeypatch.setenv("ANYMODEL_MODEL_DEEPSEEK", "ds/deepseek-v4-flash")
+    monkeypatch.setenv("ANYMODEL_MODEL_GEMINI", "ag/gemini-3.1-flash-lite-preview")
+    get_settings.cache_clear()
+    reset_cache()
+
+    ds = get_provider("deepseek")
+    gm = get_provider("gemini")
+
+    # оба имени → OpenAICompatProvider с единым ключом/URL, разными model id
+    assert isinstance(ds, OpenAICompatProvider)
+    assert isinstance(gm, OpenAICompatProvider)
+    assert ds._model == "ds/deepseek-v4-flash"
+    assert gm._model == "ag/gemini-3.1-flash-lite-preview"
+    assert ds._api_key == gm._api_key == "any-key"
+    assert ds._base_url == "https://anymodel.org/v1"
+    # кэш: тот же инстанс
+    assert get_provider("deepseek") is ds
 
 
 # --- 4. randomizer детерминирован --------------------------------------------

@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     deepseek_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
 
+    # --- AnyModel: единый OpenAI-совместимый шлюз (один ключ на все модели) ---
+    # Если задан anymodel_api_key, ОБА провайдера кампании (deepseek/gemini) идут
+    # через AnyModel с соответствующим model id — не нужно заводить два ключа и
+    # нет путаницы 401/404. Model id берутся из AnyModel (можно переопределить).
+    anymodel_api_key: Optional[str] = None
+    anymodel_base_url: str = "https://anymodel.org/v1"
+    anymodel_model_deepseek: str = "ds/deepseek-v4-flash"
+    anymodel_model_gemini: str = "ag/gemini-3.1-flash-lite-preview"
+
     # --- Режим ---
     dev_mode: bool = False
 
@@ -119,7 +128,7 @@ class Settings(BaseSettings):
 
     @property
     def has_llm(self) -> bool:
-        return bool(self.deepseek_api_key or self.gemini_api_key)
+        return bool(self.anymodel_api_key or self.deepseek_api_key or self.gemini_api_key)
 
     @property
     def has_real_telegram_creds(self) -> bool:
@@ -168,8 +177,8 @@ class Settings(BaseSettings):
             )
         if not self.has_llm:
             raise ValueError(
-                "At least one LLM API key is required (DEEPSEEK_API_KEY or "
-                "GEMINI_API_KEY), or set DEV_MODE=true"
+                "At least one LLM API key is required (ANYMODEL_API_KEY, "
+                "DEEPSEEK_API_KEY or GEMINI_API_KEY), or set DEV_MODE=true"
             )
         return self
 

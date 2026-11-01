@@ -675,16 +675,6 @@ async def on_channel_post(
     task_queue = _task_queue(ctx)
     log = get_logger()
 
-    # Дедуп: один пост = один коммент на аккаунт. Повторная доставка того же
-    # поста (двойной handler / переподключение слушателя) не плодит дубли.
-    dedup_key = (
-        f"commenting:onpost:{account_id}:{monitored_channel_id}:"
-        f"{channel_msg_id}:{thread_depth}:{in_reply_to or 0}"
-    )
-    if not _claim_once(ctx, dedup_key):
-        log.info("commenting.on_channel_post.skip", account_id=account_id, reason="duplicate")
-        return 0
-
     with session_factory() as session:
         account = AccountRepository(session).get(account_id)
         if account is None or account.status != "assigned":
@@ -714,6 +704,18 @@ async def on_channel_post(
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="channel_not_working")
             return 0
         discussion_group_id = ch.discussion_group_id
+        # Дедуп: один пост в группе = один коммент аккаунта. Ключ по
+        # discussion_group_id (а НЕ monitored_channel_id) — иначе две строки
+        # мониторинга на один и тот же канал/группу давали РАЗНЫЕ ключи и
+        # проскакивали оба (симптом «всё равно по два раза»). Разные группы не
+        # коллизируют: id группы в ключе.
+        dedup_key = (
+            f"commenting:onpost:{account_id}:{discussion_group_id}:"
+            f"{channel_msg_id}:{thread_depth}:{in_reply_to or 0}"
+        )
+        if not _claim_once(ctx, dedup_key):
+            log.info("commenting.on_channel_post.skip", account_id=account_id, reason="duplicate")
+            return 0
         if _blacklisted(session, campaign_id, chat_id=ch.channel_tg_id, ref=ch.channel_ref):
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="blacklisted")
             _push(ctx, campaign_id, TimelineKind.COMMENT_SKIPPED,
