@@ -419,3 +419,24 @@ async def test_registry_attach_to_comment_logs_single_process(session):
     # detach снимает слушатель (запись остаётся — это чистка листенера).
     assert await reg.detach(campaign_id) is True
     assert reg.active() == []
+
+
+def test_claim_once_dedup_prevents_double():
+    """Дедуп: тот же пост у аккаунта claim'ится один раз (SETNX)."""
+    from modules.commenting.worker.runner import _claim_once
+
+    store: dict = {}
+
+    class _R:
+        def set(self, k, v, nx=False, ex=None):
+            if nx and k in store:
+                return None
+            store[k] = v
+            return True
+
+    ctx = {"redis_sync": _R()}
+    assert _claim_once(ctx, "post:1") is True    # первый — проходит
+    assert _claim_once(ctx, "post:1") is False   # дубль — блок
+    assert _claim_once(ctx, "post:2") is True    # другой пост — проходит
+    # Нет redis (тесты) → fail-open: не блокируем.
+    assert _claim_once({}, "post:1") is True

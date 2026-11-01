@@ -101,6 +101,22 @@ def _style(ctx: dict) -> StyleRandomizer:
     return ctx.get("style_randomizer") or StyleRandomizer(_rng(ctx))
 
 
+def _claim_once(ctx: dict, key: str, ttl: int = 3600) -> bool:
+    """Идемпотентный claim через redis SETNX: True — первый раз, False — дубль.
+
+    Защита от двойного коммента на один пост: при переподключении слушателя или
+    двойном срабатывании handler'а тот же пост может прийти дважды за секунды.
+    Без claim это даёт два одинаковых коммента. redis_sync — синхронный клиент
+    (как в registry). Нет redis (тесты) или ошибка → fail-open (не блокируем)."""
+    r = ctx.get("redis_sync")
+    if r is None:
+        return True
+    try:
+        return bool(r.set(key, "1", nx=True, ex=ttl))
+    except Exception:  # noqa: BLE001 — лучше коммент, чем молчание
+        return True
+
+
 def _push(ctx: dict, campaign_id: Optional[int], kind, message: str, meta: Optional[dict] = None) -> None:
     """Событие в live-таймлайн кампании (этап публикации коммента был «слепым»).
 
@@ -623,6 +639,16 @@ async def on_channel_post(
     session_factory = ctx["session_factory"]
     task_queue = _task_queue(ctx)
     log = get_logger()
+
+    # Дедуп: один пост = один коммент на аккаунт. Повторная доставка того же
+    # поста (двойной handler / переподключение слушателя) не плодит дубли.
+    dedup_key = (
+        f"commenting:onpost:{account_id}:{monitored_channel_id}:"
+        f"{channel_msg_id}:{thread_depth}:{in_reply_to or 0}"
+    )
+    if not _claim_once(ctx, dedup_key):
+        log.info("commenting.on_channel_post.skip", account_id=account_id, reason="duplicate")
+        return 0
 
     with session_factory() as session:
         account = AccountRepository(session).get(account_id)
