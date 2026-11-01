@@ -230,3 +230,47 @@ def test_payload_validates_all_optional():
     """Все поля payload'а необязательны — payload может быть пустым (item потом skip)."""
     p = ApplyProfilePoolPayload()
     assert p.username_from_pool is False
+
+
+async def test_pool_apply_sets_avatar_url(session, monkeypatch):
+    """После применения аватара из пула avatar_url обновляется сразу (data-URL),
+    чтобы карточка не показывала старый аватар до медленного «Из Telegram»."""
+    from types import SimpleNamespace
+
+    import modules.bulk.actions.apply_profile_pool as mod
+
+    _clean(session)
+    account = Account(
+        phone="+79990000002", session_enc=b"e",
+        device_model="d", system_version="v",
+        app_version="a", lang_code="uk", system_lang_code="uk-UA",
+    )
+    session.add(account)
+    session.flush()
+    png = b"\x89PNG\r\n\x1a\n" + b"x" * 32
+    session.add(ProfileAsset(user_id="u1", kind="avatar", binary=png, mime="image/png"))
+    session.commit()
+
+    async def _fake_apply(*_a, **_k):
+        return SimpleNamespace(
+            updated_names=False, updated_bio=False, applied_username=None,
+            as_dict=lambda: {},
+        )
+
+    async def _fake_upload(*_a, **_k):
+        return {"ok": True}
+
+    monkeypatch.setattr(mod, "apply_profile_to_telegram", _fake_apply)
+    monkeypatch.setattr(mod, "upload_avatar", _fake_upload)
+
+    action = ACTION_REGISTRY[BulkActionType.APPLY_PROFILE_POOL.value]
+    payload = ApplyProfilePoolPayload(avatar_tags=[])
+    result = await action.run(
+        account_id=account.id, payload=payload,
+        session_factory=lambda: _Ctx(session), publisher=None, client=object(),
+    )
+    assert result.ok is True
+    session.expire_all()
+    acc = session.get(Account, account.id)
+    assert acc.avatar_url is not None
+    assert acc.avatar_url.startswith("data:image/png;base64,")

@@ -23,10 +23,9 @@ export function PoolProfileSheet({
   onApply: (payload: Record<string, unknown>) => void;
   onCancel: () => void;
 }) {
-  // Пул оформления поддерживает только avatar и bio (имя/фамилия/username
-  // из пула больше не заводятся — их в «Пул оформления» не добавить, см.
-  // ProfileAssetsScreen.KINDS). Тумблеры для них убраны как неактуальные;
-  // для случайных имён есть «Профиль ИИ».
+  // Пул оформления: Имена, Аватары, BIO (фамилия/username из пула не заводятся —
+  // их нет в ProfileAssetsScreen.KINDS; для случайных портретов есть «Профиль ИИ»).
+  const [firstName, setFirstName] = useState(true);
   const [bio, setBio] = useState(true);
   const [avatar, setAvatar] = useState(true);
   const [tags, setTags] = useState("");
@@ -41,6 +40,7 @@ export function PoolProfileSheet({
   const pool = useMemo(() => {
     const items = assets.data ?? [];
     return {
+      first_name: items.filter((a) => a.kind === "first_name").length,
       bio: items.filter((a) => a.kind === "bio").length,
       avatar: items.filter((a) => a.kind === "avatar").length,
     };
@@ -49,15 +49,17 @@ export function PoolProfileSheet({
   // Поле включено, но его в пуле нет → джобу запускать нельзя (нечему
   // применяться). Эти поля подсвечиваем предупреждением и блокируем кнопку.
   const missing: string[] = [];
+  if (firstName && pool.first_name === 0) missing.push("Имя");
   if (bio && pool.bio === 0) missing.push("BIO");
   if (avatar && pool.avatar === 0) missing.push("Аватар");
 
-  const anyField = bio || avatar;
+  const anyField = firstName || bio || avatar;
   const canApply = anyField && missing.length === 0 && !assets.isLoading;
 
   const build = (): Record<string, unknown> => {
     const t = tags.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
     const p: Record<string, unknown> = {};
+    if (firstName) p.first_name_tags = t;
     if (bio) p.bio_tags = t;
     if (avatar) p.avatar_tags = t;
     return p;
@@ -79,6 +81,7 @@ export function PoolProfileSheet({
         </p>
 
         <div className="mt-4 overflow-hidden rounded-card border border-hairline">
+          <ToggleRow label="Имя" checked={firstName} onChange={setFirstName} count={pool.first_name} />
           <ToggleRow label="О себе (BIO)" checked={bio} onChange={setBio} count={pool.bio} />
           <ToggleRow label="Аватар" checked={avatar} onChange={setAvatar} count={pool.avatar} last />
         </div>

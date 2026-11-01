@@ -20,6 +20,7 @@ first_name, даже если пул один и тот же.
 
 from __future__ import annotations
 
+import base64
 import random
 from typing import Optional
 
@@ -144,6 +145,14 @@ async def _run(
             updates["bio"] = bio
         if result.applied_username is not None:
             updates["username"] = result.applied_username
+        # Аватар: сразу кладём применённые байты в avatar_url (data-URL), чтобы
+        # карточка обновилась мгновенно — иначе UI показывал старый аватар, пока
+        # пользователь вручную не сделает «Из Telegram» (а тот ещё и медленный).
+        if avatar_result is not None and avatar_binary is not None:
+            mime = "image/png" if avatar_binary[:8].startswith(b"\x89PNG") else "image/jpeg"
+            updates["avatar_url"] = (
+                f"data:{mime};base64," + base64.b64encode(avatar_binary).decode()
+            )
         if updates:
             AccountRepository(session).update(account_id, AccountUpdate(**updates))
             session.commit()
