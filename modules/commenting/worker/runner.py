@@ -335,14 +335,42 @@ def _limit_skip_reason(session, campaign, post_date_ts: Optional[float], now: da
     return None
 
 
+def _fallback_provider(ctx, primary_name: str):
+    """Другой LLM-провайдер, если его ключ задан — страховка на случай, когда у
+    выбранного в кампании провайдера ключ пустой/битый (частый кейс: в кампании
+    стоит deepseek, а рабочий ключ — у gemini, и наоборот → 401). В тестах с
+    инъекцией ``ctx['llm_provider']`` фолбэк отключаем."""
+    if ctx.get("llm_provider") is not None:
+        return None
+    from core.config import get_settings
+
+    other = "gemini" if primary_name == "deepseek" else "deepseek"
+    if getattr(get_settings(), f"{other}_api_key", None):
+        try:
+            return get_provider(other)
+        except Exception:  # noqa: BLE001
+            return None
+    return None
+
+
 async def _generate(ctx, session, campaign, account, provider, context) -> tuple[str, bool]:
     """Текст коммента с учётом min_words (до 3 попыток) и стиля (E4.1)."""
     system = _build_system_prompt(session, campaign, account)
     persona = _persona_for(session, account)
     style = _style(ctx)
+    fallback = _fallback_provider(ctx, campaign.llm_provider)
 
     async def once() -> str:
-        raw = await provider.generate(system, context)
+        try:
+            raw = await provider.generate(system, context)
+        except Exception as exc:  # noqa: BLE001 — пробуем второй провайдер
+            if fallback is None:
+                raise
+            get_logger().warning(
+                "commenting.generate.primary_failed_fallback",
+                provider=campaign.llm_provider, error=repr(exc),
+            )
+            raw = await fallback.generate(system, context)
         return delivery.apply_style(raw, campaign, persona, style)
 
     return await limits.generate_with_min_words(once, campaign.min_words or 0)

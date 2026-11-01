@@ -440,3 +440,58 @@ def test_claim_once_dedup_prevents_double():
     assert _claim_once(ctx, "post:2") is True    # другой пост — проходит
     # Нет redis (тесты) → fail-open: не блокируем.
     assert _claim_once({}, "post:1") is True
+
+
+async def test_generate_falls_back_to_other_provider(monkeypatch):
+    """Если провайдер кампании падает (напр. 401), а ключ другого есть —
+    генерим вторым провайдером, а не роняем коммент."""
+    from types import SimpleNamespace
+
+    import core.config as _cfg
+    import modules.commenting.worker.runner as r
+
+    class _Bad:
+        async def generate(self, *_a, **_k):
+            raise RuntimeError("401 Unauthorized")
+
+    class _Good:
+        async def generate(self, *_a, **_k):
+            return "ответ из запасного провайдера достаточно длинный"
+
+    monkeypatch.setattr(r, "_build_system_prompt", lambda *a, **k: "sys")
+    monkeypatch.setattr(r, "_persona_for", lambda *a, **k: None)
+    monkeypatch.setattr(r, "_style", lambda ctx: None)
+    monkeypatch.setattr(r.delivery, "apply_style", lambda raw, *a, **k: raw)
+    monkeypatch.setattr(
+        _cfg, "get_settings",
+        lambda: SimpleNamespace(deepseek_api_key="x", gemini_api_key="y"),
+    )
+    monkeypatch.setattr(r, "get_provider", lambda name: _Good())
+
+    campaign = SimpleNamespace(llm_provider="deepseek", min_words=0)
+    text, ok = await r._generate({}, None, campaign, None, _Bad(), [])
+    assert ok is True
+    assert "запасного" in text
+
+
+async def test_generate_no_fallback_when_other_key_absent(monkeypatch):
+    """Нет ключа второго провайдера → ошибка пробрасывается (её покажем в UI)."""
+    from types import SimpleNamespace
+
+    import core.config as _cfg
+    import modules.commenting.worker.runner as r
+
+    class _Bad:
+        async def generate(self, *_a, **_k):
+            raise RuntimeError("401 Unauthorized")
+
+    monkeypatch.setattr(r, "_build_system_prompt", lambda *a, **k: "sys")
+    monkeypatch.setattr(r, "_persona_for", lambda *a, **k: None)
+    monkeypatch.setattr(r, "_style", lambda ctx: None)
+    monkeypatch.setattr(
+        _cfg, "get_settings",
+        lambda: SimpleNamespace(deepseek_api_key="x", gemini_api_key=None),
+    )
+    campaign = SimpleNamespace(llm_provider="deepseek", min_words=0)
+    with pytest.raises(RuntimeError):
+        await r._generate({}, None, campaign, None, _Bad(), [])
