@@ -96,3 +96,33 @@ async def test_writes_to_parsing_schema(session) -> None:
 
     targets = ParsedListTargetRepository(session).list_by_list(lst.id)
     assert [t.tg_user_id for t in targets] == [111]
+
+
+async def test_active_mode_max_targets_counts_qualified(session) -> None:
+    """Режим «Активные в чате»: max_targets считается по авторам, прошедшим
+    min_messages, а не по сырым уникальным. Иначе был баг «собрано 250,
+    добавлено 0» — обрыв на 250 авторах с 1 сообщением, потом все отсеяны."""
+    collector = _acc(session)
+    now = datetime.now(timezone.utc)
+    dt = now - timedelta(hours=1)
+    # A,A,B,B,C,C — каждый по 2 сообщения.
+    messages = [
+        _msg(dt, 111, {"username": "a"}), _msg(dt, 111),
+        _msg(dt, 222, {"username": "b"}), _msg(dt, 222),
+        _msg(dt, 333, {"username": "c"}), _msg(dt, 333),
+    ]
+    ctx = {
+        "session_factory": _factory(session),
+        "client_pool": SimpleNamespace(get=AsyncMock(return_value=_client(messages)),
+                                       release=AsyncMock()),
+        "governor": SimpleNamespace(check_and_reserve=AsyncMock(return_value=True)),
+        "now": now,
+    }
+    result = await parse_chat_messages(
+        ctx, owner_user_id=1, name="active",
+        collector_account_id=collector.id, chat_ref="@c",
+        days_window=7, min_messages=2, max_targets=2,
+    )
+    assert result is not None
+    # Прошли порог и лимит именно A и B; до C не дошли (обрыв по qualified).
+    assert result.inserted == 2

@@ -94,6 +94,12 @@ async def parse_chat_messages(
         min_dt = now - timedelta(days=days_window)
         raw_senders: dict[int, dict[str, Any]] = {}
         scanned = 0
+        # Сколько авторов УЖЕ набрали min_messages — именно они попадут в список.
+        # Лимит max_targets считаем по ним, а НЕ по числу уникальных авторов:
+        # иначе на активном чате обрыв наступал, когда 250 авторов имеют по 1
+        # сообщению, а порог min_messages=2 потом отсеивал всех → «собрано 250,
+        # добавлено 0» (баг режима «Активные в чате»).
+        qualified = 0
         async for message in client.iter_messages(entity, offset_date=None):
             msg_dt = getattr(message, "date", None)
             if msg_dt is not None and _to_utc(msg_dt) < min_dt:
@@ -104,17 +110,19 @@ async def parse_chat_messages(
                 continue
             info = raw_senders.setdefault(int(sender_id), {"count": 0})
             info["count"] += 1
+            if info["count"] == min_messages:
+                qualified += 1
             sender = getattr(message, "sender", None)
             if sender is not None and "sender" not in info:
                 info["sender"] = _sender_snapshot(sender)
             # Каждые 200 сообщений — прогресс + реакция на паузу/стоп.
             if scanned % 200 == 0:
                 progress.log(
-                    f"Просмотрено {scanned} сообщ., уникальных авторов {len(raw_senders)}…"
+                    f"Просмотрено {scanned} сообщ., подходящих авторов {qualified}…"
                 )
-                await progress.heartbeat(raw=len(raw_senders))
-            # Лимит «сколько юзеров нужно» — по числу уникальных авторов.
-            if apply_max_targets(max_targets, len(raw_senders)):
+                await progress.heartbeat(raw=qualified)
+            # Лимит «сколько юзеров нужно» — по авторам, прошедшим порог.
+            if apply_max_targets(max_targets, qualified):
                 progress.log(f"Достигнут лимит {max_targets} авторов — останавливаю сбор.")
                 break
     finally:
