@@ -73,6 +73,25 @@ def _post_text_kwargs(message: Any) -> dict:
     return {"post_text": text} if text else {}
 
 
+# Дедуп на уровне слушателя. Один и тот же пост канала Telegram может прийти в
+# discussion-группу повторно (напр. когда у поста появляется первый комментарий,
+# канал обновляет свой авто-форвард) — и слушатель второй раз писал «пойман /
+# принят в обработку», хотя сам коммент не дублировался (его режет дедуп в
+# задаче). Клеймим пост здесь на короткий TTL: повтор тихо отбрасываем ещё до
+# пуша события и постановки задачи.
+_LISTENER_DEDUP_TTL_SEC = 900
+
+
+def _claim_listen_once(redis: Any, key: str, ttl: int = _LISTENER_DEDUP_TTL_SEC) -> bool:
+    """SETNX: True — первый раз, False — повтор. Без redis (тесты) всегда True."""
+    if redis is None:
+        return True
+    try:
+        return bool(redis.set(key, "1", nx=True, ex=ttl))
+    except Exception:  # noqa: BLE001 — fail-open: лучше обработать повтор, чем молчать
+        return True
+
+
 def _passes_post_filter(
     text: Optional[str],
     *,
@@ -133,6 +152,9 @@ def make_new_post_handler(
         message = getattr(event, "message", event)
         # Только сообщения самого канала (не комментарии участников/ботов).
         if not _is_channel_sender(getattr(message, "sender_id", None), channel_id):
+            return
+        # Повторный заход того же поста — тихо выходим (дубль в таймлайне/очереди).
+        if not _claim_listen_once(redis, f"commenting:listen:camp:{campaign_id}:{message.id}"):
             return
 
         if session_factory is not None:
@@ -215,6 +237,12 @@ def make_channel_post_handler(
     async def handler(event: Any) -> None:
         message = getattr(event, "message", event)
         if not _is_channel_sender(getattr(message, "sender_id", None), channel_tg_id):
+            return
+        # Повторный заход того же поста (авто-форвард обновился) — тихо выходим,
+        # иначе в таймлайне появляется второй «пойман / принят в обработку».
+        if not _claim_listen_once(
+            redis, f"commenting:listen:chan:{account_id}:{monitored_channel_id}:{message.id}"
+        ):
             return
         if source_campaign_id is not None:
             push_event(

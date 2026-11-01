@@ -24,6 +24,7 @@ from core.models import (
     CampaignAccount,
     CommentLog,
     HealthEvent,
+    MonitoredChannel,
     WarmingActivity,
 )
 
@@ -37,6 +38,7 @@ _TABLES = (
     '"commenting".campaigns',
     '"commenting".campaign_accounts',
     '"commenting".comment_logs',
+    '"commenting".monitored_channels',
 )
 
 
@@ -233,6 +235,40 @@ def test_dashboard_matches_direct_sql(session):
 
 
 # --- 3. Кэш: второй запрос не идёт в БД ---------------------------------------
+
+
+def test_recent_activity_shows_channel_for_comment(session):
+    """Лента «Активность»: у события-коммента видно, в какой канал он ушёл."""
+    from api.services.monitoring import _recent_activity
+
+    _clean(session)
+    acc = _make_account(session, 10, "assigned")
+    session.add(
+        MonitoredChannel(
+            account_id=acc.id, input_ref="@testbot",
+            channel_ref="testbot", title="тест бота", status="working",
+        )
+    )
+    campaign = Campaign(
+        name="c1", target_channel="@ch", base_system_prompt="p",
+        llm_provider="deepseek", active_hours_start=datetime(2020, 1, 1, 9).time(),
+        active_hours_end=datetime(2020, 1, 1, 23).time(), active_hours_tz="UTC",
+        posting_delay_min_sec=1, posting_delay_max_sec=5,
+    )
+    session.add(campaign)
+    session.flush()
+    session.add(
+        CommentLog(
+            campaign_id=campaign.id, account_id=acc.id,
+            post_channel_msg_id=57, comment_text="hi", status="posted",
+        )
+    )
+    session.commit()
+
+    events = _recent_activity(session)
+    comment = next(e for e in events if e["type"] == "comment")
+    assert comment["channel"] == "тест бота"
+    assert "тест бота" in comment["detail"]
 
 
 def test_dashboard_cached_second_call_skips_db(session):
