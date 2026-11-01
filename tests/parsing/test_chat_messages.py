@@ -85,7 +85,9 @@ async def test_writes_to_parsing_schema(session) -> None:
         chat_ref="@ainews", days_window=7, min_messages=2,
     )
     assert result is not None
-    assert result.raw_count == 2   # 111 и 222
+    # «Собрано» теперь = годные кандидаты (которых реально добавляли), а не все
+    # уникальные id: 111 прошёл порог и фильтры, 222 — нет.
+    assert result.raw_count == 1
     assert result.inserted == 1    # только 111 прошёл порог
 
     parsed = ParsedListRepository(session).list_by_owner(42)
@@ -126,3 +128,42 @@ async def test_active_mode_max_targets_counts_qualified(session) -> None:
     assert result is not None
     # Прошли порог и лимит именно A и B; до C не дошли (обрыв по qualified).
     assert result.inserted == 2
+
+
+async def test_max_targets_tops_up_past_filtered(session) -> None:
+    """Добор до цели: к лимиту считаем только тех, кто пройдёт фильтры.
+
+    require_username=True. Авторы без username НЕ должны «съедать» лимит —
+    иначе просили 2, а после no_username оставалось меньше (баг «нужно 150,
+    добавлено 80»)."""
+    from modules.parsing.parser.filters import FilterOptions
+
+    collector = _acc(session)
+    now = datetime.now(timezone.utc)
+    dt = now - timedelta(hours=1)
+    # a(@), b(без ника), c(@), d(без ника), e(@) — каждый по 1 сообщению.
+    messages = [
+        _msg(dt, 111, {"username": "a"}),
+        _msg(dt, 222, {}),
+        _msg(dt, 333, {"username": "c"}),
+        _msg(dt, 444, {}),
+        _msg(dt, 555, {"username": "e"}),
+    ]
+    ctx = {
+        "session_factory": _factory(session),
+        "client_pool": SimpleNamespace(get=AsyncMock(return_value=_client(messages)),
+                                       release=AsyncMock()),
+        "governor": SimpleNamespace(check_and_reserve=AsyncMock(return_value=True)),
+        "now": now,
+    }
+    result = await parse_chat_messages(
+        ctx, owner_user_id=1, name="topup",
+        collector_account_id=collector.id, chat_ref="@c",
+        days_window=7, min_messages=1, max_targets=2,
+        filter_options=FilterOptions(require_username=True, check_blacklist=False),
+    )
+    assert result is not None
+    # Ровно 2 с username (111, 333); на 333 сбор остановился, 444/555 не трогали.
+    assert result.inserted == 2
+    targets = ParsedListTargetRepository(session).list_by_list(result.list_id)
+    assert sorted(t.tg_user_id for t in targets) == [111, 333]

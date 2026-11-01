@@ -36,6 +36,7 @@ from modules.parsing.repositories import (
     ParsedCommunityItemRepository,
     ParsedListRepository,
 )
+from modules.parsing.worker.progress import NullProgress
 from modules.priming.schemas.enums import ParserSourceKind
 from worker.telegram_refs import public_ref
 
@@ -45,6 +46,21 @@ PARSER_ACTION_TYPE = "priming_parser"
 
 _MENTION_RE = re.compile(r"(?:@|t\.me/)([A-Za-z0-9_]{4,32})")
 _MSG_SCAN_LIMIT = 200  # сколько постов сида сканировать для forwards/mentions
+_TERM_WORD_RE = re.compile(r"[A-Za-zА-Яа-яЁё]{4,}")
+
+
+def _derive_term(seed_entities: list[Any]) -> Optional[str]:
+    """Ключевик для глобального поиска из названий сидов, если не задан вручную.
+
+    Берём первое «содержательное» слово (4+ букв) из названия любого сида —
+    напр. «Спорт-Экспресс» → «Спорт». Без этого при пустом term глобальный
+    поиск молча пропускался и discovery возвращал только сами сиды."""
+    for ent in seed_entities:
+        title = getattr(ent, "title", None) or ""
+        m = _TERM_WORD_RE.search(title)
+        if m:
+            return m.group(0)
+    return None
 
 
 async def discover_communities(
@@ -75,6 +91,7 @@ async def discover_communities(
         governor = _Governor(ctx.get("redis"))
     now = ctx.get("now") or datetime.now(timezone.utc)
     options = filter_options or CommunityFilterOptions()
+    progress = ctx.get("parsing_progress") or NullProgress()
 
     if not await governor.check_and_reserve(collector_account_id, PARSER_ACTION_TYPE):
         log.info("parsing.discover.rate_limited", collector_account_id=collector_account_id)
@@ -117,19 +134,38 @@ async def discover_communities(
                 _add(ent)
             except Exception:  # noqa: BLE001
                 _drop("seed_resolve_failed")
+        if seeds:
+            progress.log(f"Сиды: распознано {len(seed_entities)} из {len(seeds)}.")
 
-        # 1) Глобальный поиск по ключевику.
-        if use_search and term and len(candidates) < max_results:
+        # 1) Глобальный поиск по ключевику. Если ключевик не задан — берём его
+        # из названия сида, иначе поиск молча пропускался (и возвращались только
+        # сами сиды — главная причина «парсинг ничего не находит»).
+        search_term = term
+        if use_search and not search_term:
+            search_term = _derive_term(seed_entities)
+            if search_term:
+                progress.log(f"Ключевик не задан — ищу похожие по слову «{search_term}».")
+        if use_search and search_term and len(candidates) < max_results:
+            progress.log(f"Глобальный поиск Telegram по «{search_term}»…")
+            before = len(candidates)
             try:
-                res = await client(ContactsSearch(q=term, limit=min(max_results, 100)))
+                res = await client(ContactsSearch(q=search_term, limit=min(max_results, 100)))
                 for ch in getattr(res, "chats", None) or []:
                     if not _add(ch):
                         break
+                progress.log(f"Поиск: +{len(candidates) - before} кандидатов.")
             except Exception as exc:  # noqa: BLE001
                 log.info("parsing.discover.search_failed", error=repr(exc))
+                progress.log(f"Поиск недоступен: {type(exc).__name__}.")
+        elif use_search and not search_term:
+            progress.log("Глобальный поиск пропущен: не задан ключевик и нет названий сидов.")
 
         # 2) «Похожие каналы» — BFS по рекомендациям на глубину depth.
-        if use_recommendations:
+        if use_recommendations and seed_entities:
+            progress.log("Запрашиваю «похожие каналы» у Telegram…")
+            before = len(candidates)
+            rec_errors = 0
+            first_rec_error: Optional[str] = None
             frontier = list(seed_entities)
             for _ in range(depth):
                 if len(candidates) >= max_results or not frontier:
@@ -140,7 +176,10 @@ async def discover_communities(
                         break
                     try:
                         rec = await client(GetChannelRecommendationsRequest(channel=ent))
-                    except Exception:  # noqa: BLE001
+                    except Exception as exc:  # noqa: BLE001
+                        rec_errors += 1
+                        if first_rec_error is None:
+                            first_rec_error = f"{type(exc).__name__}: {exc}"
                         continue
                     for ch in getattr(rec, "chats", None) or []:
                         was_new = int(getattr(ch, "id", -1)) not in candidates
@@ -149,9 +188,22 @@ async def discover_communities(
                         if was_new and not getattr(ch, "megagroup", False):
                             next_frontier.append(ch)
                 frontier = next_frontier
+            found = len(candidates) - before
+            if found:
+                progress.log(f"Похожие каналы: +{found} кандидатов.")
+            elif rec_errors:
+                log.info("parsing.discover.recommendations_failed", error=first_rec_error)
+                progress.log(
+                    "Telegram не отдал рекомендации (возможно, аккаунт слишком "
+                    f"новый или у каналов отключены похожие): {first_rec_error}."
+                )
+            else:
+                progress.log("Похожих каналов Telegram не вернул.")
+        await progress.heartbeat()
 
         # 3) Форварды и упоминания из постов сидов (опц., дороже).
         if (use_forwards or use_mentions) and seed_entities:
+            progress.log("Сканирую посты сидов (форварды/упоминания)…")
             for seed in seed_entities:
                 if len(candidates) >= max_results:
                     break
@@ -176,6 +228,11 @@ async def discover_communities(
                     continue
 
         # 4) Обогащение + фильтрация кандидатов.
+        new_candidates = max(len(candidates) - len(seed_entities), 0)
+        progress.log(
+            f"Кандидатов всего: {len(candidates)} "
+            f"(новых сверх сидов: {new_candidates}). Обогащаю и фильтрую…"
+        )
         rows: list[dict] = []
         for ent in list(candidates.values()):
             uname = getattr(ent, "username", None)
@@ -212,6 +269,27 @@ async def discover_communities(
             "parsed_at": datetime.now(timezone.utc),
         })
         session.commit()
+
+    # Внятный итог: пользователь не должен гадать, почему «ничего не нашлось».
+    seed_count = len(seed_entities)
+    if inserted <= seed_count and len(candidates) <= seed_count:
+        hints = []
+        if not (use_search or use_recommendations):
+            hints.append("включите «похожие каналы» или поиск")
+        if not use_recommendations:
+            hints.append("включите «похожие каналы»")
+        if not (term or use_search):
+            hints.append("задайте ключевик")
+        tail = f" Советы: {', '.join(hints)}." if hints else (
+            " Telegram не дал рекомендаций для этих каналов — попробуйте другие "
+            "сиды, ключевик или включите форварды/упоминания."
+        )
+        progress.log(f"Готово: новых каналов не нашлось (только исходные {seed_count}).{tail}")
+    else:
+        progress.log(
+            f"Готово: добавлено {inserted} каналов/чатов "
+            f"(новых сверх сидов: {max(inserted - seed_count, 0)})."
+        )
 
     log.info("parsing.discover.done", list_id=list_id,
              candidates=len(candidates), inserted=inserted, breakdown=breakdown)

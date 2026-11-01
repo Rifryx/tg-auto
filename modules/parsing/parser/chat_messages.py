@@ -12,8 +12,12 @@ from typing import Any, Optional
 
 import structlog
 
-from modules.parsing.parser._common import apply_max_targets, ensure_member
-from modules.parsing.parser.filters import FilterOptions, apply_filters
+from modules.parsing.parser._common import ensure_member
+from modules.parsing.parser.filters import (
+    FilterOptions,
+    apply_filters,
+    inline_drop_reason,
+)
 from modules.parsing.repositories import (
     ParsedListRepository,
     ParsedListTargetRepository,
@@ -26,6 +30,11 @@ get_logger = structlog.get_logger
 
 PARSER_ACTION_TYPE = "priming_parser"
 
+# Запас по сканированию: даже если фильтры очень строгие, не перелопачиваем весь
+# чат бесконечно. Если авторов, прошедших min_messages, уже в N раз больше цели,
+# а годных всё равно не набралось — значит в чате столько подходящих и нет.
+_OVERSCAN_FACTOR = 8
+
 
 @dataclass
 class ParseResult:
@@ -33,6 +42,28 @@ class ParseResult:
     raw_count: int
     inserted: int
     filters_breakdown: dict[str, int]
+
+
+def _row_from(sender_id: int, info: dict[str, Any]) -> dict[str, Any]:
+    """Строка-кандидат из накопленного снапшота автора (для фильтров/вставки)."""
+    snap = info.get("sender") or {}
+    return {
+        "tg_user_id": sender_id,
+        "username": snap.get("username"),
+        "phone": snap.get("phone"),
+        "has_premium": snap.get("premium"),
+        "is_bot": bool(snap.get("bot", False)),
+        "is_deleted": bool(snap.get("deleted", False)),
+        "is_admin": False,
+        "is_verified": bool(snap.get("verified", False)),
+        "is_scam": bool(snap.get("scam", False)),
+        "is_fake": bool(snap.get("fake", False)),
+        "has_photo": bool(snap.get("has_photo", False)),
+        "first_name": snap.get("first_name"),
+        "last_name": snap.get("last_name"),
+        "last_seen_bucket": TargetLastSeen.UNKNOWN.value,
+        "last_seen_days": None,  # из сообщений статус недоступен
+    }
 
 
 async def parse_chat_messages(
@@ -80,6 +111,9 @@ async def parse_chat_messages(
         list_id = parsed_list.id
         session.commit()
 
+    options = filter_options or FilterOptions()
+    options.owner_user_id = owner_user_id
+
     # 2. Читаем чат.
     progress.log(f"Открываю {chat_ref}, читаю сообщения за {days_window} дн…")
     client = await pool.get(collector_account_id)
@@ -94,12 +128,12 @@ async def parse_chat_messages(
         min_dt = now - timedelta(days=days_window)
         raw_senders: dict[int, dict[str, Any]] = {}
         scanned = 0
-        # Сколько авторов УЖЕ набрали min_messages — именно они попадут в список.
-        # Лимит max_targets считаем по ним, а НЕ по числу уникальных авторов:
-        # иначе на активном чате обрыв наступал, когда 250 авторов имеют по 1
-        # сообщению, а порог min_messages=2 потом отсеивал всех → «собрано 250,
-        # добавлено 0» (баг режима «Активные в чате»).
-        qualified = 0
+        # К лимиту считаем ТОЛЬКО тех, кто реально попадёт в список: набрал
+        # min_messages И прошёл «дешёвые» фильтры (есть @username и т.п.). Иначе
+        # сбор обрывался на 150 «активных», а потом no_username резал до 80 —
+        # просили 150, получали 80. Теперь добираем до цели.
+        selected = 0        # годных (пройдут фильтры) — это и есть «собрано»
+        qualified_raw = 0   # дошли до min_messages (для страховочного потолка)
         async for message in client.iter_messages(entity, offset_date=None):
             msg_dt = getattr(message, "date", None)
             if msg_dt is not None and _to_utc(msg_dt) < min_dt:
@@ -110,55 +144,46 @@ async def parse_chat_messages(
                 continue
             info = raw_senders.setdefault(int(sender_id), {"count": 0})
             info["count"] += 1
-            if info["count"] == min_messages:
-                qualified += 1
+            # Снапшот автора берём как можно раньше — он нужен фильтрам ниже.
             sender = getattr(message, "sender", None)
             if sender is not None and "sender" not in info:
                 info["sender"] = _sender_snapshot(sender)
+            if info["count"] == min_messages:
+                qualified_raw += 1
+            # Как только автор прошёл порог и годен по фильтрам — засчитываем
+            # к цели ровно один раз.
+            if info["count"] >= min_messages and not info.get("counted"):
+                if inline_drop_reason(_row_from(sender_id, info), options=options) is None:
+                    info["counted"] = True
+                    selected += 1
             # Каждые 200 сообщений — прогресс + реакция на паузу/стоп.
             if scanned % 200 == 0:
+                goal = f"/{max_targets}" if max_targets else ""
+                progress.log(f"Просмотрено {scanned} сообщ., отобрано {selected}{goal}…")
+                await progress.heartbeat(raw=selected)
+            # Лимит «сколько юзеров нужно» — по годным (selected).
+            if max_targets is not None and selected >= max_targets:
+                progress.log(f"Набрано {selected} подходящих — сбор завершён.")
+                break
+            # Страховка: фильтры слишком строгие для этого чата — не крутим вечно.
+            if max_targets is not None and qualified_raw >= max_targets * _OVERSCAN_FACTOR:
                 progress.log(
-                    f"Просмотрено {scanned} сообщ., подходящих авторов {qualified}…"
+                    f"Просмотрел {qualified_raw} активных авторов, под фильтры подходит "
+                    f"только {selected} — больше подходящих в чате нет."
                 )
-                await progress.heartbeat(raw=qualified)
-            # Лимит «сколько юзеров нужно» — по авторам, прошедшим порог.
-            if apply_max_targets(max_targets, qualified):
-                progress.log(f"Достигнут лимит {max_targets} авторов — останавливаю сбор.")
                 break
     finally:
         await pool.release(collector_account_id)
-    progress.log(
-        f"Сбор завершён: {len(raw_senders)} авторов из {scanned} сообщений. Фильтрую…"
-    )
+    progress.log(f"Отобрал {selected} подходящих авторов — применяю фильтры…")
 
-    # 3. Отбор + фильтры.
+    # 3. Отбор + фильтры (полный прогон, включая blacklist).
     picked_rows: list[dict[str, Any]] = []
     below_min = 0
     for sender_id, info in raw_senders.items():
         if info["count"] < min_messages:
             below_min += 1
             continue
-        snap = info.get("sender") or {}
-        picked_rows.append({
-            "tg_user_id": sender_id,
-            "username": snap.get("username"),
-            "phone": snap.get("phone"),
-            "has_premium": snap.get("premium"),
-            "is_bot": bool(snap.get("bot", False)),
-            "is_deleted": bool(snap.get("deleted", False)),
-            "is_admin": False,
-            "is_verified": bool(snap.get("verified", False)),
-            "is_scam": bool(snap.get("scam", False)),
-            "is_fake": bool(snap.get("fake", False)),
-            "has_photo": bool(snap.get("has_photo", False)),
-            "first_name": snap.get("first_name"),
-            "last_name": snap.get("last_name"),
-            "last_seen_bucket": TargetLastSeen.UNKNOWN.value,
-            "last_seen_days": None,  # из сообщений статус недоступен
-        })
-
-    options = filter_options or FilterOptions()
-    options.owner_user_id = owner_user_id
+        picked_rows.append(_row_from(sender_id, info))
 
     with session_factory() as session:
         blacklist_repo = (
@@ -191,22 +216,32 @@ async def parse_chat_messages(
         if already > 0:
             breakdown["already_in_list"] = already
 
+        # «Собрано» = годные кандидаты, которых реально пытались добавить, а не
+        # все уникальные id в чате. Иначе карточка пугала раздутым числом
+        # («собрано 321 / добавлено 80») — пользователю это только мешало.
+        collected = max(len(outcome.kept), inserted)
         ParsedListRepository(session).update(list_id, {
-            "raw_count": len(raw_senders),
+            "raw_count": collected,
             "after_filters_count": inserted,
             "filters_breakdown": breakdown,
             "parsed_at": datetime.now(timezone.utc),
         })
         session.commit()
 
-    progress.set_counts(raw=len(raw_senders), inserted=inserted)
-    progress.log(f"Фильтры применены: добавлено {inserted} из {len(raw_senders)}.")
+    progress.set_counts(raw=collected, inserted=inserted)
+    if max_targets and inserted < max_targets:
+        progress.log(
+            f"Готово: добавлено {inserted} из запрошенных {max_targets}. "
+            "Больше подходящих под фильтры в чате не нашлось."
+        )
+    else:
+        progress.log(f"Готово: добавлено {inserted}.")
     log.info(
         "parsing.chat_messages.done", list_id=list_id,
-        raw=len(raw_senders), inserted=inserted, breakdown=breakdown,
+        raw=collected, inserted=inserted, breakdown=breakdown,
     )
     return ParseResult(
-        list_id=list_id, raw_count=len(raw_senders),
+        list_id=list_id, raw_count=collected,
         inserted=inserted, filters_breakdown=breakdown,
     )
 
