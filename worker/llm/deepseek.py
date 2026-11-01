@@ -11,6 +11,9 @@ from worker.llm.base import LLMProvider, Message
 
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "deepseek-chat"
+# Явный потолок на запрос к LLM: без него зависший/недоступный эндпоинт держал
+# бы генерацию коммента в «вечной загрузке». 30с хватает на обычный ответ.
+_REQUEST_TIMEOUT_SEC = 30.0
 
 
 class DeepSeekProvider(LLMProvider):
@@ -44,9 +47,11 @@ class DeepSeekProvider(LLMProvider):
         headers = {"Authorization": f"Bearer {self._api_key}"}
         url = f"{self._base_url}/chat/completions"
 
-        client = self._client or httpx.AsyncClient()
+        client = self._client or httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SEC)
         try:
-            response = await client.post(url, json=payload, headers=headers)
+            response = await client.post(
+                url, json=payload, headers=headers, timeout=_REQUEST_TIMEOUT_SEC
+            )
             response.raise_for_status()
             data = response.json()
         finally:

@@ -72,6 +72,9 @@ GOVERNOR_RETRY_MINUTES = 5
 # Потолок ожидания отправки коммента: дольше — считаем зависанием (прокси/сеть)
 # и фиксируем как ошибку, а не держим задачу в «вечной загрузке».
 _DELIVER_TIMEOUT_SEC = 90
+# Потолок на генерацию ответа LLM (с учётом до 3 попыток min_words): если
+# провайдер недоступен/завис — «Генерирую…» не висит вечно, пишем ошибку.
+_GENERATE_TIMEOUT_SEC = 120
 
 
 # --- ctx-инъекции ------------------------------------------------------------
@@ -696,7 +699,29 @@ async def on_channel_post(
         reply_target = in_reply_to if in_reply_to is not None else channel_msg_id
         provider = ctx.get("llm_provider") or get_provider(campaign.llm_provider)
         context = _thread_context(session, campaign_id, channel_msg_id)
-        text, ok = await _generate(ctx, session, campaign, account, provider, context)
+        try:
+            # Жёсткий потолок на генерацию: даже если у провайдера нет своего
+            # таймаута, «Генерирую…» не зависает навсегда. Ошибку показываем.
+            text, ok = await asyncio.wait_for(
+                _generate(ctx, session, campaign, account, provider, context),
+                timeout=_GENERATE_TIMEOUT_SEC,
+            )
+        except asyncio.TimeoutError:
+            log.warning("commenting.on_channel_post.generate_timeout", account_id=account_id)
+            _push(ctx, campaign_id, TimelineKind.COMMENT_FAILED,
+                  f"Генерация ответа зависла (> {_GENERATE_TIMEOUT_SEC}с) — проверьте "
+                  "LLM-провайдера (ключ/доступ к API). Коммент не создан.",
+                  {"reason": "generate_timeout", "account_id": account_id})
+            return 0
+        except Exception as exc:  # noqa: BLE001 — показываем причину, а не молчим
+            log.warning("commenting.on_channel_post.generate_failed",
+                        account_id=account_id, error=repr(exc))
+            _push(ctx, campaign_id, TimelineKind.COMMENT_FAILED,
+                  f"Ошибка генерации ответа: {type(exc).__name__}: {exc}. "
+                  "Проверьте LLM-провайдера (ключ/доступ). Коммент не создан.",
+                  {"reason": "generate_failed", "account_id": account_id,
+                   "error": repr(exc)[:200]})
+            return 0
         if not ok:
             _log_below_min_words(session, campaign, account_id, channel_msg_id, text, reply_target)
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="below_min_words")
