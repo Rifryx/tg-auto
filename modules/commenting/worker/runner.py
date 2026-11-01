@@ -12,6 +12,7 @@ llm_provider, publisher.
 
 from __future__ import annotations
 
+import asyncio
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -68,6 +69,9 @@ MAX_ACCOUNTS_PER_POST = 4
 THREAD_CONTINUE_PROB = 0.35
 MAX_THREAD_DEPTH = 3
 GOVERNOR_RETRY_MINUTES = 5
+# Потолок ожидания отправки коммента: дольше — считаем зависанием (прокси/сеть)
+# и фиксируем как ошибку, а не держим задачу в «вечной загрузке».
+_DELIVER_TIMEOUT_SEC = 90
 
 
 # --- ctx-инъекции ------------------------------------------------------------
@@ -766,6 +770,10 @@ async def post_channel_comment(
             reason = _limit_skip_reason(session, campaign, post_date_ts, now)
             if reason:
                 log.info("commenting.post_channel_comment.skip", account_id=account_id, reason=reason)
+                _push(ctx, campaign_id, TimelineKind.COMMENT_SKIPPED,
+                      f"Коммент на пост #{channel_msg_id} (акк. #{account_id}) не отправлен "
+                      f"— {_skip_label(reason)}.",
+                      {"reason": reason, "account_id": account_id})
                 return None
             wait = limits.pause_wait_until(
                 CampaignAccountRepository(session).get(campaign_id, account_id), campaign, now
@@ -773,11 +781,19 @@ async def post_channel_comment(
             if wait is not None:
                 await reschedule(wait)
                 log.info("commenting.post_channel_comment.paused", account_id=account_id, until=wait.isoformat())
+                _push(ctx, campaign_id, TimelineKind.COMMENT_SCHEDULED,
+                      f"Коммент (акк. #{account_id}) отложен до "
+                      f"{wait.astimezone().strftime('%H:%M:%S')} — пауза между комментами.",
+                      {"reason": "pause", "account_id": account_id})
                 return None
 
     if not await _governor(ctx).check_and_reserve(account_id, "comment"):
         await reschedule(now + timedelta(minutes=GOVERNOR_RETRY_MINUTES))
         log.info("commenting.post_channel_comment.rate_limited", account_id=account_id)
+        _push(ctx, campaign_id, TimelineKind.COMMENT_SCHEDULED,
+              f"Коммент (акк. #{account_id}) отложен на {GOVERNOR_RETRY_MINUTES} мин "
+              "— сработал rate-limit (governor).",
+              {"reason": "rate_limited", "account_id": account_id})
         return None
 
     with session_factory() as session:
@@ -786,6 +802,10 @@ async def post_channel_comment(
     if wait is not None:
         await reschedule(wait)
         log.info("commenting.post_channel_comment.paused", account_id=account_id, until=wait.isoformat())
+        _push(ctx, campaign_id, TimelineKind.COMMENT_SCHEDULED,
+              f"Коммент (акк. #{account_id}) отложен до "
+              f"{wait.astimezone().strftime('%H:%M:%S')} — пауза между комментами.",
+              {"reason": "pause", "account_id": account_id})
         return None
 
     with session_factory() as session:
@@ -812,16 +832,29 @@ async def post_channel_comment(
     pool = _pool(ctx)
     client = await pool.get(account_id)
     try:
-        sent, delivery_mode = await delivery.deliver_comment(
-            ctx, client, campaign_row,
-            account_id=account_id,
-            discussion_group_id=discussion_group_id,
-            text=text,
-            reply_to=in_reply_to_message_id,
-            now=now,
-            publisher=publisher,
-            rng=_rng(ctx),
+        # Таймаут на отправку: без него зависший Telethon-вызов (проблемы прокси/
+        # сети) держит коммент в «вечной загрузке» молча. Падаем с понятной
+        # ошибкой в таймлайн вместо бесконечного ожидания.
+        sent, delivery_mode = await asyncio.wait_for(
+            delivery.deliver_comment(
+                ctx, client, campaign_row,
+                account_id=account_id,
+                discussion_group_id=discussion_group_id,
+                text=text,
+                reply_to=in_reply_to_message_id,
+                now=now,
+                publisher=publisher,
+                rng=_rng(ctx),
+            ),
+            timeout=_DELIVER_TIMEOUT_SEC,
         )
+    except asyncio.TimeoutError:
+        _push(ctx, campaign_id, TimelineKind.COMMENT_FAILED,
+              f"Публикация в «{mon_name}» зависла (> {_DELIVER_TIMEOUT_SEC}с) — "
+              "вероятно прокси/сеть аккаунта. Коммент не отправлен.",
+              {"account_id": account_id, "error": "deliver_timeout"})
+        log.warning("commenting.post_channel_comment.timeout", account_id=account_id)
+        return None
     except ACCESS_ERRORS as exc:
         _push(ctx, campaign_id, TimelineKind.COMMENT_FAILED,
               f"Ошибка публикации в «{mon_name}»: нет доступа ({type(exc).__name__}). "
