@@ -3,9 +3,11 @@ from worker.llm.deepseek import DeepSeekProvider
 from worker.llm.factory import get_provider, reset_cache
 from worker.llm.gemini import GeminiProvider
 from worker.llm.openai_compat import OpenAICompatProvider
+from worker.llm.prompting import DIRECT_OUTPUT_RULE, with_direct_output
 from worker.llm.style import StyleRandomizer
 
 __all__ = [
+    "DIRECT_OUTPUT_RULE",
     "DeepSeekProvider",
     "GeminiProvider",
     "LLMProvider",
@@ -14,4 +16,5 @@ __all__ = [
     "StyleRandomizer",
     "get_provider",
     "reset_cache",
+    "with_direct_output",
 ]

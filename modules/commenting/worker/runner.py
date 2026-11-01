@@ -59,7 +59,7 @@ def _skip_label(reason: str) -> str:
     return _SKIP_LABELS.get(reason, reason)
 from worker.client_pool import ClientPool
 from worker.health import Governor, around_telethon_call
-from worker.llm import Message, StyleRandomizer, get_provider
+from worker.llm import Message, StyleRandomizer, get_provider, with_direct_output
 
 get_logger = structlog.get_logger
 
@@ -174,20 +174,43 @@ def _build_system_prompt(session, campaign, account) -> str:
         if persona is not None:
             tags = ", ".join(persona.personality_tags or [])
             prompt = f"{prompt}\n\nТы — {persona.name}. Черты: {tags}."
+    # Сервисное правило: выдавать СРАЗУ готовый коммент, а не «вот варианты».
+    # Добавляем поверх пользовательского промпта кампании — он может быть
+    # свободным, но формат вывода всё равно обязан быть один готовый текст.
+    prompt = with_direct_output(prompt)
     # use_emojis=False: явно просим LLM не использовать эмодзи; ниже в
     # _generate ещё раз почистим safety net'ом (E4.1).
     prompt += delivery.emoji_prompt_suffix(campaign)
     return prompt
 
 
-def _thread_context(session, campaign_id: int, channel_msg_id: int) -> list[Message]:
+# Сколько символов текста поста отдаём модели как контекст (длинные посты режем).
+_POST_CONTEXT_LIMIT = 2000
+
+
+def _thread_context(
+    session, campaign_id: int, channel_msg_id: int, post_text: Optional[str] = None
+) -> list[Message]:
     logs = CommentLogRepository(session).list_by_campaign(campaign_id, limit=100)
     thread = [
         log for log in logs
         if log.post_channel_msg_id == channel_msg_id and log.status == CommentStatus.POSTED.value
     ]
     thread.sort(key=lambda log: log.id)
-    messages = [Message(role="user", content=f"Пост #{channel_msg_id}")]
+    # Главное: даём модели ТЕКСТ поста, а не его номер. Иначе ей не на что
+    # отвечать — и она сползает в ассистентский «вот несколько вариантов».
+    body = (post_text or "").strip()
+    if body:
+        head = (
+            "Вот пост в канале. Напиши к нему один живой комментарий от своего "
+            f"лица:\n\n{body[:_POST_CONTEXT_LIMIT]}"
+        )
+    else:
+        head = (
+            "Пост в канале без текста (фото/видео/вложение). Напиши один короткий "
+            "уместный комментарий по теме канала от своего лица."
+        )
+    messages = [Message(role="user", content=head)]
     messages += [Message(role="assistant", content=log.comment_text) for log in thread]
     return messages
 
@@ -402,6 +425,7 @@ async def on_new_post(
     in_reply_to: Optional[int] = None,
     thread_depth: int = 0,
     post_date_ts: Optional[float] = None,
+    post_text: Optional[str] = None,
 ) -> int:
     now = _now(ctx)
     rng = _rng(ctx)
@@ -441,7 +465,7 @@ async def on_new_post(
 
         plans = []
         for account in chosen:
-            context = _thread_context(session, campaign_id, channel_msg_id)
+            context = _thread_context(session, campaign_id, channel_msg_id, post_text)
             text, ok = await _generate(ctx, session, campaign, account, provider, context)
             if not ok:
                 _log_below_min_words(session, campaign, account.id, channel_msg_id, text, reply_target)
@@ -667,6 +691,7 @@ async def on_channel_post(
     in_reply_to: Optional[int] = None,
     thread_depth: int = 0,
     post_date_ts: Optional[float] = None,
+    post_text: Optional[str] = None,
 ) -> int:
     """Пост в канале аккаунта → запланировать ОДИН коммент этим аккаунтом."""
     now = _now(ctx)
@@ -728,7 +753,7 @@ async def on_channel_post(
               {"account_id": account_id, "channel_msg_id": channel_msg_id})
         reply_target = in_reply_to if in_reply_to is not None else channel_msg_id
         provider = ctx.get("llm_provider") or get_provider(campaign.llm_provider)
-        context = _thread_context(session, campaign_id, channel_msg_id)
+        context = _thread_context(session, campaign_id, channel_msg_id, post_text)
         try:
             # Жёсткий потолок на генерацию: даже если у провайдера нет своего
             # таймаута, «Генерирую…» не зависает навсегда. Ошибку показываем.

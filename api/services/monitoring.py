@@ -24,6 +24,7 @@ from core.models import (
     CampaignAccount,
     CommentLog,
     HealthEvent,
+    MonitoredChannel,
     ShillingCampaign,
     ShillingExecutionLog,
     WarmingActivity,
@@ -278,20 +279,52 @@ def _recent_activity(session: Session) -> list[dict[str, Any]]:
         ).all():
             labels[aid] = (phone, display_name)
 
-    return [
-        {
-            "type": e["type"],
-            "account_id": e["account_id"],
-            "phone": labels.get(e["account_id"], (None, None))[0],
-            "display_name": labels.get(e["account_id"], (None, None))[1],
-            "action_type": e["action_type"],
-            "summary": e["summary"],
-            "detail": e["detail"],
-            "status": e["status"],
-            "timestamp": e["ts"].isoformat() if e["ts"] else None,
-        }
-        for e in events
-    ]
+    # Канал для событий-комментариев: в аккаунт-центричной модели аккаунт
+    # привязан к своему каналу (monitored_channels.account_id). Показываем его
+    # имя в ленте — иначе видно только «комментарий (posted)» без того, КУДА он
+    # ушёл. Берём стабильно первый канал аккаунта (по id), одним запросом.
+    comment_acc_ids = {
+        e["account_id"] for e in events
+        if e["type"] == "comment" and e["account_id"] is not None
+    }
+    channel_by_acc: dict[int, str] = {}
+    if comment_acc_ids:
+        for acc_id, title, ref in session.execute(
+            select(
+                MonitoredChannel.account_id,
+                MonitoredChannel.title,
+                MonitoredChannel.channel_ref,
+            )
+            .where(MonitoredChannel.account_id.in_(comment_acc_ids))
+            .order_by(MonitoredChannel.account_id, MonitoredChannel.id)
+        ).all():
+            if acc_id in channel_by_acc:
+                continue
+            name = (title or ref or "").strip()
+            if name:
+                channel_by_acc[acc_id] = name
+
+    result: list[dict[str, Any]] = []
+    for e in events:
+        channel = channel_by_acc.get(e["account_id"]) if e["type"] == "comment" else None
+        detail = e["detail"]
+        if channel:
+            detail = f"{detail} → {channel}"
+        result.append(
+            {
+                "type": e["type"],
+                "account_id": e["account_id"],
+                "phone": labels.get(e["account_id"], (None, None))[0],
+                "display_name": labels.get(e["account_id"], (None, None))[1],
+                "action_type": e["action_type"],
+                "summary": e["summary"],
+                "detail": detail,
+                "channel": channel,
+                "status": e["status"],
+                "timestamp": e["ts"].isoformat() if e["ts"] else None,
+            }
+        )
+    return result
 
 
 def build_dashboard(session: Session, severity: Optional[str] = None) -> dict[str, Any]:

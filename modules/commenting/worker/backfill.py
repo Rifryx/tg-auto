@@ -176,6 +176,7 @@ async def backfill_channel(ctx: dict, account_id: int, monitored_channel_id: int
                     monitored_channel_id,
                     msg.id,
                     post_date_ts=date.timestamp() if date is not None else None,
+                    **({"post_text": text} if text else {}),
                 )
                 scheduled += 1
                 planned_now += 1
