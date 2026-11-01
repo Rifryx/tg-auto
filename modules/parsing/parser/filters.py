@@ -211,6 +211,17 @@ def apply_filters(
     return outcome
 
 
+def inline_drop_reason(row: dict, *, options: FilterOptions) -> Optional[str]:
+    """Причина отсева по «дешёвым» признакам, доступным во время сбора.
+
+    Это те же фильтры, что и :func:`_first_drop_reason`, но БЕЗ похода в БД
+    (blacklist) и без ``last_seen`` (из сообщений он неизвестен). Нужна, чтобы
+    во время сбора считать к лимиту только тех, кто реально попадёт в список —
+    иначе сбор обрывается рано и «добавлено» выходит сильно меньше запроса.
+    """
+    return _first_drop_reason(row, options=options, blacklist_repo=None)
+
+
 def _first_drop_reason(
     row: dict,
     *,
