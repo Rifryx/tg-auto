@@ -43,6 +43,19 @@ from telethon.errors import (
 
 from modules.commenting.worker import delivery, limits
 from modules.commenting.worker.alerts import auto_blacklist, raise_alert
+from modules.commenting.worker.timeline import TimelineKind
+
+
+_SKIP_LABELS = {
+    "max_comments_reached": "достигнут лимит комментариев кампании",
+    "daily_limit_reached": "достигнут дневной лимит аккаунта",
+    "outside_post_window": "пост старше окна «комментировать после публикации»",
+    "paused": "пауза между комментариями",
+}
+
+
+def _skip_label(reason: str) -> str:
+    return _SKIP_LABELS.get(reason, reason)
 from worker.client_pool import ClientPool
 from worker.health import Governor, around_telethon_call
 from worker.llm import Message, StyleRandomizer, get_provider
@@ -86,6 +99,18 @@ def _governor(ctx: dict) -> Governor:
 
 def _style(ctx: dict) -> StyleRandomizer:
     return ctx.get("style_randomizer") or StyleRandomizer(_rng(ctx))
+
+
+def _push(ctx: dict, campaign_id: Optional[int], kind, message: str, meta: Optional[dict] = None) -> None:
+    """Событие в live-таймлайн кампании (этап публикации коммента был «слепым»).
+
+    Берём СИНХРОННЫЙ redis (ctx['redis_sync']) — как в registry; с async arq-
+    клиентом push_event молча ничего не пишет. В тестах ключа нет → no-op."""
+    if campaign_id is None:
+        return
+    from modules.commenting.worker.timeline import push_event
+
+    push_event(ctx.get("redis_sync"), campaign_id, kind, message, meta or {})
 
 
 # --- helpers -----------------------------------------------------------------
@@ -608,23 +633,36 @@ async def on_channel_post(
         if campaign is None or not campaign.enabled:
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="no_campaign")
             return 0
+        ch = MonitoredChannelRepository(session).get(monitored_channel_id)
+        ch_name = (ch.title or ch.channel_ref or ch.input_ref) if ch else "?"
         if not is_within_active_hours(now, campaign):
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="inactive_hours")
+            _push(ctx, campaign_id, TimelineKind.COMMENT_SKIPPED,
+                  f"Пост #{channel_msg_id} в «{ch_name}»: пропуск — вне активных часов кампании.",
+                  {"reason": "inactive_hours", "account_id": account_id})
             return 0
         reason = _limit_skip_reason(session, campaign, post_date_ts, now)
         if reason:
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason=reason)
+            _push(ctx, campaign_id, TimelineKind.COMMENT_SKIPPED,
+                  f"Пост #{channel_msg_id} в «{ch_name}»: пропуск — {_skip_label(reason)}.",
+                  {"reason": reason, "account_id": account_id})
             return 0
 
-        ch = MonitoredChannelRepository(session).get(monitored_channel_id)
         if ch is None or ch.status != "working" or ch.discussion_group_id is None:
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="channel_not_working")
             return 0
         discussion_group_id = ch.discussion_group_id
         if _blacklisted(session, campaign_id, chat_id=ch.channel_tg_id, ref=ch.channel_ref):
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="blacklisted")
+            _push(ctx, campaign_id, TimelineKind.COMMENT_SKIPPED,
+                  f"Пост #{channel_msg_id} в «{ch_name}»: пропуск — канал в чёрном списке.",
+                  {"reason": "blacklisted", "account_id": account_id})
             return 0
 
+        _push(ctx, campaign_id, TimelineKind.GENERATION_STARTED,
+              f"Генерирую ответ на пост #{channel_msg_id} в «{ch_name}» (акк. #{account_id})…",
+              {"account_id": account_id, "channel_msg_id": channel_msg_id})
         reply_target = in_reply_to if in_reply_to is not None else channel_msg_id
         provider = ctx.get("llm_provider") or get_provider(campaign.llm_provider)
         context = _thread_context(session, campaign_id, channel_msg_id)
@@ -632,6 +670,10 @@ async def on_channel_post(
         if not ok:
             _log_below_min_words(session, campaign, account_id, channel_msg_id, text, reply_target)
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="below_min_words")
+            _push(ctx, campaign_id, TimelineKind.COMMENT_SKIPPED,
+                  f"Пост #{channel_msg_id} в «{ch_name}»: ответ короче минимума "
+                  f"({campaign.min_words} слов) — пропуск.",
+                  {"reason": "below_min_words", "account_id": account_id})
             return 0
         delay = rng.uniform(campaign.posting_delay_min_sec, campaign.posting_delay_max_sec)
 
@@ -652,6 +694,11 @@ async def on_channel_post(
         "commenting.on_channel_post.scheduled",
         account_id=account_id, channel_msg_id=channel_msg_id, thread_depth=thread_depth,
     )
+    eta = run_at.astimezone().strftime("%H:%M:%S")
+    _push(ctx, campaign_id, TimelineKind.COMMENT_SCHEDULED,
+          f"Ответ на пост #{channel_msg_id} в «{ch_name}» готов — опубликую через "
+          f"{int(delay)}с (~{eta}).",
+          {"account_id": account_id, "channel_msg_id": channel_msg_id, "delay_sec": int(delay)})
     return 1
 
 
@@ -728,6 +775,7 @@ async def post_channel_comment(
         mon_ref = mon.input_ref if mon else None
         mon_username = mon.channel_ref if mon else None
         mon_tg_id = mon.channel_tg_id if mon else None
+        mon_name = (mon.title or mon.channel_ref or mon.input_ref) if mon else "?"
 
     # Кампания нужна для delivery.deliver_comment: use_stickers / attach_image /
     # write_as_channel читаются оттуда. Берём свежую (могли поменять флаги за
@@ -749,12 +797,23 @@ async def post_channel_comment(
             rng=_rng(ctx),
         )
     except ACCESS_ERRORS as exc:
+        _push(ctx, campaign_id, TimelineKind.COMMENT_FAILED,
+              f"Ошибка публикации в «{mon_name}»: нет доступа ({type(exc).__name__}). "
+              "Канал мог снять обсуждения/забанить аккаунт.",
+              {"account_id": account_id, "error": type(exc).__name__})
         await _handle_access_error(
             ctx, exc, campaign_id=campaign_id, account_id=account_id,
             channel_msg_id=channel_msg_id, text=text, reply_to=in_reply_to_message_id,
             channel_ref=mon_ref, channel_tg_id=mon_tg_id, monitored_channel_id=mon_id,
             blacklist_username=mon_username,
         )
+        return None
+    except Exception as exc:  # noqa: BLE001 — любую иную ошибку тоже показываем
+        _push(ctx, campaign_id, TimelineKind.COMMENT_FAILED,
+              f"Ошибка публикации в «{mon_name}»: {type(exc).__name__}: {exc}",
+              {"account_id": account_id, "error": repr(exc)[:200]})
+        log.warning("commenting.post_channel_comment.failed",
+                    account_id=account_id, error=repr(exc))
         return None
     finally:
         await pool.release(account_id)
@@ -784,6 +843,10 @@ async def post_channel_comment(
         "commenting.post_channel_comment.posted",
         account_id=account_id, posted_message_id=posted_message_id, thread_depth=thread_depth,
     )
+    _push(ctx, campaign_id, TimelineKind.COMMENT_POSTED,
+          f"Коммент опубликован в «{mon_name}» (акк. #{account_id}) ✓",
+          {"account_id": account_id, "posted_message_id": posted_message_id,
+           "channel_msg_id": channel_msg_id})
     await maybe_continue_channel_thread(
         ctx, account_id, channel_msg_id, posted_message_id, thread_depth, post_date_ts
     )

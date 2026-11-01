@@ -127,6 +127,7 @@ async def _ensure_joined_discussion(
     channel_tg_id: Optional[int],
     discussion_group_id: int,
     channel_ref: Optional[str],
+    channel_title: Optional[str] = None,
     source_campaign_id: Optional[int],
     redis: Any,
 ) -> None:
@@ -176,7 +177,7 @@ async def _ensure_joined_discussion(
         if source_campaign_id is not None:
             push_event(
                 redis, source_campaign_id, TimelineKind.LISTENER_OFFLINE,
-                f"Не удалось вступить в группу обсуждений канала «{channel_ref or ''}» "
+                f"Не удалось вступить в группу обсуждений канала «{channel_title or channel_ref or ''}» "
                 f"аккаунтом #{account_id} — посты могут не ловиться. "
                 f"({type(exc).__name__})",
                 meta={
@@ -573,6 +574,7 @@ class ChannelListenerRegistry:
                     return False
                 source_campaign_id = ch.source_campaign_id
                 channel_ref = ch.channel_ref or ch.input_ref
+                channel_title = ch.title
                 if ch.status != "working":
                     get_logger().info(
                         "commenting.channel_listener.attach.skip",
@@ -582,7 +584,7 @@ class ChannelListenerRegistry:
                     if source_campaign_id is not None:
                         push_event(
                             redis, source_campaign_id, TimelineKind.LISTENER_OFFLINE,
-                            f"Канал «{channel_ref}» не в работе (status={ch.status}). "
+                            f"Канал «{ch.title or channel_ref}» не в работе (status={ch.status}). "
                             f"Проверьте что аккаунт подписан и канал резолвится.",
                             meta={
                                 "reason": "not_working",
@@ -601,7 +603,7 @@ class ChannelListenerRegistry:
                     if source_campaign_id is not None:
                         push_event(
                             redis, source_campaign_id, TimelineKind.LISTENER_OFFLINE,
-                            f"У канала «{channel_ref}» нет группы обсуждений. "
+                            f"У канала «{ch.title or channel_ref}» нет группы обсуждений. "
                             "Включите Discussion group в самом Telegram-канале.",
                             meta={
                                 "reason": "no_discussion_group",
@@ -627,6 +629,7 @@ class ChannelListenerRegistry:
                 channel_tg_id=channel_tg_id,
                 discussion_group_id=discussion_group_id,
                 channel_ref=channel_ref,
+                channel_title=channel_title,
                 source_campaign_id=source_campaign_id,
                 redis=redis,
             )
@@ -637,6 +640,7 @@ class ChannelListenerRegistry:
                 redis=redis,
                 source_campaign_id=source_campaign_id,
                 channel_ref=channel_ref,
+                channel_title=channel_title,
             )
             event = events.NewMessage(chats=discussion_group_id)
             entry.client.add_event_handler(handler, event)
@@ -650,7 +654,7 @@ class ChannelListenerRegistry:
             if source_campaign_id is not None:
                 push_event(
                     redis, source_campaign_id, TimelineKind.LISTENER_ONLINE,
-                    f"Слушатель канала «{channel_ref}» подключён (аккаунт #{account_id})",
+                    f"Слушатель канала «{channel_title or channel_ref}» подключён (аккаунт #{account_id})",
                     meta={
                         "channel_id": channel_id,
                         "account_id": account_id,

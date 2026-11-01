@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, Plus, Settings2, X } from "lucide-react";
+import { ArrowLeft, Ban, Check, Plus, Settings2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AccountAvatar } from "../../shared/AccountAvatar";
@@ -632,7 +632,14 @@ function CampaignBlacklistSection({ campaignId }: { campaignId: number }) {
 
   return (
     <Section title="Чёрный список каналов">
-      <div className="card p-4">
+      {/* Выделяем характерно: красный акцент + иконка-бан, чтобы блок явно
+          читался как «стоп-лист», а не ещё один список каналов. */}
+      <div className="relative overflow-hidden rounded-card border border-status-critical/40 bg-status-critical/5 p-4">
+        <span className="absolute inset-y-0 left-0 w-[3px] bg-status-critical" aria-hidden />
+        <div className="mb-3 flex items-start gap-2 text-[12px] text-status-critical">
+          <Ban className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+          <span>Посты этих каналов кампания игнорирует — комментарии туда не идут.</span>
+        </div>
         <div className="mb-3 flex gap-2">
           <TextInput
             value={value}
