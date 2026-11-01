@@ -20,6 +20,7 @@ import { BackHeader } from "./PersonasScreen";
 // (см. generate_and_apply_profile) — пользователь не заносит их вручную.
 const KINDS: { value: ProfileAssetKind; label: string }[] = [
   { value: "avatar", label: "Аватары" },
+  { value: "first_name", label: "Имена" },
   { value: "bio", label: "BIO" },
 ];
 
