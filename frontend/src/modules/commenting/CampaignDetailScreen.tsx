@@ -16,6 +16,7 @@ import { AccountPickerSheet } from "./components/AccountPickerSheet";
 import { AddGroupBar } from "./components/AddGroupBar";
 import { AiProtectionCard } from "./components/AiProtectionCard";
 import { CampaignMediaSection } from "./components/CampaignMediaSection";
+import { CommentingRulesSection } from "./components/CommentingRulesSection";
 import { CommentLogList } from "./components/CommentLogList";
 import { DiagnosticSection } from "./components/DiagnosticSection";
 import { TimelineSection } from "./components/TimelineSection";
@@ -242,6 +243,9 @@ export function CampaignDetailScreen() {
           )}
         </div>
       </Section>
+
+      {/* Условия комментирования — видны и редактируются прямо в кампании. */}
+      <CommentingRulesSection campaign={c} onSave={(b) => save.mutate(b)} />
 
       {/* Аккаунты */}
       <Section
