@@ -215,7 +215,7 @@ export function AccountsListScreen() {
       )}
 
       {selectMode && (
-        <BulkActionBar selectedIds={[...selected]} onClear={exitSelect} />
+        <BulkActionBar selectedIds={[...selected]} accounts={byStatus} onClear={exitSelect} />
       )}
 
       {data && data.length === 0 && (

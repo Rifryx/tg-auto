@@ -16,6 +16,7 @@ import { accountsApi, bulkApi } from "../../../shared/accounts";
 import { watchChecks } from "../../../shared/checkWatch";
 import { haptic } from "../../../shared/tg";
 import { showToast } from "../../../shared/toast";
+import type { Account } from "../../../shared/types";
 import { AiProfileSheet } from "./AiProfileSheet";
 import { BulkJobsSheet } from "./BulkJobsSheet";
 import { PoolProfileSheet } from "./PoolProfileSheet";
@@ -29,9 +30,13 @@ import { ConfirmDialog } from "./ui";
  * удаление — синхронные per-account вызовы (цикл), с подтверждением. */
 export function BulkActionBar({
   selectedIds,
+  accounts,
   onClear,
 }: {
   selectedIds: number[];
+  /** Полные объекты выбранных аккаунтов (есть не всегда — но нужны для
+   *  предупреждения о Premium в StoriesSheet). */
+  accounts?: Account[];
   onClear: () => void;
 }) {
   const qc = useQueryClient();
@@ -301,6 +306,12 @@ export function BulkActionBar({
       {storiesOpen && (
         <StoriesSheet
           count={n}
+          // Stories работают только с Telegram Premium — считаем заранее,
+          // сколько из выбранных НЕ premium, чтобы предупредить ДО публикации
+          // (иначе эти аккаунты просто молча пропускаются с ошибкой в логах).
+          nonPremiumCount={
+            accounts?.filter((a) => selectedIds.includes(a.id) && a.is_premium !== true).length
+          }
           busy={busy}
           onApply={runStories}
           onCancel={() => setStoriesOpen(false)}

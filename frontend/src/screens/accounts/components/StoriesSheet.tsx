@@ -1,4 +1,4 @@
-import { ImagePlus, X } from "lucide-react";
+import { ImagePlus, TriangleAlert, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { mediaApi } from "../../../shared/accounts";
 import { apiBlob } from "../../../shared/api";
@@ -27,11 +27,16 @@ const PERIOD = [
  * выбранного аккаунта (каждый льёт медиа своим клиентом/прокси). */
 export function StoriesSheet({
   count,
+  nonPremiumCount,
   busy,
   onApply,
   onCancel,
 }: {
   count: number;
+  /** Сколько из выбранных аккаунтов без Telegram Premium (или неизвестно).
+   *  Stories публикует только Premium — предупреждаем ДО отправки, а не
+   *  после молчаливого пропуска. */
+  nonPremiumCount?: number;
   busy: boolean;
   onApply: (payload: Record<string, unknown>) => void;
   onCancel: () => void;
@@ -98,6 +103,16 @@ export function StoriesSheet({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 [scrollbar-width:thin]">
+          {!!nonPremiumCount && (
+            <div className="mb-4 flex items-start gap-2 rounded-chip border border-status-warning/40 bg-status-warning/10 px-3 py-2.5 text-[12px] text-status-warning">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+              <span>
+                Stories доступны только с Telegram Premium. {nonPremiumCount} из {count}{" "}
+                выбранных — без Premium (или ещё не проверено) — для них публикация будет
+                пропущена.
+              </span>
+            </div>
+          )}
           <input
             ref={fileRef}
             type="file"
