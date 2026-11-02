@@ -1,4 +1,4 @@
-import { Briefcase, Check, ChevronRight } from "lucide-react";
+import { Briefcase, Check, ChevronRight, Star } from "lucide-react";
 import { Link } from "react-router-dom";
 import { accountDisplay, ageFrom, countdown, timeAgo } from "../../../shared/format";
 import {
@@ -96,6 +96,13 @@ export function AccountRow({
       <div className="min-w-0 flex-1">
         <p className="truncate text-[15px] font-semibold text-text-primary nums">
           {accountDisplay(account)}
+          {account.is_premium && (
+            <Star
+              className="ml-1 inline h-3.5 w-3.5 -translate-y-px fill-status-warning text-status-warning"
+              strokeWidth={2}
+              aria-label="Telegram Premium"
+            />
+          )}
         </p>
         <p className="truncate text-[13px] text-text-secondary">
           {subtitle}

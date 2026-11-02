@@ -50,6 +50,7 @@ async def sync_profile_impl(ctx: dict, account_id: int) -> dict[str, Any]:
     avatar_url: Optional[str] = None
     has_avatar = False
     has_2fa: Optional[bool] = None
+    is_premium: Optional[bool] = None
 
     client = await pool.get(account_id)
     try:
@@ -59,6 +60,7 @@ async def sync_profile_impl(ctx: dict, account_id: int) -> dict[str, Any]:
         last_name = getattr(me, "last_name", None)
         username = getattr(me, "username", None)
         has_avatar = getattr(me, "photo", None) is not None
+        is_premium = bool(getattr(me, "premium", False))
 
         # bio — из full-user (get_entity('me').about).
         try:
@@ -94,6 +96,7 @@ async def sync_profile_impl(ctx: dict, account_id: int) -> dict[str, Any]:
             "last_name": last_name,
             "username": username,
             "bio": bio,
+            "is_premium": is_premium,
         }
         # avatar_url выставляем только если реально получили — чтобы не затирать
         # вручную поставленный аватар при неудачной загрузке.
