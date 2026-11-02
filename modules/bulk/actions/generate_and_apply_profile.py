@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import base64
+import random
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
@@ -21,6 +23,7 @@ from pydantic import BaseModel, ConfigDict
 from core.enums import BulkActionType
 from core.repositories.account import AccountRepository
 from core.repositories.persona import PersonaRepository
+from core.repositories.profile_asset import ProfileAssetRepository
 from core.schemas.account import AccountUpdate
 from modules.bulk.actions.registry import BulkAction, BulkActionResult, register
 from modules.profiles.generator import (
@@ -29,7 +32,7 @@ from modules.profiles.generator import (
     default_generator,
     username_variants,
 )
-from worker.profiles.apply import apply_profile_to_telegram
+from worker.profiles.apply import apply_profile_to_telegram, upload_avatar
 
 
 class GenerateAndApplyPayload(BaseModel):
@@ -43,6 +46,11 @@ class GenerateAndApplyPayload(BaseModel):
     # Свободное описание желаемого оформления от пользователя. Если задано — ИИ
     # генерит ПО ПРОМПТУ (персона не обязательна); иначе — из персоны аккаунта.
     prompt: Optional[str] = None
+    # Аватар из пула оформления: ИИ не рисует картинки — берём случайный аватар
+    # из загруженного пула (по тегам, если заданы). Пустой пул → просто без
+    # аватара (bio/username всё равно применятся).
+    avatar_from_pool: bool = False
+    avatar_tags: Optional[list[str]] = None
 
 
 async def _run(
@@ -90,6 +98,18 @@ async def _run(
         )
     bio = generated.bio if payload.apply_bio else None
 
+    # Аватар из пула (ИИ картинки не рисует): берём случайный из загруженных.
+    avatar_binary = None
+    avatar_asset_id = None
+    if payload.avatar_from_pool:
+        with session_factory() as session:
+            asset = ProfileAssetRepository(session).pick_random(
+                kind="avatar", tags_any=payload.avatar_tags or None, rng=random.Random()
+            )
+            if asset is not None:
+                avatar_binary = asset.binary
+                avatar_asset_id = asset.id
+
     result = await apply_profile_to_telegram(
         client,
         account_id=account_id,
@@ -101,6 +121,16 @@ async def _run(
         username_candidates=username_candidates,
     )
 
+    avatar_result = None
+    if avatar_binary is not None:
+        avatar_result = await upload_avatar(
+            client,
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+            binary=avatar_binary,
+        )
+
     with session_factory() as session:
         updates: dict[str, object] = {}
         if result.updated_names:
@@ -111,17 +141,27 @@ async def _run(
             updates["bio"] = bio
         if result.applied_username is not None:
             updates["username"] = result.applied_username
+        # Аватар сразу в avatar_url (data-URL), чтобы карточка обновилась
+        # мгновенно — но только если загрузка реально прошла.
+        if avatar_result and avatar_result.get("ok") and avatar_binary is not None:
+            mime = "image/png" if avatar_binary[:8].startswith(b"\x89PNG") else "image/jpeg"
+            updates["avatar_url"] = (
+                f"data:{mime};base64," + base64.b64encode(avatar_binary).decode()
+            )
         if updates:
             AccountRepository(session).update(account_id, AccountUpdate(**updates))
             session.commit()
 
-    return BulkActionResult(
-        ok=True,
-        detail={
-            "generated": generated.as_dict(),
-            "applied": result.as_dict(),
-        },
-    )
+    detail: dict[str, object] = {
+        "generated": generated.as_dict(),
+        "applied": result.as_dict(),
+    }
+    if payload.avatar_from_pool:
+        detail["avatar_from_pool"] = {
+            "asset_id": avatar_asset_id,
+            "applied": bool(avatar_result and avatar_result.get("ok")),
+        }
+    return BulkActionResult(ok=True, detail=detail)
 
 
 register(

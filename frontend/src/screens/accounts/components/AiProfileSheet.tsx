@@ -20,11 +20,13 @@ export function AiProfileSheet({
   const [prompt, setPrompt] = useState("");
   const [applyBio, setApplyBio] = useState(true);
   const [applyUsername, setApplyUsername] = useState(true);
+  const [avatarFromPool, setAvatarFromPool] = useState(false);
 
   const build = (): Record<string, unknown> => {
     const p: Record<string, unknown> = {
       apply_bio: applyBio,
       apply_username: applyUsername,
+      avatar_from_pool: avatarFromPool,
     };
     const trimmed = prompt.trim();
     if (trimmed) p.prompt = trimmed;
@@ -76,6 +78,20 @@ export function AiProfileSheet({
               type="checkbox"
               checked={applyUsername}
               onChange={(e) => setApplyUsername(e.target.checked)}
+              className="h-4 w-4 accent-[var(--accent)]"
+            />
+          </label>
+          <label className="flex items-center justify-between">
+            <span className="min-w-0 flex-1 pr-3 text-[14px] text-text-secondary">
+              Аватар из пула
+              <span className="block text-[11px] text-text-tertiary">
+                ИИ картинки не рисует — берём случайный из загруженного пула аватаров.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={avatarFromPool}
+              onChange={(e) => setAvatarFromPool(e.target.checked)}
               className="h-4 w-4 accent-[var(--accent)]"
             />
           </label>
