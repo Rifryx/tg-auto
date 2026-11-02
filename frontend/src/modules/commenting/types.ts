@@ -50,6 +50,7 @@ export interface Campaign {
   write_as_channel: boolean;
   verify_after_post: boolean;
   verify_delay_sec: number;
+  thread_simulation_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -169,6 +170,7 @@ export interface CampaignCreateBody {
   write_as_channel?: boolean;
   verify_after_post?: boolean;
   verify_delay_sec?: number;
+  thread_simulation_enabled?: boolean;
 }
 
 export interface CampaignChannel {

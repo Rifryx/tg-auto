@@ -60,6 +60,7 @@ class CampaignCreate(BaseModel):
     write_as_channel: bool = False
     verify_after_post: bool = False
     verify_delay_sec: int = Field(default=300, gt=0)
+    thread_simulation_enabled: bool = True
 
 
 class CampaignUpdate(BaseModel):
@@ -103,6 +104,7 @@ class CampaignUpdate(BaseModel):
     write_as_channel: Optional[bool] = None
     verify_after_post: Optional[bool] = None
     verify_delay_sec: Optional[int] = Field(default=None, gt=0)
+    thread_simulation_enabled: Optional[bool] = None
 
 
 class CampaignRead(ORMModel):
@@ -147,5 +149,6 @@ class CampaignRead(ORMModel):
     write_as_channel: bool
     verify_after_post: bool
     verify_delay_sec: int
+    thread_simulation_enabled: bool
     created_at: datetime
     updated_at: datetime

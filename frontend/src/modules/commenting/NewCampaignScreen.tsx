@@ -132,6 +132,7 @@ export function NewCampaignScreen() {
   const [writeAsChannel, setWriteAsChannel] = useState(false);
   const [verifyAfterPost, setVerifyAfterPost] = useState(false);
   const [verifyDelaySec, setVerifyDelaySec] = useState(300);
+  const [threadSimulationEnabled, setThreadSimulationEnabled] = useState(true);
 
   // Показываем аккаунты в ЛЮБОМ статусе — «не идеальные» помечаем. Для
   // «добавить всю группу» дальше берём только свободных (pool).
@@ -221,6 +222,7 @@ export function NewCampaignScreen() {
         write_as_channel: writeAsChannel,
         verify_after_post: verifyAfterPost,
         verify_delay_sec: verifyDelaySec,
+        thread_simulation_enabled: threadSimulationEnabled,
         enabled: true,
       });
       if (
@@ -417,6 +419,12 @@ export function NewCampaignScreen() {
               />
             </Field>
           )}
+          <ToggleRow
+            label="Тред-симуляция"
+            hint="С вероятностью ~35% аккаунт после своего коммента отвечает сам себе ещё раз — имитация живого мини-треда. Выключено — только один коммент на пост."
+            checked={threadSimulationEnabled}
+            onChange={setThreadSimulationEnabled}
+          />
         </div>
       </Section>
 
