@@ -256,6 +256,37 @@ async def test_maintenance_scheduler_enqueues_due_by_preset(session):
     assert set(result) == expected_due
 
 
+async def test_maintenance_scheduler_also_covers_warming_status(session):
+    """Баг-фикс: аккаунты в статусе warming (не только pool) тоже должны
+    получать периодические тики — иначе застревают навсегда после стартовой
+    пачки (initial_start ставит всего 2–10 тиков, до WARMING_READY_ACTIONS=50
+    не дотягивает, а 14-дневный age_ok без тиков никогда не проверится)."""
+    _clean(session)
+    now = NOW_INSIDE
+    warming_due = _make_account(session, status="warming", profile=WarmingProfile.MEDIUM)
+    session.add(
+        WarmingActivity(
+            account_id=warming_due, kind="initial", action_type="idle_online",
+            status="done", created_at=now - timedelta(hours=25),  # >20ч MEDIUM
+        )
+    )
+    warming_not_due = _make_account(session, status="warming", profile=WarmingProfile.MEDIUM)
+    session.add(
+        WarmingActivity(
+            account_id=warming_not_due, kind="initial", action_type="idle_online",
+            status="done", created_at=now - timedelta(hours=5),  # <20ч
+        )
+    )
+    session.commit()
+
+    spy = _SpyTaskQueue()
+    ctx = _ctx(session, now=now, task_queue=spy)
+    result = await maintenance_scheduler_impl(ctx)
+
+    assert warming_due in result
+    assert warming_not_due not in result
+
+
 # --- 3. tick вне окна активности пропускается --------------------------------
 
 
