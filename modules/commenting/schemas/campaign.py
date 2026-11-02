@@ -43,6 +43,9 @@ class CampaignCreate(BaseModel):
     work_mode: WorkMode = "by_count"
     max_comments: Optional[int] = Field(default=None, gt=0)
     min_words: int = Field(default=0, ge=0)
+    max_words: Optional[int] = Field(default=None, gt=0)
+    existing_scope_max_posts: int = Field(default=200, gt=0)
+    existing_scope_max_age_days: Optional[int] = Field(default=None, gt=0)
     window_after_post_sec: Optional[int] = Field(default=None, gt=0)
     pause_between_sec: Optional[int] = Field(default=None, ge=0)
     channel_source_mode: ChannelSourceMode = "explicit_links"
@@ -83,6 +86,9 @@ class CampaignUpdate(BaseModel):
     work_mode: Optional[WorkMode] = None
     max_comments: Optional[int] = Field(default=None, gt=0)
     min_words: Optional[int] = Field(default=None, ge=0)
+    max_words: Optional[int] = Field(default=None, gt=0)
+    existing_scope_max_posts: Optional[int] = Field(default=None, gt=0)
+    existing_scope_max_age_days: Optional[int] = Field(default=None, gt=0)
     window_after_post_sec: Optional[int] = Field(default=None, gt=0)
     pause_between_sec: Optional[int] = Field(default=None, ge=0)
     channel_source_mode: Optional[ChannelSourceMode] = None
@@ -123,6 +129,9 @@ class CampaignRead(ORMModel):
     work_mode: WorkMode
     max_comments: Optional[int]
     min_words: int
+    max_words: Optional[int]
+    existing_scope_max_posts: int
+    existing_scope_max_age_days: Optional[int]
     window_after_post_sec: Optional[int]
     pause_between_sec: Optional[int]
     channel_source_mode: ChannelSourceMode

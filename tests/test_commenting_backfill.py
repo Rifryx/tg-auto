@@ -126,9 +126,13 @@ async def test_backfill_schedules_for_matching_posts(session):
     n = await backfill.backfill_channel(_mk_ctx(session, client, task_queue=spy), account_id, row_id)
 
     assert n == 2
-    assert [e[0] for e in spy.enqueued] == [TaskName.COMMENTING_ON_CHANNEL_POST] * 2
+    # Бэкфилл теперь РАЗНОСИТ задачи во времени через schedule(run_at, …).
+    assert [e[0] for e in spy.scheduled] == [TaskName.COMMENTING_ON_CHANNEL_POST] * 2
     # Дата поста едет дальше — окно after_post_sec посчитается от неё.
-    assert all(e[2]["post_date_ts"] is not None for e in spy.enqueued)
+    assert all(e[3]["post_date_ts"] is not None for e in spy.scheduled)
+    # Времена публикаций идут по возрастанию (разнесены, не «в одну секунду»).
+    run_ats = [e[1] for e in spy.scheduled]
+    assert run_ats == sorted(run_ats) and run_ats[0] < run_ats[1]
     # После полного вычитывания второй итерации быть не должно — постов больше нет.
     assert len(client.iter_calls) == 1
 
@@ -162,7 +166,7 @@ async def test_backfill_deduplicates_with_comment_log(session):
     spy = _SpyTaskQueue()
     n = await backfill.backfill_channel(_mk_ctx(session, _HistoryClient(posts), task_queue=spy), account_id, row_id)
     assert n == 1
-    assert spy.enqueued[0][1][2] == 101  # только 101 запланирован
+    assert spy.scheduled[0][2][2] == 101  # только 101 запланирован
 
 
 async def test_backfill_applies_keywords_filter(session):
@@ -179,7 +183,52 @@ async def test_backfill_applies_keywords_filter(session):
     spy = _SpyTaskQueue()
     n = await backfill.backfill_channel(_mk_ctx(session, _HistoryClient(posts), task_queue=spy), account_id, row_id)
     assert n == 1
-    assert spy.enqueued[0][1][2] == 3
+    assert spy.scheduled[0][2][2] == 3
+
+
+async def test_backfill_respects_remaining_quota(session):
+    """Лимит кампании почти выбран → бэкфилл ставит только остаток, не сотни."""
+    _clean(session)
+    campaign_id = _make_campaign(session)
+    _set(session, campaign_id, post_scope="existing", max_comments=3)
+    account_id = _make_account(session, status="assigned", campaign_id=campaign_id)
+    row_id = _working_row(session, account_id, campaign_id)
+    # Уже 2 опубликованных → осталось 1.
+    for mid in (900, 901):
+        CommentLogRepository(session).create(
+            CommentLogCreate(
+                campaign_id=campaign_id, account_id=account_id, post_channel_msg_id=mid,
+                comment_text="x", status=CommentStatus.POSTED, posted_message_id=mid,
+            )
+        )
+    session.commit()
+    posts = [(i, f"пост {i}", NOW - timedelta(minutes=i)) for i in range(10)]
+    spy = _SpyTaskQueue()
+    n = await backfill.backfill_channel(
+        _mk_ctx(session, _HistoryClient(posts), task_queue=spy), account_id, row_id
+    )
+    assert n == 1  # остаток квоты, а не все 10
+
+
+async def test_backfill_stops_at_age_limit(session):
+    """Глубина по дате: старые посты не комментируем (и дальше не читаем)."""
+    _clean(session)
+    campaign_id = _make_campaign(session)
+    _set(session, campaign_id, post_scope="existing", existing_scope_max_age_days=7)
+    account_id = _make_account(session, status="assigned", campaign_id=campaign_id)
+    row_id = _working_row(session, account_id, campaign_id)
+    # Два свежих, затем старый (30 дней) — на нём обрываемся.
+    posts = [
+        (3, "свежий", NOW - timedelta(days=1)),
+        (2, "ещё свежий", NOW - timedelta(days=2)),
+        (1, "древний", NOW - timedelta(days=30)),
+    ]
+    spy = _SpyTaskQueue()
+    n = await backfill.backfill_channel(
+        _mk_ctx(session, _HistoryClient(posts), task_queue=spy), account_id, row_id
+    )
+    assert n == 2  # только два свежих
+    assert {e[2][2] for e in spy.scheduled} == {3, 2}
 
 
 # ── батчи и лимиты ──────────────────────────────────────────────────────────

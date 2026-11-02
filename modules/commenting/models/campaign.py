@@ -94,6 +94,18 @@ class Campaign(Base, TimestampMixin):
             "image_chance_percent BETWEEN 0 AND 100",
             name="campaign_image_chance_percent_valid",
         ),
+        CheckConstraint(
+            "max_words IS NULL OR max_words > 0",
+            name="campaign_max_words_valid",
+        ),
+        CheckConstraint(
+            "existing_scope_max_posts > 0",
+            name="campaign_existing_scope_max_posts_valid",
+        ),
+        CheckConstraint(
+            "existing_scope_max_age_days IS NULL OR existing_scope_max_age_days > 0",
+            name="campaign_existing_scope_max_age_days_valid",
+        ),
         {"schema": COMMENTING_SCHEMA},
     )
 
@@ -170,8 +182,16 @@ class Campaign(Base, TimestampMixin):
     min_words: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    # Верхняя граница длины коммента (слов). None — без ограничения.
+    max_words: Mapped[int | None] = mapped_column(Integer, nullable=True)
     window_after_post_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pause_between_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Глубина бэкфилла для post_scope existing/mixed: сколько постов вглубь и
+    # не старше скольких дней. По умолчанию 200 постов, без ограничения по дате.
+    existing_scope_max_posts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=200, server_default="200"
+    )
+    existing_scope_max_age_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # ── Целевые каналы (§ Этап 3) ──────────────────────────────────────
     # by_account_subscriptions: источник = MonitoredChannel каждого аккаунта.

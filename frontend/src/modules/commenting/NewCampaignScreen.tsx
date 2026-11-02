@@ -108,6 +108,9 @@ export function NewCampaignScreen() {
   const [workMode, setWorkMode] = useState<WorkMode>("by_count");
   const [maxComments, setMaxComments] = useState<string>(""); // пусто = без лимита
   const [minWords, setMinWords] = useState<number>(0);
+  const [maxWords, setMaxWords] = useState<string>(""); // пусто = без лимита
+  const [existingMaxPosts, setExistingMaxPosts] = useState<string>("200");
+  const [existingMaxAge, setExistingMaxAge] = useState<string>(""); // дней, пусто = без
   const [windowAfterPost, setWindowAfterPost] = useState<number>(3600);
   const [pauseBetween, setPauseBetween] = useState<number>(60);
 
@@ -200,6 +203,9 @@ export function NewCampaignScreen() {
         work_mode: workMode,
         max_comments: maxComments.trim() ? Number(maxComments) : null,
         min_words: minWords,
+        max_words: maxWords.trim() ? Number(maxWords) : null,
+        existing_scope_max_posts: Number(existingMaxPosts) || 200,
+        existing_scope_max_age_days: existingMaxAge.trim() ? Number(existingMaxAge) : null,
         window_after_post_sec:
           workMode === "by_time_window" ? windowAfterPost : null,
         pause_between_sec: workMode === "by_time_window" ? pauseBetween : null,
@@ -461,11 +467,33 @@ export function NewCampaignScreen() {
           onChange={(v) => setPostScope(v as PostScope)}
         />
         {postScope !== "new" && (
-          <p className="mt-2 px-1 text-[12px] text-text-tertiary">
-            {postScope === "existing"
-              ? "Пройдёмся по истории каждого канала и попробуем прокомментировать до 200 подходящих постов (не по одному разу — учитывается лог)."
-              : "Сначала пройдёмся по истории канала (до 200 постов), затем комментируем новые посты по мере появления."}
-          </p>
+          <>
+            <div className="mt-3 grid grid-cols-2 items-end gap-3">
+              <Field label="Глубина (постов)">
+                <TextInput
+                  inputMode="numeric"
+                  value={existingMaxPosts}
+                  onChange={(e) => setExistingMaxPosts(e.target.value.replace(/\D/g, ""))}
+                  placeholder="200"
+                  className="nums text-center"
+                />
+              </Field>
+              <Field label="Не старше (дней)">
+                <TextInput
+                  inputMode="numeric"
+                  value={existingMaxAge}
+                  onChange={(e) => setExistingMaxAge(e.target.value.replace(/\D/g, ""))}
+                  placeholder="Без ограничения"
+                  className="nums text-center"
+                />
+              </Field>
+            </div>
+            <p className="mt-2 px-1 text-[12px] text-text-tertiary">
+              Идём по истории не глубже N постов и не старше указанного возраста —
+              чтобы не комментить древние посты. Комменты разносятся во времени по
+              заданным задержкам.
+            </p>
+          </>
         )}
       </Section>
 
@@ -497,6 +525,15 @@ export function NewCampaignScreen() {
               ariaLabel="Минимум слов"
             />
           </FieldGroup>
+          <Field label="Макс. слов в комменте">
+            <TextInput
+              inputMode="numeric"
+              value={maxWords}
+              onChange={(e) => setMaxWords(e.target.value.replace(/\D/g, ""))}
+              placeholder="Без лимита"
+              className="nums text-center"
+            />
+          </Field>
           {workMode === "by_time_window" && (
             <>
               <FieldGroup label="Окно после поста">

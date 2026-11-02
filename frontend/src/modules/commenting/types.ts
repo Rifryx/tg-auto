@@ -34,6 +34,9 @@ export interface Campaign {
   work_mode: WorkMode;
   max_comments: number | null;
   min_words: number;
+  max_words: number | null;
+  existing_scope_max_posts: number;
+  existing_scope_max_age_days: number | null;
   window_after_post_sec: number | null;
   pause_between_sec: number | null;
   channel_source_mode: ChannelSourceMode;
@@ -149,6 +152,9 @@ export interface CampaignCreateBody {
   work_mode?: WorkMode;
   max_comments?: number | null;
   min_words?: number;
+  max_words?: number | null;
+  existing_scope_max_posts?: number;
+  existing_scope_max_age_days?: number | null;
   window_after_post_sec?: number | null;
   pause_between_sec?: number | null;
   channel_source_mode?: ChannelSourceMode;
