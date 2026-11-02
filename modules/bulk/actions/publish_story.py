@@ -209,6 +209,39 @@ async def _run(
                 },
             )
 
+    # Stories доступны ТОЛЬКО с Telegram Premium. Проверяем ПОСЛЕ дешёвой
+    # валидации payload, но ДО загрузки файла и публикации — иначе гарантированная
+    # PremiumAccountRequiredError на каждый не-премиум аккаунт. Заодно фиксируем
+    # флаг в БД (бейдж в UI).
+    try:
+        me = await around_telethon_call(
+            lambda: client.get_me(),
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+        )
+        is_premium: Optional[bool] = bool(getattr(me, "premium", False))
+    except Exception:  # noqa: BLE001 — не смогли проверить → не блокируем, пробуем опубликовать
+        is_premium = None
+    if is_premium is not None:
+        from core.repositories.account import AccountRepository
+        from core.schemas.account import AccountUpdate
+
+        with session_factory() as session:
+            AccountRepository(session).update(
+                account_id, AccountUpdate(is_premium=is_premium)
+            )
+            session.commit()
+        if not is_premium:
+            return BulkActionResult(
+                ok=False,
+                skipped=True,
+                detail={
+                    "reason": "not_premium",
+                    "message": "аккаунт без Telegram Premium — публикация Stories недоступна",
+                },
+            )
+
     # 1) загрузить файл своим клиентом (свой прокси). client.upload_file сам
     # рвёт большие файлы на chunk'и через SaveBigFilePartRequest — MTProto
     # file references обрабатываются Telethon.

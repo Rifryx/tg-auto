@@ -36,6 +36,7 @@ class AccountUpdate(BaseModel):
     username: Optional[str] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
+    is_premium: Optional[bool] = None
     display_name: Optional[str] = None
     session_enc: Optional[bytes] = None
     proxy_id: Optional[int] = None
@@ -62,6 +63,7 @@ class AccountRead(ORMModel):
     username: Optional[str]
     bio: Optional[str]
     avatar_url: Optional[str]
+    is_premium: Optional[bool]
     display_name: Optional[str]
     session_enc: bytes
     proxy_id: Optional[int]
