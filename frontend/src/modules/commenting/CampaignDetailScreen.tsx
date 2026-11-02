@@ -417,6 +417,12 @@ export function CampaignDetailScreen() {
             checked={c.verify_after_post}
             onChange={(v) => save.mutate({ verify_after_post: v })}
           />
+          <StyleToggle
+            label="Тред-симуляция"
+            hint="С вероятностью ~35% аккаунт после своего коммента отвечает сам себе ещё раз — имитация живого мини-треда. Выключено — только один коммент на пост, без «ответов самому себе»."
+            checked={c.thread_simulation_enabled}
+            onChange={(v) => save.mutate({ thread_simulation_enabled: v })}
+          />
         </div>
       </Section>
 

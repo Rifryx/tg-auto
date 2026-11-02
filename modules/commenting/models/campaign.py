@@ -245,3 +245,10 @@ class Campaign(Base, TimestampMixin):
     verify_delay_sec: Mapped[int] = mapped_column(
         Integer, nullable=False, default=300, server_default="300"
     )
+    # Тред-симуляция: с вероятностью THREAD_CONTINUE_PROB (35%) аккаунт после
+    # своего коммента отвечает сам себе ещё раз (живой мини-тред). Явный
+    # выбор — не всем это нужно, и без тумблера выглядело как непонятные
+    # повторы в логе для тех, кто такого не ожидал.
+    thread_simulation_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )

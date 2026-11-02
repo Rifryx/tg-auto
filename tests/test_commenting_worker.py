@@ -311,6 +311,55 @@ def test_thread_context_ends_on_user_for_thread_continuation(session):
     assert msgs[-2].content == "Моё прошлое сообщение"
 
 
+# --- Тред-симуляция: тумблер thread_simulation_enabled -----------------------
+
+
+async def test_maybe_continue_thread_enabled_by_default():
+    """По умолчанию (thread_simulation_enabled=True) и выигрышном броске
+    рандома — тред продолжается (campaign-центричная ветка)."""
+    spy = _SpyTaskQueue()
+    ctx = {"session_factory": None, "rng": _Rng(random_value=0.1), "task_queue": spy}
+    campaign = SimpleNamespace(thread_simulation_enabled=True)
+
+    started = await runner.maybe_continue_thread(
+        ctx, campaign_id=1, channel_msg_id=57, comment_msg_id=999,
+        thread_depth=0, campaign=campaign,
+    )
+    assert started is True
+    assert spy.enqueued and spy.enqueued[0][0] == TaskName.COMMENTING_ON_NEW_POST
+
+
+async def test_maybe_continue_thread_disabled_by_toggle():
+    """thread_simulation_enabled=False — тред НЕ продолжается, даже при
+    выигрышном броске рандома. Это и есть запрошенный тумблер."""
+    spy = _SpyTaskQueue()
+    ctx = {"session_factory": None, "rng": _Rng(random_value=0.1), "task_queue": spy}
+    campaign = SimpleNamespace(thread_simulation_enabled=False)
+
+    started = await runner.maybe_continue_thread(
+        ctx, campaign_id=1, channel_msg_id=57, comment_msg_id=999,
+        thread_depth=0, campaign=campaign,
+    )
+    assert started is False
+    assert spy.enqueued == []
+
+
+async def test_maybe_continue_channel_thread_disabled_by_toggle(session):
+    """Та же проверка для аккаунт-центричной ветки (on_channel_post)."""
+    _clean(session)
+    campaign_id = _make_campaign(session)
+    account_id = _make_assigned(session, campaign_id)
+    spy = _SpyTaskQueue()
+    ctx = _ctx(session, now=NOW_INSIDE, rng=_Rng(random_value=0.1), task_queue=spy)
+    campaign = SimpleNamespace(thread_simulation_enabled=False)
+
+    started = await runner.maybe_continue_channel_thread(
+        ctx, account_id, 57, 999, 0, campaign=campaign,
+    )
+    assert started is False
+    assert spy.enqueued == []
+
+
 # --- 2. post_comment отправляет и пишет CommentLog ---------------------------
 
 

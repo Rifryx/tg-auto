@@ -660,7 +660,8 @@ async def post_comment(
         thread_depth=thread_depth,
     )
     await maybe_continue_thread(
-        ctx, campaign_id, channel_msg_id, posted_message_id, thread_depth, post_date_ts
+        ctx, campaign_id, channel_msg_id, posted_message_id, thread_depth, post_date_ts,
+        campaign=campaign_row,
     )
     return posted_message_id
 
@@ -672,9 +673,20 @@ async def maybe_continue_thread(
     comment_msg_id: Optional[int],
     thread_depth: int,
     post_date_ts: Optional[float] = None,
+    *,
+    campaign=None,
 ) -> bool:
-    """Тред-симуляция: с шансом CONTINUE запускает ответ на свой коммент (≤ глубины)."""
+    """Тред-симуляция: с шансом CONTINUE запускает ответ на свой коммент (≤ глубины).
+
+    Отключается тумблером кампании (thread_simulation_enabled) — не всем
+    нужны «мини-треды», и без явного выбора это выглядело как непонятные
+    повторы в логе."""
     if comment_msg_id is None or thread_depth >= MAX_THREAD_DEPTH:
+        return False
+    if campaign is None:
+        with ctx["session_factory"]() as session:
+            campaign = CampaignRepository(session).get(campaign_id)
+    if campaign is None or not campaign.thread_simulation_enabled:
         return False
     if _rng(ctx).random() >= THREAD_CONTINUE_PROB:
         return False
@@ -1038,7 +1050,8 @@ async def post_channel_comment(
           {"account_id": account_id, "posted_message_id": posted_message_id,
            "channel_msg_id": channel_msg_id})
     await maybe_continue_channel_thread(
-        ctx, account_id, channel_msg_id, posted_message_id, thread_depth, post_date_ts
+        ctx, account_id, channel_msg_id, posted_message_id, thread_depth, post_date_ts,
+        campaign=campaign_row,
     )
     return posted_message_id
 
@@ -1050,9 +1063,15 @@ async def maybe_continue_channel_thread(
     comment_msg_id: Optional[int],
     thread_depth: int,
     post_date_ts: Optional[float] = None,
+    *,
+    campaign=None,
 ) -> bool:
-    """Тред-симуляция для аккаунт-центричной ветки (ответ на свой же коммент)."""
+    """Тред-симуляция для аккаунт-центричной ветки (ответ на свой же коммент).
+
+    Отключается тумблером кампании (thread_simulation_enabled)."""
     if comment_msg_id is None or thread_depth >= MAX_THREAD_DEPTH:
+        return False
+    if campaign is not None and not campaign.thread_simulation_enabled:
         return False
     if _rng(ctx).random() >= THREAD_CONTINUE_PROB:
         return False
