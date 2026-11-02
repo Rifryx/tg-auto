@@ -30,11 +30,19 @@ from worker.llm import StyleRandomizer
 
 get_logger = structlog.get_logger
 
-# Пороги случайной модели. Проверялись руками: не хотим спамить каждым
-# комментом стикером или картинкой, но и не хотим, чтобы флаг ощущался
-# декоративным.
+# Дефолтные пороги случайной модели (в долях). Используются как фолбэк, если
+# у кампании нет явных значений. Пользователь задаёт их ползунком — поля
+# sticker_chance_percent / image_chance_percent (в процентах).
 STICKER_CHANCE = 0.25
 IMAGE_CHANCE = 0.40
+
+
+def _chance(campaign: Campaign, attr: str, default: float) -> float:
+    """Вероятность (0..1) из поля-процента кампании; None/отсутствие → default."""
+    val = getattr(campaign, attr, None)
+    if val is None:
+        return default
+    return max(0, min(100, int(val))) / 100
 
 # Юникод-диапазоны эмодзи (совпадают с worker/llm/style.py, реюзим оттуда,
 # но локально держим свою функцию, чтобы не тянуть зависимость на приватку).
@@ -93,9 +101,17 @@ def pick_mode(
 
     Стикер и картинка не сочетаются — стикер сам по себе.
     """
-    if campaign.use_stickers and has_sticker and rng.random() < STICKER_CHANCE:
+    if (
+        campaign.use_stickers
+        and has_sticker
+        and rng.random() < _chance(campaign, "sticker_chance_percent", STICKER_CHANCE)
+    ):
         return "sticker"
-    if campaign.attach_image and has_media and rng.random() < IMAGE_CHANCE:
+    if (
+        campaign.attach_image
+        and has_media
+        and rng.random() < _chance(campaign, "image_chance_percent", IMAGE_CHANCE)
+    ):
         return "text_with_image"
     return "text"
 

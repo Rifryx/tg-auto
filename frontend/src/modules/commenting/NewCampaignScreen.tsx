@@ -121,7 +121,9 @@ export function NewCampaignScreen() {
   // ── Стиль комментариев (§ Этап 4) ──────────────────────────────────
   const [useEmojis, setUseEmojis] = useState(true);
   const [useStickers, setUseStickers] = useState(false);
+  const [stickerChance, setStickerChance] = useState(25);
   const [attachImage, setAttachImage] = useState(false);
+  const [imageChance, setImageChance] = useState(40);
   const [mediaIds, setMediaIds] = useState<number[]>([]);
   const [writeAsChannel, setWriteAsChannel] = useState(false);
   const [verifyAfterPost, setVerifyAfterPost] = useState(false);
@@ -205,7 +207,9 @@ export function NewCampaignScreen() {
         on_not_subscribed_action: onNotSubscribed,
         use_emojis: useEmojis,
         use_stickers: useStickers,
+        sticker_chance_percent: stickerChance,
         attach_image: attachImage,
+        image_chance_percent: imageChance,
         write_as_channel: writeAsChannel,
         verify_after_post: verifyAfterPost,
         verify_delay_sec: verifyDelaySec,
@@ -342,16 +346,36 @@ export function NewCampaignScreen() {
           />
           <ToggleRow
             label="Комментировать стикерами"
-            hint="~25% комментариев уйдут стикером. Выбирать не нужно — берём автоматически первый стикерпак, сохранённый в самом Telegram-аккаунте. Своего пака нет — просто уйдёт текст."
+            hint="Часть комментариев уйдёт стикером (вероятность — ползунком ниже). Берём автоматически первый стикерпак, сохранённый в самом Telegram-аккаунте. Своего пака нет — просто уйдёт текст."
             checked={useStickers}
             onChange={setUseStickers}
           />
+          {useStickers && (
+            <RangeField
+              label="Вероятность стикера"
+              value={stickerChance}
+              min={0}
+              max={100}
+              unit="%"
+              onChange={setStickerChance}
+            />
+          )}
           <ToggleRow
             label="Картинка к комментарию"
-            hint="Приложится случайная картинка (~40%) из выбранных ниже. Можно дозагрузить позже в деталях кампании."
+            hint="Приложится случайная картинка из выбранных ниже (вероятность — ползунком). Можно дозагрузить позже в деталях кампании."
             checked={attachImage}
             onChange={setAttachImage}
           />
+          {attachImage && (
+            <RangeField
+              label="Вероятность картинки"
+              value={imageChance}
+              min={0}
+              max={100}
+              unit="%"
+              onChange={setImageChance}
+            />
+          )}
           {attachImage && <MediaPickerInline selected={mediaIds} onChange={setMediaIds} />}
           <ToggleRow
             label="Писать от имени канала"

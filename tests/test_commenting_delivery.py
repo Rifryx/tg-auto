@@ -179,6 +179,20 @@ def test_pick_mode_image_when_sticker_off():
     assert delivery.pick_mode(campaign, rng, has_media=True, has_sticker=False) == "text_with_image"
 
 
+def test_pick_mode_respects_sticker_chance_zero():
+    # Ползунок на 0% → стикер не уходит даже при минимальном броске.
+    campaign = SimpleNamespace(use_stickers=True, attach_image=False, sticker_chance_percent=0)
+    rng = _SeqRng([0.0])
+    assert delivery.pick_mode(campaign, rng, has_media=True, has_sticker=True) == "text"
+
+
+def test_pick_mode_respects_image_chance_full():
+    # Ползунок на 100% → картинка уходит даже при высоком броске.
+    campaign = SimpleNamespace(use_stickers=False, attach_image=True, image_chance_percent=100)
+    rng = _SeqRng([0.99])
+    assert delivery.pick_mode(campaign, rng, has_media=True, has_sticker=False) == "text_with_image"
+
+
 # ── deliver_comment: интеграция ─────────────────────────────────────────────
 
 

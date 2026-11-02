@@ -49,6 +49,8 @@ export function CampaignDetailScreen() {
   const [settingsAccountId, setSettingsAccountId] = useState<number | null>(null);
   const [delayMin, setDelayMin] = useState<number | null>(null);
   const [delayMax, setDelayMax] = useState<number | null>(null);
+  const [stickerChance, setStickerChance] = useState<number | null>(null);
+  const [imageChance, setImageChance] = useState<number | null>(null);
 
   const campaign = useQuery({
     queryKey: ["campaign", campaignId],
@@ -153,6 +155,8 @@ export function CampaignDetailScreen() {
     if (c) {
       setDelayMin((p) => (p == null ? c.posting_delay_min_sec : p));
       setDelayMax((p) => (p == null ? c.posting_delay_max_sec : p));
+      setStickerChance((p) => (p == null ? c.sticker_chance_percent : p));
+      setImageChance((p) => (p == null ? c.image_chance_percent : p));
     }
   }, [c]);
 
@@ -361,16 +365,38 @@ export function CampaignDetailScreen() {
           />
           <StyleToggle
             label="Комментировать стикерами"
-            hint="~25% комментариев уйдут стикером. Берётся автоматически первый стикерпак, сохранённый в самом Telegram-аккаунте — выбирать не нужно. Своего пака нет — уйдёт текст."
+            hint="Часть комментариев уйдёт стикером (вероятность — ползунком ниже). Берётся первый стикерпак, сохранённый в самом Telegram-аккаунте. Своего пака нет — уйдёт текст."
             checked={c.use_stickers}
             onChange={(v) => save.mutate({ use_stickers: v })}
           />
+          {c.use_stickers && stickerChance != null && (
+            <RangeField
+              label="Вероятность стикера"
+              value={stickerChance}
+              min={0}
+              max={100}
+              unit="%"
+              onChange={setStickerChance}
+              onCommit={() => save.mutate({ sticker_chance_percent: stickerChance })}
+            />
+          )}
           <StyleToggle
             label="Картинка к комментарию"
-            hint="Приложится случайная картинка (~40%) из добавленных к кампании — список ниже."
+            hint="Приложится случайная картинка из добавленных к кампании (вероятность — ползунком ниже)."
             checked={c.attach_image}
             onChange={(v) => save.mutate({ attach_image: v })}
           />
+          {c.attach_image && imageChance != null && (
+            <RangeField
+              label="Вероятность картинки"
+              value={imageChance}
+              min={0}
+              max={100}
+              unit="%"
+              onChange={setImageChance}
+              onCommit={() => save.mutate({ image_chance_percent: imageChance })}
+            />
+          )}
           <StyleToggle
             label="Писать от имени канала"
             hint="Настраивать некого — на каждую публикацию система сама проверяет права post_messages у аккаунта: есть права → от канала, нет → автоматически от аккаунта."

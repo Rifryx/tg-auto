@@ -40,7 +40,9 @@ export interface Campaign {
   on_not_subscribed_action: OnNotSubscribedAction;
   use_emojis: boolean;
   use_stickers: boolean;
+  sticker_chance_percent: number;
   attach_image: boolean;
+  image_chance_percent: number;
   write_as_channel: boolean;
   verify_after_post: boolean;
   verify_delay_sec: number;
@@ -153,7 +155,9 @@ export interface CampaignCreateBody {
   on_not_subscribed_action?: OnNotSubscribedAction;
   use_emojis?: boolean;
   use_stickers?: boolean;
+  sticker_chance_percent?: number;
   attach_image?: boolean;
+  image_chance_percent?: number;
   write_as_channel?: boolean;
   verify_after_post?: boolean;
   verify_delay_sec?: number;
