@@ -34,7 +34,11 @@ const inputCls =
 
 export function CommunitiesScreen() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<Mode>("refs");
+  // По умолчанию «Найти новые»: пользователь приходит в «Парсинг каналов»,
+  // чтобы НАЙТИ каналы. Режим «По ссылкам» лишь обогащает уже известные —
+  // раньше он был дефолтом и создавал ощущение «ничего не делает» (на входе
+  // 3 ссылки → на выходе те же 3).
+  const [mode, setMode] = useState<Mode>("discover");
   const [name, setName] = useState("");
   const [collectorId, setCollectorId] = useState<number | null>(null);
 
@@ -186,8 +190,8 @@ export function CommunitiesScreen() {
         </div>
         <p className="-mt-2 px-1 text-[12px] text-text-tertiary">
           {mode === "refs"
-            ? "Обогащаем и фильтруем уже известные ссылки на каналы/чаты."
-            : "Находим новые каналы ниши: похожие (рекомендации Telegram), поиск, форварды и упоминания."}
+            ? "Только обогащаем и фильтруем уже известные ссылки — новые каналы НЕ ищем (для этого — «Найти новые»)."
+            : "Находим новые каналы ниши: похожие (рекомендации Telegram), поиск по ключевику, форварды и упоминания."}
         </p>
 
         <div className="card p-5">
