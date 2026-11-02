@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 import structlog
@@ -30,10 +31,12 @@ from modules.commenting.repositories import (
     CampaignRepository,
     MonitoredChannelRepository,
 )
+from modules.commenting.worker import limits
 from worker.health import around_telethon_call
 
 get_logger = structlog.get_logger
 
+# Жёсткий потолок на случай, если у кампании почему-то не задана глубина.
 BACKFILL_MAX_POSTS = 200
 BATCH_SIZE = 100
 BATCH_PAUSE_SEC = (60.0, 120.0)
@@ -123,6 +126,32 @@ async def backfill_channel(ctx: dict, account_id: int, monitored_channel_id: int
         selection_mode = campaign.post_selection_mode
         keywords = list(campaign.keywords or [])
         probability = campaign.probability_percent
+        # Глубина и возраст постов (§ правки): не лезем в тысячу древних.
+        max_posts = campaign.existing_scope_max_posts or BACKFILL_MAX_POSTS
+        max_age_days = campaign.existing_scope_max_age_days
+        delay_min = campaign.posting_delay_min_sec
+        delay_max = campaign.posting_delay_max_sec
+        # Остаток квоты: бэкфилл НЕ должен ставить сотни заведомо лишних задач,
+        # когда лимит кампании уже почти/полностью выбран (симптом «долбится на
+        # все посты, хотя лимит достигнут»).
+        remaining: int | None = None
+        if campaign.max_comments is not None:
+            remaining = max(0, campaign.max_comments - limits.posted_count(session, campaign_id))
+
+    if remaining == 0:
+        get_logger().info(
+            "commenting.backfill.skip",
+            account_id=account_id, channel_id=monitored_channel_id,
+            reason="max_comments_reached",
+        )
+        return 0
+
+    now = ctx.get("now") or datetime.now(timezone.utc)
+    min_dt = now - timedelta(days=max_age_days) if max_age_days else None
+    # Разносим задачи во времени: пауза между комментами = posting_delay
+    # кампании. Иначе все посты улетали в очередь разом и публиковались
+    # «в одну секунду» (риск бана).
+    next_at = now
 
     pool = _pool(ctx)
     client = await pool.get(account_id)
@@ -143,10 +172,11 @@ async def backfill_channel(ctx: dict, account_id: int, monitored_channel_id: int
             now=ctx.get("now"),
         )
 
-        while seen < BACKFILL_MAX_POSTS:
+        stop = False
+        while seen < max_posts and not stop:
             if seen > 0:
                 await sleep(rng.uniform(*BATCH_PAUSE_SEC))
-            batch_limit = min(BATCH_SIZE, BACKFILL_MAX_POSTS - seen)
+            batch_limit = min(BATCH_SIZE, max_posts - seen)
             batch = await _read_batch(client, entity, offset_id, batch_limit)
             if not batch:
                 break
@@ -158,6 +188,15 @@ async def backfill_channel(ctx: dict, account_id: int, monitored_channel_id: int
 
             planned_now = 0
             for msg in batch:
+                # Возрастной отсечкой режем слишком старые посты. iter_messages
+                # идёт от свежих к старым — встретили старый пост, значит дальше
+                # только старее: выходим целиком.
+                date = getattr(msg, "date", None)
+                if min_dt is not None and date is not None:
+                    d = date if date.tzinfo else date.replace(tzinfo=timezone.utc)
+                    if d < min_dt:
+                        stop = True
+                        break
                 if msg.id in already:
                     continue
                 text = getattr(msg, "message", None) or getattr(msg, "text", None)
@@ -169,17 +208,26 @@ async def backfill_channel(ctx: dict, account_id: int, monitored_channel_id: int
                     rng=rng,
                 ):
                     continue
-                date = getattr(msg, "date", None)
-                await task_queue.enqueue(
+                # Разносим во времени: каждый следующий коммент на posting_delay
+                # позже предыдущего. prescheduled=True — on_channel_post не
+                # добавляет свою задержку поверх (мы уже назначили время).
+                next_at = next_at + timedelta(seconds=rng.uniform(delay_min, delay_max))
+                await task_queue.schedule(
                     TaskName.COMMENTING_ON_CHANNEL_POST,
+                    next_at,
                     account_id,
                     monitored_channel_id,
                     msg.id,
                     post_date_ts=date.timestamp() if date is not None else None,
+                    prescheduled=True,
                     **({"post_text": text} if text else {}),
                 )
                 scheduled += 1
                 planned_now += 1
+                # Квота кампании: больше, чем осталось, ставить незачем.
+                if remaining is not None and scheduled >= remaining:
+                    stop = True
+                    break
 
             log.info(
                 "commenting.backfill.batch",

@@ -80,10 +80,13 @@ def apply_style(
     persona: Any,
     style: StyleRandomizer,
 ) -> str:
-    """Проход StyleRandomizer + safety net по эмодзи."""
+    """Проход StyleRandomizer + safety net по эмодзи + потолок по словам."""
     result = style.randomize(text, persona)
     if not campaign.use_emojis:
         result = strip_emoji(result)
+    from modules.commenting.worker import limits
+
+    result = limits.truncate_words(result, getattr(campaign, "max_words", None))
     return result
 
 

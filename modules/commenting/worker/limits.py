@@ -34,6 +34,20 @@ def word_count(text: str) -> int:
     return len(_WORD.findall(text or ""))
 
 
+def truncate_words(text: str, max_words: Optional[int]) -> str:
+    """Обрезает текст до ``max_words`` слов (по пробелам, сохраняя пунктуацию).
+
+    Safety-net к LLM: даже если модель проигнорировала «не длиннее N слов» в
+    промпте, коммент не уедет в простыню. None/0 — не трогаем.
+    """
+    if not max_words or max_words <= 0:
+        return text
+    tokens = (text or "").split()
+    if len(tokens) <= max_words:
+        return text
+    return " ".join(tokens[:max_words])
+
+
 def posted_count(session, campaign_id: int) -> int:
     return session.execute(
         select(func.count())
