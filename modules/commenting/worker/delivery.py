@@ -154,11 +154,20 @@ def pick_media_bytes(session, campaign_id: int, rng: random.Random) -> Optional[
 # --- стикеры аккаунта --------------------------------------------------------
 
 
-async def load_account_stickers(ctx: dict, client, account_id: int) -> list:
-    """Первый стикер-пак аккаунта (кешируется в ctx на время задачи).
+# Сколько паков аккаунта обходим и сколько стикеров максимум собираем. Берём
+# из ВСЕХ сохранённых паков (а не только первого) — так выбор разнообразнее и
+# меньше повторов. Потолки держат число RPC и память в разумных рамках.
+_MAX_STICKER_SETS = 12
+_MAX_STICKERS = 400
 
-    Если пак пуст или запросить не удалось — возвращает пустой список.
-    Дальше используется для случайного выбора: `rng.choice(stickers)`.
+
+async def load_account_stickers(ctx: dict, client, account_id: int) -> list:
+    """Стикеры из ВСЕХ сохранённых паков аккаунта (кеш в ctx на время задачи).
+
+    Раньше брали только первый пак — выбор всегда из одного набора. Теперь
+    собираем стикеры по всем пакам (до ``_MAX_STICKER_SETS``), чтобы
+    ``rng.choice(stickers)`` давал разнообразие. Пусто/ошибка → пустой список
+    (стикеры не критичны, просто уйдёт текст).
     """
     cache = ctx.setdefault("_sticker_cache", {})
     if account_id in cache:
@@ -178,23 +187,30 @@ async def load_account_stickers(ctx: dict, client, account_id: int) -> list:
         )
         # Все версии telethon: sets — либо есть, либо (при NotModified) пусто.
         sets = getattr(all_sets, "sets", None) or []
-        if not sets:
-            cache[account_id] = stickers
-            return stickers
-        first_set = sets[0]
-        pack = await around_telethon_call(
-            lambda: client(
-                GetStickerSetRequest(
-                    stickerset=InputStickerSetID(id=first_set.id, access_hash=first_set.access_hash),
-                    hash=0,
+        for st in sets[:_MAX_STICKER_SETS]:
+            try:
+                pack = await around_telethon_call(
+                    lambda st=st: client(
+                        GetStickerSetRequest(
+                            stickerset=InputStickerSetID(id=st.id, access_hash=st.access_hash),
+                            hash=0,
+                        )
+                    ),
+                    account_id=account_id,
+                    session_factory=ctx["session_factory"],
+                    publisher=ctx.get("publisher"),
+                    now=ctx.get("now"),
                 )
-            ),
-            account_id=account_id,
-            session_factory=ctx["session_factory"],
-            publisher=ctx.get("publisher"),
-            now=ctx.get("now"),
-        )
-        stickers = list(getattr(pack, "documents", None) or [])
+            except Exception as exc:  # noqa: BLE001 — один пак не отдался, берём остальные
+                get_logger().info(
+                    "commenting.delivery.sticker_set_skipped",
+                    account_id=account_id, error=repr(exc),
+                )
+                continue
+            stickers.extend(getattr(pack, "documents", None) or [])
+            if len(stickers) >= _MAX_STICKERS:
+                stickers = stickers[:_MAX_STICKERS]
+                break
     except Exception as exc:  # noqa: BLE001 - стикеры не критичны, просто не шлём
         get_logger().info(
             "commenting.delivery.stickers_unavailable",

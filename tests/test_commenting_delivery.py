@@ -247,6 +247,22 @@ async def test_deliver_uses_sticker_when_dice_and_pack_available(session):
     client.send_message.assert_not_awaited()
 
 
+async def test_load_account_stickers_aggregates_all_packs(session):
+    """Стикеры собираются из ВСЕХ паков аккаунта, не только из первого."""
+    _clean(session)
+    client = _RecordingClient()
+    client._all_stickers = SimpleNamespace(
+        sets=[
+            SimpleNamespace(id=1, access_hash=2),
+            SimpleNamespace(id=3, access_hash=4),
+        ]
+    )
+    ctx = _ctx(session, client)
+    stickers = await delivery.load_account_stickers(ctx, client, account_id=1)
+    # два пака по 2 стикера из мока → 4 (а не 2, как при «только первый пак»).
+    assert len(stickers) == 4
+
+
 async def test_deliver_falls_back_to_text_without_stickers(session):
     _clean(session)
     campaign_id = _make_campaign(session)
