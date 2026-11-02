@@ -46,6 +46,7 @@ export interface Campaign {
   sticker_chance_percent: number;
   attach_image: boolean;
   image_chance_percent: number;
+  image_caption_enabled: boolean;
   write_as_channel: boolean;
   verify_after_post: boolean;
   verify_delay_sec: number;
@@ -164,6 +165,7 @@ export interface CampaignCreateBody {
   sticker_chance_percent?: number;
   attach_image?: boolean;
   image_chance_percent?: number;
+  image_caption_enabled?: boolean;
   write_as_channel?: boolean;
   verify_after_post?: boolean;
   verify_delay_sec?: number;

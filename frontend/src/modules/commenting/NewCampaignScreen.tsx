@@ -127,6 +127,7 @@ export function NewCampaignScreen() {
   const [stickerChance, setStickerChance] = useState(25);
   const [attachImage, setAttachImage] = useState(false);
   const [imageChance, setImageChance] = useState(40);
+  const [imageCaptionEnabled, setImageCaptionEnabled] = useState(true);
   const [mediaIds, setMediaIds] = useState<number[]>([]);
   const [writeAsChannel, setWriteAsChannel] = useState(false);
   const [verifyAfterPost, setVerifyAfterPost] = useState(false);
@@ -216,6 +217,7 @@ export function NewCampaignScreen() {
         sticker_chance_percent: stickerChance,
         attach_image: attachImage,
         image_chance_percent: imageChance,
+        image_caption_enabled: imageCaptionEnabled,
         write_as_channel: writeAsChannel,
         verify_after_post: verifyAfterPost,
         verify_delay_sec: verifyDelaySec,
@@ -383,6 +385,14 @@ export function NewCampaignScreen() {
             />
           )}
           {attachImage && <MediaPickerInline selected={mediaIds} onChange={setMediaIds} />}
+          {attachImage && (
+            <ToggleRow
+              label="Подпись к фото"
+              hint="Выключено — фото уходит без текста. Включено — подпись = сгенерированный ИИ-коммент."
+              checked={imageCaptionEnabled}
+              onChange={setImageCaptionEnabled}
+            />
+          )}
           <ToggleRow
             label="Писать от имени канала"
             hint="Настраивать некого — на каждую публикацию система сама проверяет права post_messages у аккаунта в этом канале: есть права → коммент от канала, нет → автоматически от аккаунта."

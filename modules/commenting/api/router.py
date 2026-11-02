@@ -704,18 +704,28 @@ def set_campaign_media(
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
     ids = set(body.media_asset_ids)
     if ids:
-        owned = set(
-            session.execute(
-                select(MediaAsset.id).where(
-                    MediaAsset.id.in_(ids), MediaAsset.user_id == user_id
-                )
-            ).scalars()
-        )
+        rows = session.execute(
+            select(MediaAsset.id, MediaAsset.mime).where(
+                MediaAsset.id.in_(ids), MediaAsset.user_id == user_id
+            )
+        ).all()
+        owned = {aid for aid, _ in rows}
         missing = ids - owned
         if missing:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 f"Не найдено или не принадлежит вам: {sorted(missing)}",
+            )
+        # /media-assets — общее хранилище (им пользуются и Stories с видео), но
+        # сюда («картинка к комментарию») нужны ТОЛЬКО изображения. Без этой
+        # проверки любой файл (видео, аудио, документ) мог прилинковаться и
+        # потом уйти в Telegram как случайный «unnamed»-файл с LLM-подписью —
+        # баг-репорт «в комментарий как-то прикрепился файл».
+        not_image = sorted(aid for aid, mime in rows if not (mime or "").startswith("image/"))
+        if not_image:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"Не изображение (для комментариев нужны только картинки): {not_image}",
             )
     session.query(CampaignMediaAsset).filter(
         CampaignMediaAsset.campaign_id == campaign_id

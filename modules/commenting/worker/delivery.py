@@ -120,11 +120,22 @@ def pick_mode(
 
 
 def campaign_media_ids(session, campaign_id: int) -> list[int]:
+    """Id картинок кампании — ТОЛЬКО image/*.
+
+    Defense-in-depth: API уже отсекает не-картинки при линковке
+    (PUT /campaigns/{id}/media), но это фильтрует и то, что могло прилипнуть
+    раньше (до фикса) — не даём случайному документу/видео уйти в коммент.
+    """
     from sqlalchemy import select
 
+    from core.models.media_asset import MediaAsset
+
     rows = session.execute(
-        select(CampaignMediaAsset.media_asset_id).where(
-            CampaignMediaAsset.campaign_id == campaign_id
+        select(CampaignMediaAsset.media_asset_id)
+        .join(MediaAsset, MediaAsset.id == CampaignMediaAsset.media_asset_id)
+        .where(
+            CampaignMediaAsset.campaign_id == campaign_id,
+            MediaAsset.mime.like("image/%"),
         )
     ).scalars()
     return list(rows)
@@ -334,12 +345,22 @@ async def deliver_comment(
     if mode == "sticker" and stickers:
         try:
             sticker = rng.choice(stickers)
-            sent = await _call(
+            await _call(
                 lambda: client.send_file(
                     discussion_group_id,
                     file=sticker,
                     reply_to=reply_to,
                     send_as=send_as,
+                )
+            )
+            # Telegram НЕ поддерживает caption на стикерах — текст уходит
+            # отдельным сообщением следом. Без этого ИИ-коммент оплачивался
+            # (LLM-вызов) и писался в CommentLog как posted, но реально в
+            # чат никогда не попадал — баг-репорт «комент отображается
+            # только в логах, а в чате только стикер».
+            sent = await _call(
+                lambda: client.send_message(
+                    discussion_group_id, text, reply_to=reply_to, send_as=send_as
                 )
             )
             return sent, "sticker"
@@ -355,12 +376,15 @@ async def deliver_comment(
             picked = pick_media_bytes(session, campaign.id, rng)
         if picked is not None:
             data, mime, name = picked
+            # Подпись опциональна (image_caption_enabled): выключена — фото
+            # уходит голым, без сгенерированного ИИ-текста.
+            caption = text if campaign.image_caption_enabled else None
             try:
                 sent = await _call(
                     lambda: client.send_file(
                         discussion_group_id,
                         file=data,
-                        caption=text,
+                        caption=caption,
                         reply_to=reply_to,
                         force_document=False,
                         attributes=None,

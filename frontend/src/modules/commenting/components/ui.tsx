@@ -7,6 +7,7 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 export function NumberStepper({
   value,
   onChange,
+  onCommit,
   step = 1,
   min,
   max,
@@ -15,6 +16,12 @@ export function NumberStepper({
 }: {
   value: string;
   onChange: (v: string) => void;
+  /** Автосейв: вызывается после клика −/+ и при потере фокуса поля ввода.
+   *  Получает АКТУАЛЬНОЕ значение явно (не читает ``value`` из замыкания) —
+   *  иначе на клике −/+ commit уходил бы со старым значением: onChange
+   *  обновляет state у родителя асинхронно (React batched), а onCommit()
+   *  без аргумента звал бы колбэк, замкнутый на value ДО клика. */
+  onCommit?: (next: string) => void;
   step?: number;
   min?: number;
   max?: number;
@@ -27,7 +34,9 @@ export function NumberStepper({
   const bump = (dir: 1 | -1) => {
     const cur = Number(value);
     const base = Number.isFinite(cur) ? cur : (min ?? 0);
-    onChange(clamp(base + dir * step).toFixed(decimals));
+    const next = clamp(base + dir * step).toFixed(decimals);
+    onChange(next);
+    onCommit?.(next);
   };
   const n = Number(value);
   const atMin = min != null && Number.isFinite(n) && n <= min;
@@ -47,6 +56,7 @@ export function NumberStepper({
           aria-label={ariaLabel}
           value={value}
           onChange={(e) => onChange(e.target.value.replace(",", ".").replace(/[^0-9.]/g, ""))}
+          onBlur={() => onCommit?.(value)}
           className="nums w-full min-w-0 bg-transparent text-center text-[16px] font-semibold text-text-primary outline-none"
         />
         {suffix && <span className="shrink-0 pr-2 text-[13px] text-text-tertiary">{suffix}</span>}
