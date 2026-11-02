@@ -3,6 +3,7 @@ from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -79,6 +80,9 @@ class Account(Base, TimestampMixin):
     username: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     bio: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     avatar_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Telegram Premium: нужен для публикации Stories. None — ещё не определяли
+    # (узнаём при синхронизации профиля / перед публикацией сторис).
+    is_premium: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     # Произвольная подпись для отображения в UI (номер/username/своё). Пусто —
     # показываем замаскированный номер.
     display_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
