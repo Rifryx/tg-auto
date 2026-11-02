@@ -1,9 +1,12 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Check, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ErrorBanner } from "../../components/ErrorBanner";
 import { accountsApi } from "../../shared/accounts";
+import { humanizeError } from "../../shared/api";
 import { maskPhone } from "../../shared/format";
+import { useLimit } from "../../shared/limits";
 import { AccountPickerSheet } from "../commenting/components/AccountPickerSheet";
 import {
   CapsuleButton,
@@ -58,6 +61,17 @@ export function NewShillingWizard() {
   const [draft, setDraft] = useState<Draft>(INITIAL);
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) =>
     setDraft((d) => ({ ...d, [k]: v }));
+
+  // Free-план даёт только 1 активную кампанию шиллинга — без архива, слот
+  // навсегда занят первой созданной. Раньше мастер не проверял лимит ДО
+  // заполнения формы: пользователь доходил до шага 0 → «Далее», бэкенд отдавал
+  // 402, а UI показывал бессмысленное «Что-то пошло не так» — выглядело как
+  // «дальше первого этапа не идёт». Теперь, как и в комментинге, редиректим
+  // на /billing сразу, если лимит уже исчерпан.
+  const limit = useLimit("shilling_campaigns_active_max");
+  useEffect(() => {
+    if (limit?.atLimit) navigate("/billing", { replace: true });
+  }, [limit?.atLimit, navigate]);
 
   // Кампания создаётся при переходе на шаг «Сценарий» — конструктору нужен
   // реальный campaignId (сценарий/роли/шаги пишутся через API кампании).
@@ -174,9 +188,13 @@ export function NewShillingWizard() {
       </div>
 
       {(ensureCampaign.isError || finish.isError) && (
-        <p className="mt-3 text-[13px] text-status-critical">
-          Что-то пошло не так. Проверьте данные и попробуйте снова.
-        </p>
+        <ErrorBanner
+          className="mt-3"
+          message={humanizeError(
+            ensureCampaign.error ?? finish.error,
+            "Не удалось создать кампанию. Проверьте данные и попробуйте снова.",
+          )}
+        />
       )}
     </div>
   );

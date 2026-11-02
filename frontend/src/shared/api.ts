@@ -9,6 +9,21 @@
 
 import { getDevUserId, getInitData } from "./tg";
 
+// Копия ярлыков из shared/limits.ts (не импортируем оттуда намеренно: limits →
+// store → billing → api — импорт назад сюда создал бы цикл модулей).
+// Если появится новый FeatureKey — держать в синхроне с LIMIT_LABEL.
+const _LIMIT_LABEL: Record<string, string> = {
+  accounts_max: "аккаунтов",
+  personas_max: "персон",
+  proxies_max: "прокси",
+  campaigns_active_max: "активных кампаний",
+  comments_per_day: "комментариев в сутки",
+  channels_watch_max: "каналов",
+  shilling_campaigns_active_max: "кампаний шиллинга",
+  shilling_targets_per_campaign_max: "целей в кампании",
+  shilling_scenario_steps_max: "реплик в сценарии",
+};
+
 const BASE_URL = (import.meta.env.VITE_API_BASE ?? "http://localhost:8000").replace(
   /\/$/,
   "",
@@ -37,11 +52,22 @@ export function humanizeError(e: unknown, fallback = "Что-то пошло н�
     const d = e.detail;
     if (d && typeof d === "object") {
       const obj = d as Record<string, unknown>;
+      // 402 limit_exceeded: {reason, feature, used, limit, plan_id} — без
+      // отдельного поля message. Раньше это проваливалось в generic fallback
+      // («Что-то пошло не так») — пользователь не понимал, что упёрся в тариф
+      // (симптом: мастер создания кампании «не идёт дальше первого шага»).
+      if (e.status === 402 && obj.reason === "limit_exceeded") {
+        const label = _LIMIT_LABEL[String(obj.feature)] ?? "ресурс";
+        const used = typeof obj.used === "number" ? obj.used : "?";
+        const limit = typeof obj.limit === "number" ? obj.limit : "?";
+        return `Лимит тарифа исчерпан: ${label} ${used}/${limit}. Перейдите на Pro в разделе «Тариф».`;
+      }
       const msg = obj.message ?? obj.detail ?? obj.error;
       if (typeof msg === "string" && msg.trim()) return msg;
     }
     if (typeof d === "string" && d.trim() && !d.trim().startsWith("{")) return d;
     if (e.message && !e.message.trim().startsWith("{")) return e.message;
+    if (e.status === 402) return "Лимит тарифа исчерпан. Перейдите на Pro в разделе «Тариф».";
     if (e.status === 404) return "Не найдено.";
     if (e.status === 409) return "Конфликт: такая запись уже существует.";
     if (e.status === 422) return "Проверьте правильность введённых данных.";
