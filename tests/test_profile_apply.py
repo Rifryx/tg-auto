@@ -36,6 +36,7 @@ _TABLES = (
     "account_health",
     "account_status_history",
     "warming_activities",
+    "profile_assets",
     '"commenting".campaign_accounts',
     '"commenting".comment_logs',
 )
@@ -240,3 +241,46 @@ async def test_generate_and_apply_uses_prompt_without_persona(session):
     )
     assert result.ok is True
     assert result.skipped is False  # нет персоны, но не пропущено — по промпту
+
+
+async def test_generate_and_apply_avatar_from_pool(session):
+    """«Профиль ИИ» + аватар из пула: берём случайный avatar-asset и ставим."""
+    from types import SimpleNamespace
+
+    from core.enums import BulkActionType
+    from core.models.profile_asset import ProfileAsset
+    from core.repositories.account import AccountRepository
+    from modules.bulk.actions import ACTION_REGISTRY
+    from modules.bulk.actions.generate_and_apply_profile import GenerateAndApplyPayload
+
+    _clean(session)
+    account_id = _make_account(session)
+    png = b"\x89PNG\r\n\x1a\n" + b"x" * 32
+    session.add(ProfileAsset(user_id="u1", kind="avatar", binary=png, mime="image/png"))
+    session.commit()
+
+    class _Gen:
+        async def generate_from_prompt(self, prompt):
+            return SimpleNamespace(
+                first_name="Иван", last_name=None, bio="t",
+                username_candidates=[], as_dict=lambda: {},
+            )
+
+        async def generate(self, persona):
+            raise AssertionError
+
+    class _UploadClient(_FakeClient):
+        async def upload_file(self, file_obj, file_name=None):
+            return SimpleNamespace(id=1)
+
+    action = ACTION_REGISTRY[BulkActionType.GENERATE_AND_APPLY_PROFILE.value]
+    payload = GenerateAndApplyPayload(prompt="x", apply_username=False, avatar_from_pool=True)
+    result = await action.run(
+        account_id=account_id, payload=payload,
+        session_factory=_factory(session), publisher=None,
+        client=_UploadClient(), generator=_Gen(),
+    )
+    assert result.ok is True
+    assert result.detail["avatar_from_pool"]["applied"] is True
+    acc = AccountRepository(session).get(account_id)
+    assert acc.avatar_url and acc.avatar_url.startswith("data:image/png")
