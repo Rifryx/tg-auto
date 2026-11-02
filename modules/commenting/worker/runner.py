@@ -181,6 +181,10 @@ def _build_system_prompt(session, campaign, account) -> str:
     # use_emojis=False: явно просим LLM не использовать эмодзи; ниже в
     # _generate ещё раз почистим safety net'ом (E4.1).
     prompt += delivery.emoji_prompt_suffix(campaign)
+    # Потолок длины: просим уложиться, а в _generate ещё и обрежем safety-net'ом.
+    max_words = getattr(campaign, "max_words", None)
+    if max_words:
+        prompt += f"\n\nКоммент должен быть коротким — не длиннее {max_words} слов."
     return prompt
 
 
@@ -692,8 +696,13 @@ async def on_channel_post(
     thread_depth: int = 0,
     post_date_ts: Optional[float] = None,
     post_text: Optional[str] = None,
+    prescheduled: bool = False,
 ) -> int:
-    """Пост в канале аккаунта → запланировать ОДИН коммент этим аккаунтом."""
+    """Пост в канале аккаунта → запланировать ОДИН коммент этим аккаунтом.
+
+    ``prescheduled=True`` (из бэкфилла): время уже разнесено планировщиком, свою
+    случайную задержку не добавляем — иначе задержка накладывается дважды.
+    """
     now = _now(ctx)
     rng = _rng(ctx)
     session_factory = ctx["session_factory"]
@@ -785,7 +794,11 @@ async def on_channel_post(
                   f"({campaign.min_words} слов) — пропуск.",
                   {"reason": "below_min_words", "account_id": account_id})
             return 0
-        delay = rng.uniform(campaign.posting_delay_min_sec, campaign.posting_delay_max_sec)
+        delay = (
+            0.0
+            if prescheduled
+            else rng.uniform(campaign.posting_delay_min_sec, campaign.posting_delay_max_sec)
+        )
 
     run_at = now + timedelta(seconds=delay)
     await task_queue.schedule(

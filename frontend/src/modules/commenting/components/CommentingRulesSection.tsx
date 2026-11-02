@@ -34,12 +34,36 @@ export function CommentingRulesSection({
   const [maxComments, setMaxComments] = useState(
     campaign.max_comments != null ? String(campaign.max_comments) : "",
   );
+  const [maxWords, setMaxWords] = useState(
+    campaign.max_words != null ? String(campaign.max_words) : "",
+  );
+  const [existingMaxPosts, setExistingMaxPosts] = useState(String(campaign.existing_scope_max_posts));
+  const [existingMaxAge, setExistingMaxAge] = useState(
+    campaign.existing_scope_max_age_days != null ? String(campaign.existing_scope_max_age_days) : "",
+  );
   useEffect(() => setKeywords(campaign.keywords.join("\n")), [campaign.keywords]);
   useEffect(() => setProbability(campaign.probability_percent), [campaign.probability_percent]);
   useEffect(() => setMinWords(campaign.min_words), [campaign.min_words]);
   useEffect(
     () => setMaxComments(campaign.max_comments != null ? String(campaign.max_comments) : ""),
     [campaign.max_comments],
+  );
+  useEffect(
+    () => setMaxWords(campaign.max_words != null ? String(campaign.max_words) : ""),
+    [campaign.max_words],
+  );
+  useEffect(
+    () => setExistingMaxPosts(String(campaign.existing_scope_max_posts)),
+    [campaign.existing_scope_max_posts],
+  );
+  useEffect(
+    () =>
+      setExistingMaxAge(
+        campaign.existing_scope_max_age_days != null
+          ? String(campaign.existing_scope_max_age_days)
+          : "",
+      ),
+    [campaign.existing_scope_max_age_days],
   );
 
   const commitKeywords = () => {
@@ -53,6 +77,21 @@ export function CommentingRulesSection({
     const n = maxComments.trim() ? Number(maxComments) : null;
     if (n === campaign.max_comments) return;
     onSave({ max_comments: n && n > 0 ? n : null });
+  };
+  const commitMaxWords = () => {
+    const n = maxWords.trim() ? Number(maxWords) : null;
+    if (n === campaign.max_words) return;
+    onSave({ max_words: n && n > 0 ? n : null });
+  };
+  const commitExistingMaxPosts = () => {
+    const n = Number(existingMaxPosts) || campaign.existing_scope_max_posts;
+    if (n === campaign.existing_scope_max_posts) return;
+    onSave({ existing_scope_max_posts: Math.max(1, n) });
+  };
+  const commitExistingMaxAge = () => {
+    const n = existingMaxAge.trim() ? Number(existingMaxAge) : null;
+    if (n === campaign.existing_scope_max_age_days) return;
+    onSave({ existing_scope_max_age_days: n && n > 0 ? n : null });
   };
 
   return (
@@ -112,6 +151,34 @@ export function CommentingRulesSection({
             value={campaign.post_scope}
             onChange={(v) => onSave({ post_scope: v })}
           />
+          {campaign.post_scope !== "new" && (
+            <div className="mt-3 grid grid-cols-2 items-end gap-3">
+              <Field label="Глубина (постов)">
+                <TextInput
+                  inputMode="numeric"
+                  value={existingMaxPosts}
+                  onChange={(e) => setExistingMaxPosts(e.target.value.replace(/\D/g, ""))}
+                  onBlur={commitExistingMaxPosts}
+                  placeholder="200"
+                  className="nums text-center"
+                />
+              </Field>
+              <Field label="Не старше (дней)">
+                <TextInput
+                  inputMode="numeric"
+                  value={existingMaxAge}
+                  onChange={(e) => setExistingMaxAge(e.target.value.replace(/\D/g, ""))}
+                  onBlur={commitExistingMaxAge}
+                  placeholder="Без ограничения"
+                  className="nums text-center"
+                />
+              </Field>
+              <p className="col-span-2 px-1 text-[12px] text-text-tertiary">
+                Чтобы не комментить тысячу старых постов: берём не глубже N постов
+                и не старше указанного возраста.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Режим работы */}
@@ -147,6 +214,16 @@ export function CommentingRulesSection({
           onChange={setMinWords}
           onCommit={() => onSave({ min_words: minWords })}
         />
+        <Field label="Макс. слов в комменте">
+          <TextInput
+            inputMode="numeric"
+            value={maxWords}
+            onChange={(e) => setMaxWords(e.target.value.replace(/\D/g, ""))}
+            onBlur={commitMaxWords}
+            placeholder="Без лимита"
+            className="nums text-center"
+          />
+        </Field>
       </div>
     </Section>
   );

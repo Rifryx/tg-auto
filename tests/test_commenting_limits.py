@@ -81,6 +81,14 @@ async def test_word_count_ignores_emoji_and_punctuation():
     assert limits.word_count("") == 0
 
 
+async def test_truncate_words_caps_length():
+    # None/0 — не трогаем; больше лимита — режем до N слов (пунктуация в слове).
+    assert limits.truncate_words("раз два три четыре", None) == "раз два три четыре"
+    assert limits.truncate_words("раз два три четыре", 0) == "раз два три четыре"
+    assert limits.truncate_words("раз два три четыре", 2) == "раз два"
+    assert limits.truncate_words("коротко!", 5) == "коротко!"
+
+
 async def test_window_only_in_time_window_mode():
     now = NOW_INSIDE
     old = now - timedelta(hours=2)
