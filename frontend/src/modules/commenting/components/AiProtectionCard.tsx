@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, ShieldCheck } from "lucide-react";
+import { CheckCircle2, ChevronDown, ShieldCheck } from "lucide-react";
+import { useState } from "react";
 import { aiProtectionApi } from "../api";
 import type { AiProtectionFeature } from "../types";
 
@@ -7,7 +8,21 @@ import type { AiProtectionFeature } from "../types";
  *
  * Заменяет paywall'ную заглушку конкурента. Показывает 4 подсистемы
  * защиты (все всегда «active», daemon'ы крутятся cron'ом воркера).
- * Данные тянутся из /modules/commenting/ai-protection/status. */
+ * Данные тянутся из /modules/commenting/ai-protection/status.
+ *
+ * Сворачивается тапом по шапке (пользователь просил, чтобы не мешала).
+ * Состояние запоминается в localStorage — свернул один раз и больше не
+ * отвлекает. */
+
+const _COLLAPSE_KEY = "ai-protection-collapsed";
+
+function _readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(_COLLAPSE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 export function AiProtectionCard() {
   const { data } = useQuery({
@@ -15,11 +30,29 @@ export function AiProtectionCard() {
     queryFn: aiProtectionApi.status,
     refetchInterval: 60_000,
   });
+  const [collapsed, setCollapsed] = useState(_readCollapsed);
+
+  const toggle = () => {
+    setCollapsed((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(_COLLAPSE_KEY, next ? "1" : "0");
+      } catch {
+        /* приватный режим / заблокированный storage — не критично */
+      }
+      return next;
+    });
+  };
 
   return (
     <section className="mb-7">
       <div className="rounded-card border border-status-active bg-surface-1 p-4">
-        <div className="mb-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={!collapsed}
+          className={`flex w-full items-center gap-2 text-left ${collapsed ? "" : "mb-3"}`}
+        >
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-status-active/15 text-status-active">
             <ShieldCheck className="h-5 w-5" strokeWidth={2} aria-hidden />
           </div>
@@ -27,20 +60,31 @@ export function AiProtectionCard() {
             <p className="text-[15px] font-semibold text-text-primary">
               ИИ Защита аккаунтов
             </p>
-            <p className="text-[12px] text-text-tertiary">
-              Работает в фоне на всех аккаунтах — не требует включения.
-            </p>
+            {!collapsed && (
+              <p className="text-[12px] text-text-tertiary">
+                Работает в фоне на всех аккаунтах — не требует включения.
+              </p>
+            )}
           </div>
-          <span className="ml-auto rounded-pill bg-status-active/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-status-active">
-            активна
+          <span className="ml-auto flex items-center gap-2">
+            <span className="rounded-pill bg-status-active/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-status-active">
+              активна
+            </span>
+            <ChevronDown
+              className={`h-4 w-4 text-text-tertiary transition-transform ${collapsed ? "-rotate-90" : ""}`}
+              strokeWidth={2}
+              aria-hidden
+            />
           </span>
-        </div>
+        </button>
 
-        <div className="grid grid-cols-2 gap-2">
-          {(data?.features ?? PLACEHOLDER_FEATURES).map((f) => (
-            <FeatureChip key={f.key} feature={f} />
-          ))}
-        </div>
+        {!collapsed && (
+          <div className="grid grid-cols-2 gap-2">
+            {(data?.features ?? PLACEHOLDER_FEATURES).map((f) => (
+              <FeatureChip key={f.key} feature={f} />
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );

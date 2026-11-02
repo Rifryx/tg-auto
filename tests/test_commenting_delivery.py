@@ -179,6 +179,20 @@ def test_pick_mode_image_when_sticker_off():
     assert delivery.pick_mode(campaign, rng, has_media=True, has_sticker=False) == "text_with_image"
 
 
+def test_pick_mode_respects_sticker_chance_zero():
+    # Ползунок на 0% → стикер не уходит даже при минимальном броске.
+    campaign = SimpleNamespace(use_stickers=True, attach_image=False, sticker_chance_percent=0)
+    rng = _SeqRng([0.0])
+    assert delivery.pick_mode(campaign, rng, has_media=True, has_sticker=True) == "text"
+
+
+def test_pick_mode_respects_image_chance_full():
+    # Ползунок на 100% → картинка уходит даже при высоком броске.
+    campaign = SimpleNamespace(use_stickers=False, attach_image=True, image_chance_percent=100)
+    rng = _SeqRng([0.99])
+    assert delivery.pick_mode(campaign, rng, has_media=True, has_sticker=False) == "text_with_image"
+
+
 # ── deliver_comment: интеграция ─────────────────────────────────────────────
 
 
@@ -231,6 +245,22 @@ async def test_deliver_uses_sticker_when_dice_and_pack_available(session):
     assert mode == "sticker"
     client.send_file.assert_awaited_once()
     client.send_message.assert_not_awaited()
+
+
+async def test_load_account_stickers_aggregates_all_packs(session):
+    """Стикеры собираются из ВСЕХ паков аккаунта, не только из первого."""
+    _clean(session)
+    client = _RecordingClient()
+    client._all_stickers = SimpleNamespace(
+        sets=[
+            SimpleNamespace(id=1, access_hash=2),
+            SimpleNamespace(id=3, access_hash=4),
+        ]
+    )
+    ctx = _ctx(session, client)
+    stickers = await delivery.load_account_stickers(ctx, client, account_id=1)
+    # два пака по 2 стикера из мока → 4 (а не 2, как при «только первый пак»).
+    assert len(stickers) == 4
 
 
 async def test_deliver_falls_back_to_text_without_stickers(session):

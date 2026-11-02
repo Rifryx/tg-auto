@@ -50,7 +50,9 @@ class CampaignCreate(BaseModel):
     # Стиль комментариев (§ Этап 4)
     use_emojis: bool = True
     use_stickers: bool = False
+    sticker_chance_percent: int = Field(default=25, ge=0, le=100)
     attach_image: bool = False
+    image_chance_percent: int = Field(default=40, ge=0, le=100)
     write_as_channel: bool = False
     verify_after_post: bool = False
     verify_delay_sec: int = Field(default=300, gt=0)
@@ -87,7 +89,9 @@ class CampaignUpdate(BaseModel):
     on_not_subscribed_action: Optional[OnNotSubscribedAction] = None
     use_emojis: Optional[bool] = None
     use_stickers: Optional[bool] = None
+    sticker_chance_percent: Optional[int] = Field(default=None, ge=0, le=100)
     attach_image: Optional[bool] = None
+    image_chance_percent: Optional[int] = Field(default=None, ge=0, le=100)
     write_as_channel: Optional[bool] = None
     verify_after_post: Optional[bool] = None
     verify_delay_sec: Optional[int] = Field(default=None, gt=0)
@@ -125,7 +129,9 @@ class CampaignRead(ORMModel):
     on_not_subscribed_action: OnNotSubscribedAction
     use_emojis: bool
     use_stickers: bool
+    sticker_chance_percent: int
     attach_image: bool
+    image_chance_percent: int
     write_as_channel: bool
     verify_after_post: bool
     verify_delay_sec: int

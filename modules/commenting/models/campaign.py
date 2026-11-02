@@ -86,6 +86,14 @@ class Campaign(Base, TimestampMixin):
             "verify_delay_sec > 0",
             name="campaign_verify_delay_valid",
         ),
+        CheckConstraint(
+            "sticker_chance_percent BETWEEN 0 AND 100",
+            name="campaign_sticker_chance_percent_valid",
+        ),
+        CheckConstraint(
+            "image_chance_percent BETWEEN 0 AND 100",
+            name="campaign_image_chance_percent_valid",
+        ),
         {"schema": COMMENTING_SCHEMA},
     )
 
@@ -189,8 +197,16 @@ class Campaign(Base, TimestampMixin):
     use_stickers: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Вероятность (в %) уйти стикером/картинкой, когда соответствующий тумблер
+    # включён. Раньше были захардкожены (25/40) — теперь настраиваются ползунком.
+    sticker_chance_percent: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=25, server_default="25"
+    )
     attach_image: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
+    )
+    image_chance_percent: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=40, server_default="40"
     )
     write_as_channel: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"

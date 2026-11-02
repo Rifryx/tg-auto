@@ -30,11 +30,19 @@ from worker.llm import StyleRandomizer
 
 get_logger = structlog.get_logger
 
-# Пороги случайной модели. Проверялись руками: не хотим спамить каждым
-# комментом стикером или картинкой, но и не хотим, чтобы флаг ощущался
-# декоративным.
+# Дефолтные пороги случайной модели (в долях). Используются как фолбэк, если
+# у кампании нет явных значений. Пользователь задаёт их ползунком — поля
+# sticker_chance_percent / image_chance_percent (в процентах).
 STICKER_CHANCE = 0.25
 IMAGE_CHANCE = 0.40
+
+
+def _chance(campaign: Campaign, attr: str, default: float) -> float:
+    """Вероятность (0..1) из поля-процента кампании; None/отсутствие → default."""
+    val = getattr(campaign, attr, None)
+    if val is None:
+        return default
+    return max(0, min(100, int(val))) / 100
 
 # Юникод-диапазоны эмодзи (совпадают с worker/llm/style.py, реюзим оттуда,
 # но локально держим свою функцию, чтобы не тянуть зависимость на приватку).
@@ -93,9 +101,17 @@ def pick_mode(
 
     Стикер и картинка не сочетаются — стикер сам по себе.
     """
-    if campaign.use_stickers and has_sticker and rng.random() < STICKER_CHANCE:
+    if (
+        campaign.use_stickers
+        and has_sticker
+        and rng.random() < _chance(campaign, "sticker_chance_percent", STICKER_CHANCE)
+    ):
         return "sticker"
-    if campaign.attach_image and has_media and rng.random() < IMAGE_CHANCE:
+    if (
+        campaign.attach_image
+        and has_media
+        and rng.random() < _chance(campaign, "image_chance_percent", IMAGE_CHANCE)
+    ):
         return "text_with_image"
     return "text"
 
@@ -138,11 +154,20 @@ def pick_media_bytes(session, campaign_id: int, rng: random.Random) -> Optional[
 # --- стикеры аккаунта --------------------------------------------------------
 
 
-async def load_account_stickers(ctx: dict, client, account_id: int) -> list:
-    """Первый стикер-пак аккаунта (кешируется в ctx на время задачи).
+# Сколько паков аккаунта обходим и сколько стикеров максимум собираем. Берём
+# из ВСЕХ сохранённых паков (а не только первого) — так выбор разнообразнее и
+# меньше повторов. Потолки держат число RPC и память в разумных рамках.
+_MAX_STICKER_SETS = 12
+_MAX_STICKERS = 400
 
-    Если пак пуст или запросить не удалось — возвращает пустой список.
-    Дальше используется для случайного выбора: `rng.choice(stickers)`.
+
+async def load_account_stickers(ctx: dict, client, account_id: int) -> list:
+    """Стикеры из ВСЕХ сохранённых паков аккаунта (кеш в ctx на время задачи).
+
+    Раньше брали только первый пак — выбор всегда из одного набора. Теперь
+    собираем стикеры по всем пакам (до ``_MAX_STICKER_SETS``), чтобы
+    ``rng.choice(stickers)`` давал разнообразие. Пусто/ошибка → пустой список
+    (стикеры не критичны, просто уйдёт текст).
     """
     cache = ctx.setdefault("_sticker_cache", {})
     if account_id in cache:
@@ -162,23 +187,30 @@ async def load_account_stickers(ctx: dict, client, account_id: int) -> list:
         )
         # Все версии telethon: sets — либо есть, либо (при NotModified) пусто.
         sets = getattr(all_sets, "sets", None) or []
-        if not sets:
-            cache[account_id] = stickers
-            return stickers
-        first_set = sets[0]
-        pack = await around_telethon_call(
-            lambda: client(
-                GetStickerSetRequest(
-                    stickerset=InputStickerSetID(id=first_set.id, access_hash=first_set.access_hash),
-                    hash=0,
+        for st in sets[:_MAX_STICKER_SETS]:
+            try:
+                pack = await around_telethon_call(
+                    lambda st=st: client(
+                        GetStickerSetRequest(
+                            stickerset=InputStickerSetID(id=st.id, access_hash=st.access_hash),
+                            hash=0,
+                        )
+                    ),
+                    account_id=account_id,
+                    session_factory=ctx["session_factory"],
+                    publisher=ctx.get("publisher"),
+                    now=ctx.get("now"),
                 )
-            ),
-            account_id=account_id,
-            session_factory=ctx["session_factory"],
-            publisher=ctx.get("publisher"),
-            now=ctx.get("now"),
-        )
-        stickers = list(getattr(pack, "documents", None) or [])
+            except Exception as exc:  # noqa: BLE001 — один пак не отдался, берём остальные
+                get_logger().info(
+                    "commenting.delivery.sticker_set_skipped",
+                    account_id=account_id, error=repr(exc),
+                )
+                continue
+            stickers.extend(getattr(pack, "documents", None) or [])
+            if len(stickers) >= _MAX_STICKERS:
+                stickers = stickers[:_MAX_STICKERS]
+                break
     except Exception as exc:  # noqa: BLE001 - стикеры не критичны, просто не шлём
         get_logger().info(
             "commenting.delivery.stickers_unavailable",
