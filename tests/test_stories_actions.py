@@ -66,11 +66,17 @@ class _FakeClient:
         *,
         entities: dict[str, _FakeEntity] | None = None,
         stories: list[_FakeStory] | None = None,
+        premium: bool = True,
     ) -> None:
         self.entities = entities or {}
         self._stories = stories or []
         self.calls: list = []
         self.uploaded_size: int | None = None
+        self._premium = premium
+
+    async def get_me(self):
+        self.calls.append(("get_me", None))
+        return SimpleNamespace(premium=self._premium)
 
     async def upload_file(self, data: bytes, file_name: str | None = None):
         self.calls.append(("upload_file", len(data)))
@@ -165,14 +171,41 @@ async def test_publish_story_uploads_and_sends(session):
     )
     assert result.ok is True
     assert result.detail["privacy"] == "everybody"
-    # Порядок: upload_file → SendStoryRequest
+    # Порядок: get_me (премиум-пречек) → upload_file → SendStoryRequest
     names = [c[0] for c in client.calls]
-    assert names[0] == "upload_file"
-    assert names[1] == "send_story"
-    send_args = client.calls[1][1]
+    assert "get_me" in names
+    assert names.index("upload_file") < names.index("send_story")
+    send_call = next(c for c in client.calls if c[0] == "send_story")
+    send_args = send_call[1]
     assert send_args["period"] == 86400
     assert send_args["caption"] == "hi"
     assert send_args["privacy"] == InputPrivacyValueAllowAll.__name__
+
+
+async def test_publish_story_skips_non_premium(session):
+    """Не-премиум аккаунт: скип ДО загрузки/публикации, с понятной причиной."""
+    _clean(session)
+    account_id = _make_account(session)
+    client = _FakeClient(premium=False)
+
+    result = await publish_run(
+        account_id=account_id,
+        payload=PublishStoryPayload(
+            media_b64=PNG_1x1_B64, caption="hi", privacy="everybody", period=86400,
+        ),
+        session_factory=_factory(session),
+        publisher=None,
+        client=client,
+    )
+    assert result.ok is False and result.skipped is True
+    assert result.detail["reason"] == "not_premium"
+    # Не дошли до загрузки/публикации.
+    names = [c[0] for c in client.calls]
+    assert "upload_file" not in names and "send_story" not in names
+    # Флаг зафиксирован в БД (для бейджа).
+    from core.repositories.account import AccountRepository
+
+    assert AccountRepository(session).get(account_id).is_premium is False
 
 
 async def test_publish_story_close_friends_privacy(session):
