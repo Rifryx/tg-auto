@@ -265,14 +265,29 @@ async def warming_tick_impl(ctx: dict, account_id: int) -> Optional[str]:
 
 
 async def maintenance_scheduler_impl(ctx: dict, *args: Any, **kwargs: Any) -> list[int]:
-    """Cron (каждые 5 мин): для аккаунтов в pool планирует warming.tick по сроку."""
+    """Cron (каждые 5 мин): планирует warming.tick по сроку.
+
+    Берёт аккаунты в pool И в warming (а не только pool). Баг-фикс: старт
+    первичного прогрева (``initial_start_impl``) ставит всего 2–10 тиков
+    (``PRESET_ACTION_COUNT``) — этого недостаточно, чтобы набрать
+    ``WARMING_READY_ACTIONS=50`` и перейти в pool. Реальный путь для
+    подавляющего большинства аккаунтов — ``WARMING_READY_DAYS=14`` (через
+    ``age_ok`` в ``_maybe_complete_warming``), а он проверяется только ВНУТРИ
+    тика. Если планировщик берёт только pool, аккаунт в статусе warming
+    получает несколько тиков в первые часы — и дальше НИКОГДА больше: нечему
+    его разбудить, он застревает в warming навсегда (симптом «прогрев
+    остановился, последнее действие было N дней назад»).
+    """
     now = _now(ctx)
     session_factory = ctx["session_factory"]
     task_queue = _task_queue(ctx)
 
     due: list[int] = []
     with session_factory() as session:
-        accounts = AccountRepository(session).list_by_status(AccountStatus.POOL)
+        repo = AccountRepository(session)
+        accounts = repo.list_by_status(AccountStatus.POOL) + repo.list_by_status(
+            AccountStatus.WARMING
+        )
         wa_repo = WarmingActivityRepository(session)
         h_repo = AccountHealthRepository(session)
         for account in accounts:
