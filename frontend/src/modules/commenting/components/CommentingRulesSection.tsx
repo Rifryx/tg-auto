@@ -8,6 +8,8 @@ import type {
 } from "../types";
 import {
   Field,
+  FieldGroup,
+  NumberStepper,
   RangeField,
   Section,
   SegmentedControl,
@@ -41,6 +43,8 @@ export function CommentingRulesSection({
   const [existingMaxAge, setExistingMaxAge] = useState(
     campaign.existing_scope_max_age_days != null ? String(campaign.existing_scope_max_age_days) : "",
   );
+  const [windowAfterPost, setWindowAfterPost] = useState(campaign.window_after_post_sec ?? 3600);
+  const [pauseBetween, setPauseBetween] = useState(campaign.pause_between_sec ?? 60);
   useEffect(() => setKeywords(campaign.keywords.join("\n")), [campaign.keywords]);
   useEffect(() => setProbability(campaign.probability_percent), [campaign.probability_percent]);
   useEffect(() => setMinWords(campaign.min_words), [campaign.min_words]);
@@ -64,6 +68,14 @@ export function CommentingRulesSection({
           : "",
       ),
     [campaign.existing_scope_max_age_days],
+  );
+  useEffect(
+    () => setWindowAfterPost(campaign.window_after_post_sec ?? 3600),
+    [campaign.window_after_post_sec],
+  );
+  useEffect(
+    () => setPauseBetween(campaign.pause_between_sec ?? 60),
+    [campaign.pause_between_sec],
   );
 
   const commitKeywords = () => {
@@ -192,6 +204,36 @@ export function CommentingRulesSection({
             value={campaign.work_mode}
             onChange={(v) => onSave({ work_mode: v })}
           />
+          {campaign.work_mode === "by_time_window" && (
+            <div className="mt-3 grid grid-cols-2 items-end gap-3">
+              <FieldGroup label="Окно после поста">
+                <NumberStepper
+                  value={String(windowAfterPost)}
+                  onChange={(v) => setWindowAfterPost(Number(v) || 0)}
+                  onCommit={(next) => onSave({ window_after_post_sec: Number(next) || 0 })}
+                  step={60}
+                  min={60}
+                  suffix="сек"
+                  ariaLabel="Окно после публикации, сек"
+                />
+              </FieldGroup>
+              <FieldGroup label="Пауза между комментами">
+                <NumberStepper
+                  value={String(pauseBetween)}
+                  onChange={(v) => setPauseBetween(Number(v) || 0)}
+                  onCommit={(next) => onSave({ pause_between_sec: Number(next) || 0 })}
+                  step={10}
+                  min={0}
+                  suffix="сек"
+                  ariaLabel="Пауза между комментариями, сек"
+                />
+              </FieldGroup>
+              <p className="col-span-2 px-1 text-[12px] text-text-tertiary">
+                Аккаунты комментируют только пока не истекло окно после публикации
+                поста и не чаще, чем раз в паузу.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Лимиты */}

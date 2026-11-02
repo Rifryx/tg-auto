@@ -285,6 +285,32 @@ def test_thread_context_feeds_post_text(session):
     assert "без текста" in empty[0].content.lower()
 
 
+def test_thread_context_ends_on_user_for_thread_continuation(session):
+    """Баг-фикс: тред-продолжение (аккаунт отвечает сам себе) заканчивалось
+    на role=assistant — многие OpenAI-совместимые шлюзы (в т.ч. AnyModel)
+    отклоняют такой список сообщений 400 Bad Request. Разговор должен
+    заканчиваться на user."""
+    from core.enums import CommentStatus
+    from modules.commenting.schemas import CommentLogCreate
+
+    _clean(session)
+    campaign_id = _make_campaign(session)
+    account_id = _make_assigned(session, campaign_id)
+    CommentLogRepository(session).create(
+        CommentLogCreate(
+            campaign_id=campaign_id, account_id=account_id,
+            post_channel_msg_id=57, comment_text="Моё прошлое сообщение",
+            status=CommentStatus.POSTED, posted_message_id=999,
+        )
+    )
+    session.commit()
+
+    msgs = runner._thread_context(session, campaign_id, 57, "Пост")
+    assert msgs[-1].role == "user"
+    assert msgs[-2].role == "assistant"
+    assert msgs[-2].content == "Моё прошлое сообщение"
+
+
 # --- 2. post_comment отправляет и пишет CommentLog ---------------------------
 
 

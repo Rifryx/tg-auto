@@ -244,7 +244,11 @@ async def test_deliver_uses_sticker_when_dice_and_pack_available(session):
     )
     assert mode == "sticker"
     client.send_file.assert_awaited_once()
-    client.send_message.assert_not_awaited()
+    # Текст уходит СЛЕДОМ отдельным сообщением — Telegram не поддерживает
+    # caption на стикерах. Без этого сгенерированный коммент (LLM уже
+    # оплачен) никогда не попадал в чат, только в лог.
+    client.send_message.assert_awaited_once()
+    assert client.send_message.call_args.args[1] == "hi"
 
 
 async def test_load_account_stickers_aggregates_all_packs(session):
@@ -300,6 +304,45 @@ async def test_deliver_image_uses_campaign_media(session):
     client.send_file.assert_awaited_once()
     call = client.send_file.await_args
     assert call.kwargs["caption"] == "hi"
+
+
+async def test_deliver_image_without_caption_when_disabled(session):
+    """image_caption_enabled=False → фото уходит без caption."""
+    _clean(session)
+    campaign_id = _make_campaign(session)
+    _set(session, campaign_id, attach_image=True, image_caption_enabled=False)
+    account_id = _assigned(session, campaign_id)
+    await _add_media(session, campaign_id)
+    campaign = CampaignRepository(session).get(campaign_id)
+    client = _RecordingClient()
+    ctx = _ctx(session, client, rng=_SeqRng([0.1]))
+
+    _, mode = await delivery.deliver_comment(
+        ctx, client, campaign,
+        account_id=account_id, discussion_group_id=555, text="hi",
+        reply_to=100, now=None, publisher=None, rng=ctx["rng"],
+    )
+    assert mode == "text_with_image"
+    assert client.send_file.await_args.kwargs["caption"] is None
+
+
+async def test_campaign_media_ids_filters_non_image_mime(session):
+    """Defense-in-depth: не-картинка (если как-то попала в БД раньше фикса)
+    не возвращается — не даём случайному документу/видео уйти в коммент."""
+    _clean(session)
+    campaign_id = _make_campaign(session)
+    image_id = await _add_media(session, campaign_id)
+    from modules.commenting.models import CampaignMediaAsset
+
+    audio = MediaAssetRepository(session).get_or_create(
+        user_id="u", blob=b"id3-bytes", mime="audio/mpeg", filename="unnamed"
+    )
+    session.commit()
+    session.add(CampaignMediaAsset(campaign_id=campaign_id, media_asset_id=audio.id))
+    session.commit()
+
+    ids = delivery.campaign_media_ids(session, campaign_id)
+    assert ids == [image_id]
 
 
 async def test_deliver_image_falls_back_when_no_assets(session):
@@ -420,6 +463,39 @@ async def test_api_set_campaign_media_isolates_by_owner(session):
     assert r.status_code == 200 and r.json()["media_asset_ids"] == [asset_own.id]
     r = client.get(f"/modules/commenting/campaigns/{campaign_id}/media")
     assert r.json()["media_asset_ids"] == [asset_own.id]
+
+
+async def test_api_set_campaign_media_rejects_non_image(session):
+    """Баг-репорт «в комментарий как-то прикрепился файл»: линковать к
+    кампании можно только image/* — видео/аудио/документ отклоняются."""
+    _clean(session)
+    campaign_id = _make_campaign(session)
+    audio = MediaAssetRepository(session).get_or_create(
+        user_id="u", blob=b"id3", mime="audio/mpeg", filename="unnamed"
+    )
+    session.commit()
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.deps.auth import require_user
+    from api.deps.db import get_session
+    from api.deps.queue import get_publisher, get_task_queue
+    from modules.commenting.api import router
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_session] = lambda: session
+    app.dependency_overrides[get_publisher] = lambda: None
+    app.dependency_overrides[get_task_queue] = lambda: _SpyTaskQueue()
+    app.dependency_overrides[require_user] = lambda: "u"
+    client = TestClient(app)
+    r = client.put(
+        f"/modules/commenting/campaigns/{campaign_id}/media",
+        json={"media_asset_ids": [audio.id]},
+    )
+    assert r.status_code == 422
+    assert str(audio.id) in r.text or "image" in r.text.lower()
 
 
 async def test_create_campaign_sets_owner_user_id(session):

@@ -228,6 +228,11 @@ class Campaign(Base, TimestampMixin):
     image_chance_percent: Mapped[int] = mapped_column(
         Integer, nullable=False, default=40, server_default="40"
     )
+    # Подпись к фото: вкл (по умолчанию) — caption = сгенерированный ИИ-текст;
+    # выкл — фото уходит без подписи (экономит слова, когда текст лишний).
+    image_caption_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     write_as_channel: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

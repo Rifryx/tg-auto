@@ -397,6 +397,14 @@ export function CampaignDetailScreen() {
               onCommit={() => save.mutate({ image_chance_percent: imageChance })}
             />
           )}
+          {c.attach_image && (
+            <StyleToggle
+              label="Подпись к фото"
+              hint="Выключено — фото уходит без текста. Включено — подпись = сгенерированный ИИ-коммент."
+              checked={c.image_caption_enabled}
+              onChange={(v) => save.mutate({ image_caption_enabled: v })}
+            />
+          )}
           <StyleToggle
             label="Писать от имени канала"
             hint="Настраивать некого — на каждую публикацию система сама проверяет права post_messages у аккаунта: есть права → от канала, нет → автоматически от аккаунта."

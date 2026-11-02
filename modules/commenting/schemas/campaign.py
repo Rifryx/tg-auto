@@ -56,6 +56,7 @@ class CampaignCreate(BaseModel):
     sticker_chance_percent: int = Field(default=25, ge=0, le=100)
     attach_image: bool = False
     image_chance_percent: int = Field(default=40, ge=0, le=100)
+    image_caption_enabled: bool = True
     write_as_channel: bool = False
     verify_after_post: bool = False
     verify_delay_sec: int = Field(default=300, gt=0)
@@ -98,6 +99,7 @@ class CampaignUpdate(BaseModel):
     sticker_chance_percent: Optional[int] = Field(default=None, ge=0, le=100)
     attach_image: Optional[bool] = None
     image_chance_percent: Optional[int] = Field(default=None, ge=0, le=100)
+    image_caption_enabled: Optional[bool] = None
     write_as_channel: Optional[bool] = None
     verify_after_post: Optional[bool] = None
     verify_delay_sec: Optional[int] = Field(default=None, gt=0)
@@ -141,6 +143,7 @@ class CampaignRead(ORMModel):
     sticker_chance_percent: int
     attach_image: bool
     image_chance_percent: int
+    image_caption_enabled: bool
     write_as_channel: bool
     verify_after_post: bool
     verify_delay_sec: int

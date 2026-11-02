@@ -88,6 +88,23 @@ def _rng(ctx: dict) -> random.Random:
     return ctx.get("rng") or random.Random()
 
 
+def _fmt_local(dt: datetime, campaign) -> str:
+    """Время для сообщений в таймлайне — в часовом поясе КАМПАНИИ, не сервера.
+
+    Баг-фикс: раньше ``dt.astimezone()`` (без аргумента) брал системный tz
+    процесса воркера (обычно UTC в контейнере) — время в сообщении («опубликую
+    через 31с (~18:15:34)») не совпадало с временем самого события в ленте
+    («20:15:05», отрендеренным фронтом в tz браузера пользователя). Кампания
+    уже хранит ``active_hours_tz`` (часовой пояс, который пользователь сам
+    выбрал для расписания) — логично показывать ETA в нём же.
+    """
+    try:
+        tz = ZoneInfo(campaign.active_hours_tz) if campaign is not None else None
+    except Exception:  # noqa: BLE001 — некорректная/неизвестная tz в БД
+        tz = None
+    return dt.astimezone(tz).strftime("%H:%M:%S")
+
+
 def _task_queue(ctx: dict) -> TaskQueue:
     return ctx.get("task_queue") or TaskQueue(redis=ctx.get("redis"))
 
@@ -216,6 +233,19 @@ def _thread_context(
         )
     messages = [Message(role="user", content=head)]
     messages += [Message(role="assistant", content=log.comment_text) for log in thread]
+    # Разговор ДОЛЖЕН заканчиваться на user: это тред-продолжение (аккаунт
+    # отвечает сам себе), и без финального user-сообщения список заканчивается
+    # на assistant — многие шлюзы (в т.ч. AnyModel/Gemini) такое отклоняют с
+    # 400 Bad Request. Баг проявлялся именно на второй-и-далее генерации в
+    # треде: «Ошибка генерации ответа: HTTPStatusError 400» сразу после
+    # успешной публикации первого коммента.
+    if messages[-1].role == "assistant":
+        messages.append(
+            Message(
+                role="user",
+                content="Продолжи мысль одной короткой репликой — как будто дополняешь свой же комментарий.",
+            )
+        )
     return messages
 
 
@@ -757,8 +787,16 @@ async def on_channel_post(
                   {"reason": "blacklisted", "account_id": account_id})
             return 0
 
-        _push(ctx, campaign_id, TimelineKind.GENERATION_STARTED,
-              f"Генерирую ответ на пост #{channel_msg_id} в «{ch_name}» (акк. #{account_id})…",
+        # in_reply_to задан ТОЛЬКО для тред-продолжения (аккаунт отвечает сам
+        # себе после своего же коммента) — отличаем в сообщении, иначе выглядит
+        # как «тот же пост поймали ещё раз» (баг-репорт: «ловит пост и
+        # коментит, а потом снова ловит тот же пост»).
+        gen_msg = (
+            f"Продолжаю тред под своим комментом к посту #{channel_msg_id} в «{ch_name}» (акк. #{account_id})…"
+            if in_reply_to is not None
+            else f"Генерирую ответ на пост #{channel_msg_id} в «{ch_name}» (акк. #{account_id})…"
+        )
+        _push(ctx, campaign_id, TimelineKind.GENERATION_STARTED, gen_msg,
               {"account_id": account_id, "channel_msg_id": channel_msg_id})
         reply_target = in_reply_to if in_reply_to is not None else channel_msg_id
         provider = ctx.get("llm_provider") or get_provider(campaign.llm_provider)
@@ -817,7 +855,7 @@ async def on_channel_post(
         "commenting.on_channel_post.scheduled",
         account_id=account_id, channel_msg_id=channel_msg_id, thread_depth=thread_depth,
     )
-    eta = run_at.astimezone().strftime("%H:%M:%S")
+    eta = _fmt_local(run_at, campaign)
     _push(ctx, campaign_id, TimelineKind.COMMENT_SCHEDULED,
           f"Ответ на пост #{channel_msg_id} в «{ch_name}» готов — опубликую через "
           f"{int(delay)}с (~{eta}).",
@@ -876,7 +914,7 @@ async def post_channel_comment(
                 log.info("commenting.post_channel_comment.paused", account_id=account_id, until=wait.isoformat())
                 _push(ctx, campaign_id, TimelineKind.COMMENT_SCHEDULED,
                       f"Коммент (акк. #{account_id}) отложен до "
-                      f"{wait.astimezone().strftime('%H:%M:%S')} — пауза между комментами.",
+                      f"{_fmt_local(wait, campaign)} — пауза между комментами.",
                       {"reason": "pause", "account_id": account_id})
                 return None
 
@@ -897,7 +935,7 @@ async def post_channel_comment(
         log.info("commenting.post_channel_comment.paused", account_id=account_id, until=wait.isoformat())
         _push(ctx, campaign_id, TimelineKind.COMMENT_SCHEDULED,
               f"Коммент (акк. #{account_id}) отложен до "
-              f"{wait.astimezone().strftime('%H:%M:%S')} — пауза между комментами.",
+              f"{_fmt_local(wait, campaign)} — пауза между комментами.",
               {"reason": "pause", "account_id": account_id})
         return None
 
