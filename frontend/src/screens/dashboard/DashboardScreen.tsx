@@ -130,11 +130,12 @@ function DashboardContent({ data }: { data: Dashboard }) {
         </section>
       )}
 
-      {/* Activity feed */}
+      {/* Activity feed — отдельный блок с прокруткой: без неё лента (до 20
+          строк) растягивала весь экран обзора в длинную простыню. */}
       <section className="mb-4 lg:mb-0">
         <SectionTitle>Активность</SectionTitle>
         {data.recent_activity.length > 0 ? (
-          <div className="card overflow-hidden p-0">
+          <div className="card max-h-[60vh] overflow-y-auto overflow-x-hidden p-0 [scrollbar-width:thin]">
             {data.recent_activity.slice(0, 20).map((item, i) => (
               <div key={i} className={i > 0 ? "border-t border-hairline" : ""}>
                 <ActivityRow item={item} tz={tz} />
