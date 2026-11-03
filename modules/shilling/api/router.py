@@ -9,8 +9,6 @@
 
 from __future__ import annotations
 
-import sys
-import traceback
 import uuid
 from typing import Optional
 
@@ -151,19 +149,9 @@ def create_campaign(
     session: Session = Depends(get_session),
     _limit: None = Depends(enforce_limit("shilling_campaigns_active_max")),
 ) -> CampaignRead:
-    # ВРЕМЕННЫЙ диагностический try/except (баг-репорт: 500 на создании
-    # кампании, трейсбэк не виден НИГДЕ — ни в структурированных логах, ни
-    # в консоли). Пишем в sys.__stderr__ напрямую — это «настоящий» поток,
-    # который Python хранит отдельно и не трогает ни при какой переконфигурации
-    # logging/structlog. Убрать после диагностики.
-    try:
-        campaign = CampaignRepository(session).create(body)
-        session.commit()
-        return CampaignRead.model_validate(campaign)
-    except Exception:
-        print("=== shilling.create_campaign FAILED ===", file=sys.__stderr__, flush=True)
-        print(traceback.format_exc(), file=sys.__stderr__, flush=True)
-        raise
+    campaign = CampaignRepository(session).create(body)
+    session.commit()
+    return CampaignRead.model_validate(campaign)
 
 
 @router.patch("/campaigns/{campaign_id}", response_model=CampaignRead)
@@ -172,18 +160,11 @@ def patch_campaign(
     body: CampaignUpdate,
     session: Session = Depends(get_session),
 ) -> CampaignRead:
-    try:
-        campaign = CampaignRepository(session).update(campaign_id, body)
-        if campaign is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
-        session.commit()
-        return CampaignRead.model_validate(campaign)
-    except HTTPException:
-        raise
-    except Exception:
-        print("=== shilling.patch_campaign FAILED ===", file=sys.__stderr__, flush=True)
-        print(traceback.format_exc(), file=sys.__stderr__, flush=True)
-        raise
+    campaign = CampaignRepository(session).update(campaign_id, body)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+    session.commit()
+    return CampaignRead.model_validate(campaign)
 
 
 @router.delete(
