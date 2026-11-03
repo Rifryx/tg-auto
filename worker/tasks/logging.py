@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 
 import structlog
 
@@ -10,7 +11,16 @@ _configured = False
 
 
 def configure_logging(level: int = logging.INFO) -> None:
-    """Настраивает structlog на JSON-вывод. Идемпотентна."""
+    """Настраивает structlog на JSON-вывод. Идемпотентна.
+
+    ВАЖНО: пишем в stderr, а не в stdout (дефолт PrintLoggerFactory). stdout у
+    CPython на Windows под `uvicorn --reload` идёт через pipe в процесс
+    перезагрузчика и буферизуется БЛОКАМИ — JSON-лог необработанного
+    исключения (api.unhandled_exception) мог застрять в буфере и не попасть
+    в терминал, пока буфер не заполнится или процесс не завершится (баг-репорт
+    «500 в консоли нет вообще нигде», хотя запрос реально падал). stderr в
+    CPython гарантированно без такой буферизации — пишется сразу.
+    """
     global _configured
     if _configured:
         return
@@ -24,7 +34,7 @@ def configure_logging(level: int = logging.INFO) -> None:
             structlog.processors.JSONRenderer(),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(level),
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=structlog.PrintLoggerFactory(file=sys.stderr),
         cache_logger_on_first_use=True,
     )
     _configured = True
