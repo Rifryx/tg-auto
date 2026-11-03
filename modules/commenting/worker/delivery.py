@@ -19,6 +19,7 @@ Runtime-эффект: `deliver_comment` заменяет прежний вызо
 
 from __future__ import annotations
 
+import io
 import random
 from typing import Any, Optional
 
@@ -139,6 +140,38 @@ def campaign_media_ids(session, campaign_id: int) -> list[int]:
         )
     ).scalars()
     return list(rows)
+
+
+# mime → расширение, которое Telethon распознаёт как «картинка» (utils.is_image
+# смотрит ТОЛЬКО на расширение файла — байты не сниффает вообще).
+_IMAGE_EXT_BY_MIME = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "image/bmp": ".bmp",
+}
+
+
+def _photo_file(data: bytes, mime: str) -> io.BytesIO:
+    """Байты картинки как именованный BytesIO — чтобы Telethon отправил её
+
+    ОБЫЧНЫМ сжатым фото, а не файлом-документом.
+
+    Баг: Telethon решает photo-или-документ по ``utils.is_image(file)``, а та
+    функция проверяет ТОЛЬКО расширение имени файла (``file.name``) — байты
+    содержимого вообще не смотрит. ``force_document=False`` тут бессилен: при
+    `file=<bytes>` без имени ``is_image()`` всегда возвращает False, и Telegram
+    получает ``InputMediaUploadedDocument`` → показывает «unnamed, N МБ» вместо
+    превью фото (баг-репорт «отправляет фото файлом, а должен обычным фото»).
+    Присваиваем ``.name`` с правильным расширением — и Telethon сам сжимает
+    фото под лимиты Telegram (как обычная отправка).
+    """
+    ext = _IMAGE_EXT_BY_MIME.get((mime or "").lower(), ".jpg")
+    buf = io.BytesIO(data)
+    buf.name = f"photo{ext}"
+    return buf
 
 
 def pick_media_bytes(session, campaign_id: int, rng: random.Random) -> Optional[tuple[bytes, str, str]]:
@@ -379,11 +412,14 @@ async def deliver_comment(
             # Подпись опциональна (image_caption_enabled): выключена — фото
             # уходит голым, без сгенерированного ИИ-текста.
             caption = text if campaign.image_caption_enabled else None
+            # Именованный BytesIO — иначе Telethon не распознаёт картинку и
+            # шлёт её файлом-документом (is_image() смотрит только на имя).
+            photo_file = _photo_file(data, mime)
             try:
                 sent = await _call(
                     lambda: client.send_file(
                         discussion_group_id,
-                        file=data,
+                        file=photo_file,
                         caption=caption,
                         reply_to=reply_to,
                         force_document=False,
