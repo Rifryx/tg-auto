@@ -92,23 +92,33 @@ export function GenerateScenarioSheet({
         roleIdByName.set(r.name, created.id);
       }
       // Шаги по порядку → запоминаем созданные id для reply-связок.
-      const createdStepIds: number[] = [];
+      // Индекс в createdStepIds должен совпадать с индексом в draft.steps
+      // (reply_to_step — 1-based индекс именно в draft), поэтому для шагов
+      // с неизвестной ролью кладём null, а не пропускаем элемент массива.
+      const createdStepIds: (number | null)[] = [];
       for (const step of draft.steps) {
         const roleId = roleIdByName.get(step.role);
-        if (roleId == null) continue;
+        if (roleId == null) {
+          createdStepIds.push(null);
+          continue;
+        }
+        const isReaction = step.step_type === "reaction";
         const created = await shillingApi.addStep(scenario.id, {
           role_id: roleId,
-          step_type: "message",
-          text: step.text,
+          step_type: isReaction ? "reaction" : "message",
+          text: isReaction ? null : step.text,
+          reaction_emoji: isReaction ? step.reaction_emoji ?? null : null,
         });
         createdStepIds.push(created.id);
       }
       // Второй проход: проставляем reply_to_step_id (1-based индекс в draft).
       for (let i = 0; i < draft.steps.length; i++) {
         const rt = draft.steps[i].reply_to_step;
-        if (rt != null && rt >= 1 && rt <= createdStepIds.length && createdStepIds[i] != null) {
-          await shillingApi.updateStep(scenario.id, createdStepIds[i], {
-            reply_to_step_id: createdStepIds[rt - 1],
+        const stepId = createdStepIds[i];
+        const replyToId = rt != null && rt >= 1 && rt <= createdStepIds.length ? createdStepIds[rt - 1] : null;
+        if (stepId != null && replyToId != null) {
+          await shillingApi.updateStep(scenario.id, stepId, {
+            reply_to_step_id: replyToId,
           });
         }
       }
@@ -210,7 +220,9 @@ export function GenerateScenarioSheet({
                     <RoleAvatar name={s.role} color={roleColorForIndex(roleIdx)} size={24} />
                     <div className="min-w-0">
                       <p className="text-[11px] font-medium text-text-secondary">{s.role}</p>
-                      <p className="text-[13px] text-text-primary">{s.text}</p>
+                      <p className="text-[13px] text-text-primary">
+                        {s.step_type === "reaction" ? `реакция ${s.reaction_emoji ?? ""}` : s.text}
+                      </p>
                     </div>
                   </div>
                 );
