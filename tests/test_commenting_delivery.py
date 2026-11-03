@@ -304,6 +304,27 @@ async def test_deliver_image_uses_campaign_media(session):
     client.send_file.assert_awaited_once()
     call = client.send_file.await_args
     assert call.kwargs["caption"] == "hi"
+    # Баг-фикс: Telethon решает photo-vs-документ ТОЛЬКО по имени файла
+    # (is_image() не сниффает байты) — без .name с image-расширением фото
+    # уходило как «unnamed»-документ, а не обычное сжатое фото.
+    sent_file = call.kwargs["file"]
+    assert sent_file.name.endswith((".jpg", ".png", ".webp", ".gif", ".bmp"))
+
+
+def test_photo_file_names_bytes_for_telethon_image_detection():
+    """_photo_file оборачивает байты в именованный BytesIO — иначе
+    Telethon.utils.is_image() (смотрит только на расширение) всегда
+    возвращает False для сырых bytes и шлёт фото файлом-документом."""
+    buf = delivery._photo_file(b"\x89PNG\r\n\x1a\n...", "image/png")
+    assert buf.name == "photo.png"
+    assert buf.read() == b"\x89PNG\r\n\x1a\n..."
+
+    buf2 = delivery._photo_file(b"\xff\xd8\xff...", "image/jpeg")
+    assert buf2.name == "photo.jpg"
+
+    # Неизвестный image/* mime — безопасный фолбэк на .jpg, не падаем.
+    buf3 = delivery._photo_file(b"...", "image/tiff")
+    assert buf3.name == "photo.jpg"
 
 
 async def test_deliver_image_without_caption_when_disabled(session):
