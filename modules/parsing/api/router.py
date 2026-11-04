@@ -188,6 +188,32 @@ def delete_targets(
     return {"removed": removed, "remaining": remaining}
 
 
+class DeleteCommunitiesBody(BaseModel):
+    item_ids: list[int] = Field(..., min_length=1, max_length=5000)
+
+
+@router.post("/lists/{list_id}/communities/delete")
+def delete_communities(
+    list_id: int,
+    body: DeleteCommunitiesBody,
+    session: Session = Depends(get_session),
+):
+    """Удаляет выбранные сообщества из списка (не весь список целиком).
+
+    Жалоба: «толку от этих каналов в коллекции, если их нельзя выбрать или
+    удалить оттуда» — зеркало ``/lists/{list_id}/targets/delete``."""
+    if ParsedListRepository(session).get_by_id(list_id) is None:
+        raise HTTPException(status_code=404, detail={
+            "error": "not_found", "message": f"parsed list {list_id} not found",
+        })
+    item_repo = ParsedCommunityItemRepository(session)
+    removed = item_repo.delete_items(list_id, body.item_ids)
+    remaining = item_repo.count_by_list(list_id)
+    ParsedListRepository(session).update(list_id, {"after_filters_count": remaining})
+    session.commit()
+    return {"removed": removed, "remaining": remaining}
+
+
 @router.delete(
     "/lists/{list_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None,
 )
@@ -344,6 +370,23 @@ def list_jobs(
 ):
     rows = ParsingJobRepository(session).list_by_owner(_owner_id(user_id))
     return [ParsingJobRead.model_validate(r) for r in rows]
+
+
+@router.get("/jobs/active")
+def active_jobs(
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+):
+    """Лёгкий COUNT задач в работе — для индикатора «идёт парсинг» в навигации.
+
+    Опрашивается со ВСЕХ экранов приложения (не только с «Парсинга»), поэтому
+    НЕ переиспользует ``list_jobs`` — та тянет полные записи с логом (до 500
+    строк на задачу), что было бы тяжело дёргать каждые несколько секунд
+    глобально. ``active`` = запущена ИЛИ ждёт очереди ИЛИ на паузе (не
+    done/failed/stopped) — пользователь хочет видеть индикатор, пока задача не
+    завершена, включая паузу."""
+    count = ParsingJobRepository(session).count_active(_owner_id(user_id))
+    return {"active": count > 0, "count": count}
 
 
 @router.get("/jobs/{job_id}", response_model=ParsingJobRead)

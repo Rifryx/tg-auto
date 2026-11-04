@@ -17,13 +17,48 @@ import { timeAgo } from "../../shared/format";
 import { parsingApi } from "./api";
 import type { CommunityItem } from "./types";
 
+/* Ссылка для копирования/клика. Публичные — всегда @username. Приватные
+   (инвайты t.me/+hash) username не имеют, но у них ЕСТЬ исходная ссылка —
+   это ровно то, что ввёл пользователь (режим «По ссылкам») или что нашёл
+   софт (discovery режим "@/+hash" уже в виде ссылки, а не голого ID — см.
+   community_discover._add/snapshot_from_entity: там input_ref это "@name"
+   когда username есть, иначе голый numeric ID — для такого ссылки нет и
+   не может быть, это настоящий тупик без username). */
+function looksLikeLink(ref: string): boolean {
+  return (
+    /^https?:\/\//i.test(ref) ||
+    ref.startsWith("@") ||
+    ref.startsWith("+") ||
+    ref.startsWith("t.me/") ||
+    ref.startsWith("telegram.me/")
+  );
+}
+
+function normalizeLink(ref: string): string {
+  if (/^https?:\/\//i.test(ref)) return ref;
+  if (ref.startsWith("@")) return `https://t.me/${ref.slice(1)}`;
+  if (ref.startsWith("t.me/") || ref.startsWith("telegram.me/")) return `https://${ref}`;
+  return `https://t.me/${ref}`; // "+hash" без префикса
+}
+
+function linkFor(c: CommunityItem): string | null {
+  if (c.username) return `https://t.me/${c.username}`;
+  const ref = (c.input_ref || "").trim();
+  if (ref && looksLikeLink(ref)) return normalizeLink(ref);
+  return null;
+}
+
 /* Детальный просмотр списка обогащённых сообществ.
 
    Что должно быть под рукой (запрос пользователя):
    - кликабельные ссылки t.me (а не просто «@username» текстом);
    - множественный выбор чекбоксами + массовые действия: копировать
      выбранные ссылки, копировать все;
-   - удаление целого списка в заголовке. */
+   - удаление целого списка в заголовке;
+   - удаление ОТДЕЛЬНЫХ сообществ из списка (жалоба: «толку от этих каналов
+     в коллекции, если их нельзя... удалить оттуда») — чекбокс доступен для
+     ЛЮБОЙ строки (не только с ссылкой — удалять можно и записи без неё),
+     копирование по-прежнему работает только для строк с linkFor() != null. */
 export function CommunityListScreen() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -48,9 +83,18 @@ export function CommunityListScreen() {
     },
   });
 
+  const removeItems = useMutation({
+    mutationFn: (itemIds: number[]) => parsingApi.deleteCommunities(listId, itemIds),
+    onSuccess: () => {
+      setSelected(new Set());
+      qc.invalidateQueries({ queryKey: ["parsing", "communities", listId] });
+      qc.invalidateQueries({ queryKey: ["parsing", "lists"] });
+    },
+  });
+
   const rows = items.data ?? [];
-  const publicRows = useMemo(
-    () => rows.filter((r) => !!r.username),
+  const copyableRows = useMemo(
+    () => rows.filter((r) => linkFor(r) != null),
     [rows],
   );
 
@@ -62,22 +106,24 @@ export function CommunityListScreen() {
       return next;
     });
 
-  const allSelected =
-    publicRows.length > 0 && publicRows.every((r) => selected.has(r.id));
+  // "Выбрать все" берёт ВСЕ строки (не только с ссылкой) — чекбокс теперь
+  // нужен и для массового удаления записей без ссылки, не только для копирования.
+  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
 
   const selectAll = () => {
     if (allSelected) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(publicRows.map((r) => r.id)));
+      setSelected(new Set(rows.map((r) => r.id)));
     }
   };
 
   const linksFor = (ids: number[]): string => {
     const want = new Set(ids);
     return rows
-      .filter((r) => want.has(r.id) && r.username)
-      .map((r) => `https://t.me/${r.username}`)
+      .filter((r) => want.has(r.id))
+      .map((r) => linkFor(r))
+      .filter((l): l is string => l != null)
       .join("\n");
   };
 
@@ -137,18 +183,28 @@ export function CommunityListScreen() {
             <button
               type="button"
               onClick={selectAll}
-              disabled={publicRows.length === 0}
+              disabled={rows.length === 0}
               className="inline-flex h-9 items-center gap-1.5 rounded-pill border border-hairline bg-surface-1 px-3 text-[13px] font-medium text-text-primary active:bg-surface-2 disabled:opacity-50"
             >
               {allSelected ? "Снять выбор" : "Выбрать все"}
             </button>
             <span className="text-[12px] text-text-tertiary">
-              Выбрано: {selected.size} / {publicRows.length}
-              {publicRows.length < rows.length && (
-                <> (приватные {rows.length - publicRows.length} копировать нечем)</>
+              Выбрано: {selected.size} / {rows.length}
+              {copyableRows.length < rows.length && (
+                <> (без username и ссылки: {rows.length - copyableRows.length} — нечем копировать, но можно удалить)</>
               )}
             </span>
             <div className="ml-auto flex gap-2">
+              <button
+                type="button"
+                onClick={() => removeItems.mutate([...selected])}
+                disabled={selected.size === 0 || removeItems.isPending}
+                title="Удалить выбранные из списка"
+                className="inline-flex h-9 items-center gap-1.5 rounded-pill border border-hairline bg-surface-1 px-3 text-[13px] font-medium text-status-critical active:opacity-80 disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                {removeItems.isPending ? "Удаляем…" : "Удалить выбранные"}
+              </button>
               <button
                 type="button"
                 onClick={() => copy([...selected], "selected")}
@@ -169,8 +225,8 @@ export function CommunityListScreen() {
               </button>
               <button
                 type="button"
-                onClick={() => copy(publicRows.map((r) => r.id), "all")}
-                disabled={publicRows.length === 0}
+                onClick={() => copy(copyableRows.map((r) => r.id), "all")}
+                disabled={copyableRows.length === 0}
                 className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-accent px-3 text-[13px] font-semibold text-accent-on active:opacity-80 disabled:opacity-50"
               >
                 {copied === "all" ? (
@@ -195,6 +251,8 @@ export function CommunityListScreen() {
                 c={c}
                 selected={selected.has(c.id)}
                 onToggle={() => toggle(c.id)}
+                onDelete={() => removeItems.mutate([c.id])}
+                deleting={removeItems.isPending}
               />
             ))}
           </div>
@@ -216,13 +274,17 @@ function CommunityRow({
   c,
   selected,
   onToggle,
+  onDelete,
+  deleting,
 }: {
   c: CommunityItem;
   selected: boolean;
   onToggle: () => void;
+  onDelete: () => void;
+  deleting: boolean;
 }) {
   const Icon = c.kind === "chat" ? MessageSquare : Radio;
-  const link = c.username ? `https://t.me/${c.username}` : null;
+  const link = linkFor(c);
   return (
     <div
       className={[
@@ -230,25 +292,22 @@ function CommunityRow({
         selected ? "border-strong bg-surface-2/70" : "",
       ].join(" ")}
     >
-      {/* Чекбокс — только для публичных (приватные не скопируешь). */}
-      {c.username ? (
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={selected}
-          onClick={onToggle}
-          className={[
-            "mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors",
-            selected
-              ? "border-transparent bg-accent text-accent-on"
-              : "border-hairline bg-surface-2",
-          ].join(" ")}
-        >
-          {selected && <Check className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />}
-        </button>
-      ) : (
-        <span className="mt-1 h-5 w-5 shrink-0" aria-hidden />
-      )}
+      {/* Чекбокс доступен для ЛЮБОЙ строки — удалить из списка можно и
+          запись без ссылки, не только скопировать публичную/приватную. */}
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={selected}
+        onClick={onToggle}
+        className={[
+          "mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors",
+          selected
+            ? "border-transparent bg-accent text-accent-on"
+            : "border-hairline bg-surface-2",
+        ].join(" ")}
+      >
+        {selected && <Check className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />}
+      </button>
 
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-primary">
         <Icon className="h-5 w-5" strokeWidth={1.7} aria-hidden />
@@ -267,7 +326,8 @@ function CommunityRow({
             </span>
           )}
         </div>
-        {/* Кликабельная ссылка t.me, если канал публичный. */}
+        {/* Кликабельная ссылка: @username для публичных, исходный инвайт-линк
+            для приватных (если он у нас есть — см. linkFor). */}
         {link ? (
           <a
             href={link}
@@ -275,11 +335,11 @@ function CommunityRow({
             rel="noreferrer"
             className="inline-flex items-center gap-1 text-[13px] text-accent hover:underline"
           >
-            @{c.username}
+            {c.username ? `@${c.username}` : "приватная ссылка"}
             <ExternalLink className="h-3 w-3" strokeWidth={1.8} aria-hidden />
           </a>
         ) : (
-          <p className="text-[13px] text-text-tertiary">приватный</p>
+          <p className="text-[13px] text-text-tertiary">приватный, ссылки нет</p>
         )}
         <p className="truncate text-[12px] text-text-tertiary">
           {c.kind === "chat" ? "чат" : "канал"}
@@ -287,11 +347,21 @@ function CommunityRow({
           {c.last_post_at ? ` · посл. пост ${timeAgo(c.last_post_at)}` : " · постов не видно"}
         </p>
       </div>
-      <div className="shrink-0 text-right">
+      <div className="flex shrink-0 flex-col items-end gap-1.5">
         <div className="flex items-center gap-1 text-[16px] font-bold tabular-nums text-text-primary">
           <Users className="h-3.5 w-3.5 text-text-tertiary" strokeWidth={2} aria-hidden />
           {c.participants_count != null ? fmt(c.participants_count) : "—"}
         </div>
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={deleting}
+          aria-label="Удалить из списка"
+          title="Удалить из списка"
+          className="text-text-tertiary hover:text-status-critical disabled:opacity-40"
+        >
+          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
+        </button>
       </div>
     </div>
   );

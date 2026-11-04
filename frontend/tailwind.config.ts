@@ -51,6 +51,18 @@ export default {
       spacing: {
         "safe-b": "env(safe-area-inset-bottom)",
       },
+      keyframes: {
+        // Бегущая полоска-индикатор «идёт фоновая задача» (напр. парсинг) —
+        // короткий отрезок скользит туда-обратно по всей ширине трека.
+        "nav-running-bar": {
+          "0%": { transform: "translateX(-100%)" },
+          "50%": { transform: "translateX(200%)" },
+          "100%": { transform: "translateX(-100%)" },
+        },
+      },
+      animation: {
+        "nav-running-bar": "nav-running-bar 1.2s ease-in-out infinite",
+      },
     },
   },
   plugins: [],

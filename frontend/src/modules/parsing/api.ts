@@ -51,10 +51,16 @@ export const parsingApi = {
     api.post<{ job_id: number }>(`${BASE}/run/discover`, body),
   communities: (id: number) =>
     api.get<CommunityItem[]>(`${BASE}/${id}/communities`),
+  deleteCommunities: (listId: number, itemIds: number[]) =>
+    api.post<{ removed: number; remaining: number }>(
+      `${BASE}/${listId}/communities/delete`,
+      { item_ids: itemIds },
+    ),
   listOps: (body: ListOpBody) => api.post<ParsedList>(`${BASE}/ops`, body),
   // Прогресс/управление задачей парсинга.
   job: (jobId: number) => api.get<ParsingJob>(`/modules/parsing/jobs/${jobId}`),
   jobs: () => api.get<ParsingJob[]>(`/modules/parsing/jobs`),
+  activeJobs: () => api.get<{ active: boolean; count: number }>(`/modules/parsing/jobs/active`),
   controlJob: (jobId: number, action: "pause" | "resume" | "stop") =>
     api.post<ParsingJob>(`/modules/parsing/jobs/${jobId}/control`, { action }),
 };

@@ -47,6 +47,25 @@ PARSER_ACTION_TYPE = "priming_parser"
 _MENTION_RE = re.compile(r"(?:@|t\.me/)([A-Za-z0-9_]{4,32})")
 _MSG_SCAN_LIMIT = 200  # сколько постов сида сканировать для forwards/mentions
 _TERM_WORD_RE = re.compile(r"[A-Za-zА-Яа-яЁё]{4,}")
+_TERM_SPLIT_RE = re.compile(r"[,;]+")
+
+
+def _split_terms(term: Optional[str]) -> list[str]:
+    """«спорт, ставки, футбол» → ["спорт", "ставки", "футбол"] (без дублей).
+
+    UI подсказывает ввод через запятую («crypto, нейросети…»), но раньше вся
+    строка целиком уходила ОДНИМ запросом в Telegram-поиск, а реальная
+    релевантность кандидатов словам вообще не проверялась — «похожие каналы»
+    (рекомендации Telegram по сидам) не имеют отношения к введённым словам, и
+    в выдачу попадало что угодно, похожее на сам канал-сид."""
+    if not term:
+        return []
+    seen: list[str] = []
+    for part in _TERM_SPLIT_RE.split(term):
+        p = part.strip()
+        if p and p.lower() not in (s.lower() for s in seen):
+            seen.append(p)
+    return seen
 
 
 def _derive_term(seed_entities: list[Any]) -> Optional[str]:
@@ -95,6 +114,14 @@ async def discover_communities(
 
     if not await governor.check_and_reserve(collector_account_id, PARSER_ACTION_TYPE):
         log.info("parsing.discover.rate_limited", collector_account_id=collector_account_id)
+        # Без этого лога пользователь видел «Готово (ничего не собрано/пропущено)»
+        # без единого слова объяснения — выглядело как «парсинг не работает»,
+        # хотя причина — простой лимит действий аккаунта (10/час, 40/день).
+        progress.log(
+            "Лимит действий аккаунта-парсера исчерпан (не более 10 запусков в "
+            "час / 40 в сутки на один аккаунт) — попробуйте другой аккаунт-"
+            "парсер или подождите."
+        )
         return None
 
     with session_factory() as session:
@@ -137,28 +164,48 @@ async def discover_communities(
         if seeds:
             progress.log(f"Сиды: распознано {len(seed_entities)} из {len(seeds)}.")
 
-        # 1) Глобальный поиск по ключевику. Если ключевик не задан — берём его
-        # из названия сида, иначе поиск молча пропускался (и возвращались только
-        # сами сиды — главная причина «парсинг ничего не находит»).
-        search_term = term
-        if use_search and not search_term:
-            search_term = _derive_term(seed_entities)
-            if search_term:
-                progress.log(f"Ключевик не задан — ищу похожие по слову «{search_term}».")
-        if use_search and search_term and len(candidates) < max_results:
-            progress.log(f"Глобальный поиск Telegram по «{search_term}»…")
+        # 1) Глобальный поиск по ключевикам (через запятую — можно несколько).
+        # Явно заданные слова ТАКЖЕ становятся фильтром релевантности ниже (шаг
+        # 4) — иначе «похожие каналы» (ML-рекомендации Telegram по сидам, никак
+        # не связанные с темой поиска) заполняют выдачу чем попало.
+        explicit_terms = _split_terms(term)
+        if use_search and explicit_terms:
+            progress.log(
+                f"Глобальный поиск Telegram по {len(explicit_terms)} "
+                f"ключевик{'у' if len(explicit_terms) == 1 else 'ам'}: "
+                f"{', '.join(explicit_terms)}…"
+            )
             before = len(candidates)
-            try:
-                res = await client(ContactsSearch(q=search_term, limit=min(max_results, 100)))
-                for ch in getattr(res, "chats", None) or []:
-                    if not _add(ch):
-                        break
-                progress.log(f"Поиск: +{len(candidates) - before} кандидатов.")
-            except Exception as exc:  # noqa: BLE001
-                log.info("parsing.discover.search_failed", error=repr(exc))
-                progress.log(f"Поиск недоступен: {type(exc).__name__}.")
-        elif use_search and not search_term:
-            progress.log("Глобальный поиск пропущен: не задан ключевик и нет названий сидов.")
+            for kw in explicit_terms:
+                if len(candidates) >= max_results:
+                    break
+                try:
+                    res = await client(ContactsSearch(q=kw, limit=min(max_results, 100)))
+                    for ch in getattr(res, "chats", None) or []:
+                        if not _add(ch):
+                            break
+                except Exception as exc:  # noqa: BLE001
+                    log.info("parsing.discover.search_failed", term=kw, error=repr(exc))
+                    progress.log(f"Поиск по «{kw}» недоступен: {type(exc).__name__}.")
+            progress.log(f"Поиск: +{len(candidates) - before} кандидатов.")
+        elif use_search and not explicit_terms:
+            # Ключевик не задан — берём слово из названия сида, иначе поиск
+            # молча пропускался (возвращались только сами сиды).
+            derived_term = _derive_term(seed_entities)
+            if derived_term and len(candidates) < max_results:
+                progress.log(f"Ключевик не задан — ищу похожие по слову «{derived_term}».")
+                before = len(candidates)
+                try:
+                    res = await client(ContactsSearch(q=derived_term, limit=min(max_results, 100)))
+                    for ch in getattr(res, "chats", None) or []:
+                        if not _add(ch):
+                            break
+                    progress.log(f"Поиск: +{len(candidates) - before} кандидатов.")
+                except Exception as exc:  # noqa: BLE001
+                    log.info("parsing.discover.search_failed", error=repr(exc))
+                    progress.log(f"Поиск недоступен: {type(exc).__name__}.")
+            else:
+                progress.log("Глобальный поиск пропущен: не задан ключевик и нет названий сидов.")
 
         # 2) «Похожие каналы» — BFS по рекомендациям на глубину depth.
         if use_recommendations and seed_entities:
@@ -228,6 +275,15 @@ async def discover_communities(
                     continue
 
         # 4) Обогащение + фильтрация кандидатов.
+        if explicit_terms and options.keywords is None:
+            # Фильтр релевантности по тем же словам, что и в поиске — без
+            # этого «похожие каналы» (см. выше) проходили бы без всякой связи
+            # с темой. Проверяем title/about/username кандидата.
+            options.keywords = explicit_terms
+            progress.log(
+                f"Отфильтрую кандидатов по словам: {', '.join(explicit_terms)} "
+                "(название/описание/username)."
+            )
         new_candidates = max(len(candidates) - len(seed_entities), 0)
         progress.log(
             f"Кандидатов всего: {len(candidates)} "

@@ -24,6 +24,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useIsAdmin } from "../../shared/admin";
 import { PlanBadge } from "../../shared/PlanBadge";
 import { useUiStore } from "../../shared/store";
+import { useActiveParsingJobs } from "../../modules/parsing/useActiveParsingJobs";
 
 /* Навигация десктопа (lg+): вместо нижней капсулы — постоянная боковая
    панель со ВСЕМИ разделами сразу (на телефоне часть спрятана в «Ещё»). */
@@ -35,6 +36,9 @@ interface Item {
   end?: boolean;
   // Доп. префиксы пути, на которых пункт тоже подсвечен.
   alsoActiveOn?: string[];
+  // Показывать зацикленную анимацию под лейблом, пока идёт фоновая задача
+  // (сейчас только «Парсинг» — см. useActiveParsingJobs).
+  runningIndicator?: boolean;
 }
 
 const MAIN: Item[] = [
@@ -43,7 +47,13 @@ const MAIN: Item[] = [
   { to: "/tasks", label: "Нейрокомментинг", icon: LayoutGrid, alsoActiveOn: ["/modules/commenting"] },
   { to: "/modules/shilling", label: "НейроШиллинг", icon: MessagesSquare, alsoActiveOn: ["/modules/shilling"] },
   { to: "/modules/priming", label: "Прайминг", icon: BellRing, alsoActiveOn: ["/modules/priming"] },
-  { to: "/modules/parsing", label: "Парсинг", icon: Filter, alsoActiveOn: ["/modules/parsing"] },
+  {
+    to: "/modules/parsing",
+    label: "Парсинг",
+    icon: Filter,
+    alsoActiveOn: ["/modules/parsing"],
+    runningIndicator: true,
+  },
 ];
 
 const TOOLS: Item[] = [
@@ -150,16 +160,19 @@ function GroupTitle({ children }: { children: string }) {
 
 function Group({ items }: { items: Item[] }) {
   const { pathname } = useLocation();
+  // Один опрос на всю навигацию: react-query дедуплицирует одинаковый
+  // queryKey, даже если несколько <Group> на странице вызывают хук.
+  const parsingActive = useActiveParsingJobs();
   return (
     <ul className="flex flex-col gap-0.5">
-      {items.map(({ to, label, icon: Icon, end, alsoActiveOn }) => (
+      {items.map(({ to, label, icon: Icon, end, alsoActiveOn, runningIndicator }) => (
         <li key={to}>
           <NavLink
             to={to}
             end={end}
             className={({ isActive }) =>
               [
-                "flex h-10 items-center gap-3 rounded-chip px-3 text-[14px] font-medium transition-colors",
+                "relative flex h-10 items-center gap-3 rounded-chip px-3 text-[14px] font-medium transition-colors",
                 isActive || alsoActiveOn?.some((p) => pathname.startsWith(p))
                   ? "bg-surface-2 text-text-primary"
                   : "text-text-secondary hover:bg-surface-1 hover:text-text-primary",
@@ -168,9 +181,23 @@ function Group({ items }: { items: Item[] }) {
           >
             <Icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.8} aria-hidden />
             <span className="truncate">{label}</span>
+            {runningIndicator && parsingActive && <RunningIndicatorBar />}
           </NavLink>
         </li>
       ))}
     </ul>
+  );
+}
+
+/* Зацикленная горизонтальная линия под пунктом меню, пока задача парсинга
+   выполняется фоном (на воркере — переживает уход с этого экрана). */
+function RunningIndicatorBar() {
+  return (
+    <span
+      aria-hidden
+      className="absolute inset-x-3 bottom-1 h-[2px] overflow-hidden rounded-full bg-hairline"
+    >
+      <span className="absolute inset-y-0 w-1/3 animate-nav-running-bar rounded-full bg-accent" />
+    </span>
   );
 }

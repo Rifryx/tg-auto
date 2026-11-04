@@ -157,7 +157,9 @@ async def parser_run(
                 )
                 repo.append_log(
                     int(job_id),
-                    f"✓ Готово: собрано {result.raw_count}, добавлено {result.inserted}.",
+                    f"✓ Готово: кандидатов найдено {result.raw_count}, "
+                    f"в список добавлено {result.inserted} (остальные отсеяны "
+                    "фильтрами или уже были в списке — см. разбор причин ниже).",
                 )
                 # Разбор причин, по которым кандидаты не попали в финальный
                 # список (ключи — reason-коды из parsing/parser/*: no_username,

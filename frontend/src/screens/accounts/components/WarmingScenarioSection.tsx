@@ -118,20 +118,27 @@ export function WarmingScenarioSection({
 
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
 
-  // Свёрнутый вид: пресет активен, кнопка «настроить вручную».
+  // Свёрнутый вид: пресет активен, кнопка «настроить вручную». Пока
+  // scenario ещё грузится, custom=false по умолчанию (hasCustom(undefined))
+  // — без явного индикатора «Используется пресет» на миг мелькало бы даже
+  // если на деле сохранён кастомный сценарий. Кнопку тоже блокируем — иначе
+  // клик до ответа сервера сидит форму дефолтами пресета вместо реальных
+  // сохранённых значений.
   if (!editing && !custom) {
     return (
       <Section title="Сценарий прогрева">
         <div className="flex items-start gap-2 text-[13px] text-text-secondary">
           <SlidersHorizontal className="mt-0.5 h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
           <span>
-            Используется пресет «{PROFILE_LABEL[profile]}». Можно задать свой темп
-            и микс действий.
+            {scenario.isLoading
+              ? "Загружаю сценарий прогрева…"
+              : `Используется пресет «${PROFILE_LABEL[profile]}». Можно задать свой темп и микс действий.`}
           </span>
         </div>
         <div className="mt-3">
           <CapsuleButton
             variant="secondary"
+            disabled={scenario.isLoading}
             onClick={() => {
               setForm(seedForm(scenario.data, profile));
               setEditing(true);
