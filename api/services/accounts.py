@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Optional
 
@@ -288,6 +289,20 @@ async def tdata_archive_to_string(
 # Обратная совместимость: старое имя оставляем как асинхронный алиас.
 async def tdata_zip_to_string(zip_bytes: bytes) -> tuple[str, Optional[int]]:
     return await tdata_archive_to_string(zip_bytes)
+
+
+def pseudo_phone_from_session(session_string: str) -> str:
+    """Детерминированный псевдо-номер из StringSession.
+
+    StringSession хранит только dc_id/сервер/auth_key — настоящего номера
+    в ней нет (узнать его можно лишь online через ``get_me()``). Пользователю
+    он для импорта не нужен: подставляем хеш самой сессии как уникальный
+    идентификатор в ``accounts.phone``. Детерминированность — бонус: повторный
+    импорт той же .session-строки без номера корректно словит
+    ``PhoneAlreadyExistsError`` вместо тихого дубликата в пуле.
+    """
+    digest = hashlib.sha256(session_string.encode()).hexdigest()[:16]
+    return f"ses{digest}"
 
 
 def import_account_from_session(

@@ -307,7 +307,11 @@ async def create_account(
     "/import-session", response_model=AccountRead, status_code=status.HTTP_201_CREATED
 )
 async def import_session_account(
-    phone: str = Form(...),
+    # Опционален: в .session/StringSession телефона нет (только auth_key+DC),
+    # узнать его можно лишь online через get_me(). Если не ввёли — подставляем
+    # детерминированный псевдо-номер из хеша самой сессии (см.
+    # pseudo_phone_from_session) — как и для tdata-импорта ниже.
+    phone: Optional[str] = Form(None),
     # proxy_id можно опустить только при ALLOW_NO_PROXY=true (сервис проверит).
     proxy_id: Optional[int] = Form(None),
     persona_id: Optional[int] = Form(None),
@@ -338,10 +342,14 @@ async def import_session_account(
             "нужна session-строка или .session-файл",
         )
 
+    effective_phone = (phone or "").strip()
+    if not effective_phone:
+        effective_phone = accounts_service.pseudo_phone_from_session(string)
+
     try:
         account = accounts_service.import_account_from_session(
             session,
-            phone=phone,
+            phone=effective_phone,
             proxy_id=proxy_id,
             persona_id=persona_id,
             warming_profile=warming_profile,

@@ -64,14 +64,17 @@ export const accountsApi = {
     warming_profile: WarmingProfile;
   }) => api.post<Account>("/accounts", body),
   importSession: (body: {
-    phone: string;
+    // Опциональный: .session/StringSession телефона не содержит (только
+    // auth_key+DC). Бэкенд подставит детерминированный псевдо-номер из
+    // хеша сессии, если пусто — реальный номер не нужен для импорта.
+    phone?: string;
     proxy_id: number | null;
     warming_profile: WarmingProfile;
     session_string?: string;
     session_file?: File;
   }) => {
     const fd = new FormData();
-    fd.append("phone", body.phone);
+    if (body.phone && body.phone.trim()) fd.append("phone", body.phone.trim());
     // proxy_id опускаем при режиме без прокси (ALLOW_NO_PROXY) — сервер проверит.
     if (body.proxy_id != null) fd.append("proxy_id", String(body.proxy_id));
     fd.append("warming_profile", body.warming_profile);

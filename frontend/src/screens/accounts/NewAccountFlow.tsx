@@ -269,11 +269,12 @@ export function NewAccountFlow() {
             />
           </div>
 
-          {/* В методе TData номер телефона необязателен: в самом tdata его нет
-              (храняится auth_key + user_id + DC), бэкенд подставит tg{user_id}
-              как уникальный идентификатор. Пользователю не нужно знать точный
-              номер архива — одной меньше точкой трения на импорте. */}
-          {method !== "tdata" && (
+          {/* Номер телефона нужен только для входа по коду — там он единственный
+              способ начать логин в Telegram. При импорте .session/TData номера
+              в самих данных нет (только auth_key + DC, а для tdata — user_id):
+              бэкенд подставит псевдо-номер (из хеша сессии / tg{user_id}) как
+              уникальный идентификатор, не заставляя пользователя его вводить. */}
+          {method === "code" && (
             <PhoneCard phone={phone} onChange={setPhone} onExistsChange={setPhoneExists} />
           )}
 
@@ -389,8 +390,6 @@ export function NewAccountFlow() {
         {step === 1 && method === "session" && (
           <CapsuleButton
             disabled={
-              !phone.trim() ||
-              phoneExists ||
               (!allowNoProxy && proxyId == null) ||
               (!sessionFile && !sessionString.trim()) ||
               importSession.isPending
@@ -1054,8 +1053,9 @@ function SessionSourceCard({
         />
       </Field>
       <InfoNote>
-        Сессия шифруется перед записью в базу — в открытом виде не хранится. Аккаунт сразу
-        попадёт в пул, код подтверждения не нужен.
+        Сессия шифруется перед записью в базу — в открытом виде не хранится. Номер телефона
+        вводить не нужно — в .session его нет, аккаунт сразу попадёт в пул, код подтверждения
+        не требуется.
       </InfoNote>
     </div>
   );
