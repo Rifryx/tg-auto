@@ -2,12 +2,16 @@ import { BellRing, ChevronRight, Filter, LayoutGrid, MessagesSquare, Sparkles } 
 import type { LucideIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
+import { useActiveParsingJobs } from "../../modules/parsing/useActiveParsingJobs";
 
 interface Service {
   to: string;
   icon: LucideIcon;
   label: string;
   hint: string;
+  // Показывать зацикленную анимацию под названием, пока задача выполняется
+  // фоном (сейчас только «Парсинг» — см. useActiveParsingJobs).
+  runningIndicator?: boolean;
 }
 
 const CAMPAIGNS: Service[] = [
@@ -31,6 +35,7 @@ const DATA: Service[] = [
     icon: Filter,
     label: "Парсинг",
     hint: "Готовые списки целей для прайминга и шиллинга",
+    runningIndicator: true,
   },
 ];
 
@@ -107,7 +112,9 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ServiceRow({ to, icon: Icon, label, hint }: Service) {
+function ServiceRow({ to, icon: Icon, label, hint, runningIndicator }: Service) {
+  const parsingActive = useActiveParsingJobs();
+  const showBar = runningIndicator && parsingActive;
   return (
     <Link to={to} className="flex items-center gap-4 px-4 py-4 active:bg-surface-2">
       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-primary">
@@ -115,7 +122,14 @@ function ServiceRow({ to, icon: Icon, label, hint }: Service) {
       </span>
       <div className="min-w-0 flex-1">
         <div className="text-[15px] font-semibold leading-tight text-text-primary">{label}</div>
-        <div className="mt-0.5 truncate text-[13px] text-text-tertiary">{hint}</div>
+        <div className="mt-0.5 truncate text-[13px] text-text-tertiary">
+          {showBar ? "Парсинг выполняется…" : hint}
+        </div>
+        {showBar && (
+          <div className="mt-1.5 h-[2px] w-24 overflow-hidden rounded-full bg-surface-2">
+            <div className="h-full w-1/3 animate-nav-running-bar rounded-full bg-accent" />
+          </div>
+        )}
       </div>
       <ChevronRight className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
     </Link>

@@ -42,6 +42,28 @@ class ParsingJobRepository:
         )
         return list(self.session.execute(stmt).scalars().all())
 
+    _ACTIVE_STATUSES = ("pending", "running", "paused")
+
+    def count_active(self, owner_user_id: int) -> int:
+        """Сколько задач парсинга сейчас выполняется/ждёт/на паузе.
+
+        Лёгкий COUNT без логов — для индикатора «идёт парсинг» в навигации
+        (опрашивается со всех экранов, не только с «Парсинга»), в отличие от
+        ``list_by_owner``, который тянет полные записи (включая лог до 500
+        строк на задачу)."""
+        from sqlalchemy import func
+
+        return int(
+            self.session.execute(
+                select(func.count())
+                .select_from(ParsingJob)
+                .where(
+                    ParsingJob.owner_user_id == owner_user_id,
+                    ParsingJob.status.in_(self._ACTIVE_STATUSES),
+                )
+            ).scalar_one()
+        )
+
     def append_log(self, job_id: int, message: str, *, max_lines: int = 500) -> None:
         job = self.get(job_id)
         if job is None:

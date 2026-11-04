@@ -2,6 +2,7 @@ import { Boxes, Home, MoreHorizontal, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { hapticSelection } from "../../shared/tg";
+import { useActiveParsingJobs } from "../../modules/parsing/useActiveParsingJobs";
 
 /* Капсульный плавающий нижний навбар (§5 брифа):
    - тёмная «таблетка» (surface-1 + hairline), НЕ full-width таббар;
@@ -35,6 +36,9 @@ const TABS: Tab[] = [
 
 export function BottomNav() {
   const { pathname } = useLocation();
+  // Парсинг на мобилке живёт под табом «Сервисы» (alsoActiveOn "/modules/"),
+  // отдельного таба нет — индикатор вешаем на «Сервисы».
+  const parsingActive = useActiveParsingJobs();
   return (
     <nav
       className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center"
@@ -51,7 +55,7 @@ export function BottomNav() {
               const active =
                 isActive || alsoActiveOn?.some((p) => pathname.startsWith(p));
               return [
-                "flex h-12 min-w-[64px] flex-col items-center justify-center gap-0.5 rounded-pill px-3 transition-colors",
+                "relative flex h-12 min-w-[64px] flex-col items-center justify-center gap-0.5 rounded-pill px-3 transition-colors",
                 active
                   ? "bg-accent text-accent-on"
                   : "text-text-secondary active:text-text-primary",
@@ -71,6 +75,12 @@ export function BottomNav() {
                   <span className="text-[11px] font-medium leading-none">
                     {label}
                   </span>
+                  {to === "/services" && parsingActive && (
+                    <span
+                      aria-hidden
+                      className="absolute right-3 top-2 h-1.5 w-1.5 animate-pulse rounded-full bg-status-active"
+                    />
+                  )}
                 </>
               );
             }}

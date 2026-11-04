@@ -26,6 +26,36 @@ class ParsedCommunityItemRepository(BaseRepository[ParsedCommunityItem]):
             stmt = stmt.limit(limit).offset(offset)
         return list(self.session.execute(stmt).scalars())
 
+    def count_by_list(self, list_id: int) -> int:
+        from sqlalchemy import func
+
+        return int(
+            self.session.execute(
+                select(func.count())
+                .select_from(ParsedCommunityItem)
+                .where(ParsedCommunityItem.list_id == list_id)
+            ).scalar_one()
+        )
+
+    def delete_items(self, list_id: int, item_ids: list[int]) -> int:
+        """Удаляет указанные сообщества из списка. Возвращает число удалённых.
+
+        Жалоба: «толку от этих каналов в коллекции, если их нельзя... удалить
+        оттуда» — ``item_ids`` ограничиваем ``list_id``, чтобы нельзя было
+        задеть чужой список (как и ``ParsedListTargetRepository.delete_targets``)."""
+        if not item_ids:
+            return 0
+        from sqlalchemy import delete as sa_delete
+
+        result = self.session.execute(
+            sa_delete(ParsedCommunityItem).where(
+                ParsedCommunityItem.list_id == list_id,
+                ParsedCommunityItem.id.in_(item_ids),
+            )
+        )
+        self.session.flush()
+        return int(result.rowcount or 0)
+
     def bulk_create(self, list_id: int, rows: list[Mapping[str, Any]]) -> int:
         """Дедуп через ON CONFLICT DO NOTHING по (list_id, input_ref)."""
         if not rows:

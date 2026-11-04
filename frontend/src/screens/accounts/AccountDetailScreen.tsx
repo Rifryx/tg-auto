@@ -351,7 +351,9 @@ export function AccountDetailScreen() {
             commentingCampaigns={campaignsList.data ?? []}
           />
         )}
-        {history.data && history.data.length > 0 ? (
+        {history.isLoading ? (
+          <SkeletonLines />
+        ) : history.data && history.data.length > 0 ? (
           <ol className="flex flex-col">
             {history.data
               .slice()
@@ -413,6 +415,7 @@ export function AccountDetailScreen() {
 
       {/* 3. Прокси — read-инфо + смена через селект */}
       <Section title="Прокси">
+        {acc.proxy_id != null && proxy.isLoading && <SkeletonLines lines={2} />}
         {acc.proxy_id != null && proxy.data && (
           <div className="mb-3 flex items-center justify-between">
             <div>
@@ -462,6 +465,7 @@ export function AccountDetailScreen() {
 
       {/* 5. Персона — смена/снятие через селект */}
       <Section title="Персона">
+        {acc.persona_id != null && persona.isLoading && <SkeletonLines lines={2} />}
         {acc.persona_id != null && persona.data && (
           <div className="mb-3 flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-[15px] font-semibold text-text-secondary">
@@ -547,7 +551,9 @@ export function AccountDetailScreen() {
           (max-h + overflow), а не растягивает весь экран. На бэке лента
           обрезается до 150 последних записей (накопительный эффект). */}
       <Section title="Активность">
-        {warming.data && warming.data.length > 0 ? (
+        {warming.isLoading ? (
+          <SkeletonLines />
+        ) : warming.data && warming.data.length > 0 ? (
           <div className="-my-1 max-h-80 overflow-y-auto overscroll-contain pr-1">
             <ul className="flex flex-col">
               {warming.data.map((a, i) => (
@@ -966,6 +972,25 @@ function DetailSkeleton() {
       <div className="h-8 w-40 animate-pulse rounded-chip bg-surface-2" />
       {[0, 1, 2].map((i) => (
         <div key={i} className="card h-28 animate-pulse bg-surface-2" />
+      ))}
+    </div>
+  );
+}
+
+/* Заглушка внутри уже отрисованной секции, пока её СОБСТВЕННЫЙ запрос ещё в
+   полёте (история/прокси/персона/активность прогрева — каждая тянет свои
+   данные независимо от основного account.isLoading). Без неё секция либо
+   показывала пустое место, либо — хуже — текст вроде «История пуста»,
+   который на деле означал «ещё не загрузилось», а не «записей нет». */
+function SkeletonLines({ lines = 3 }: { lines?: number }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {Array.from({ length: lines }).map((_, i) => (
+        <div
+          key={i}
+          className="h-4 animate-pulse rounded bg-surface-2"
+          style={{ width: `${85 - i * 15}%` }}
+        />
       ))}
     </div>
   );
