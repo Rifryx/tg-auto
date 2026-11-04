@@ -4,9 +4,10 @@ import { useState } from "react";
 import { shillingApi } from "../api";
 import type { Role, Step } from "../types";
 import { GenerateScenarioSheet } from "./GenerateScenarioSheet";
-import { RoleCard } from "./RoleCard";
+import { RoleCard, roleColor } from "./RoleCard";
 import { ScenarioPreview } from "./ScenarioPreview";
 import { StepBubble } from "./StepBubble";
+import type { ReplyOption, ReplyTarget } from "./StepBubble";
 
 /* Конструктор сценария: слева редактор (роли + шаги), справа — превью (6.2).
    На узких экранах превью скрыто (появится pinnable-полосой в 6.2). */
@@ -166,9 +167,35 @@ function ScenarioEditor({
     mutationFn: (id: number) => shillingApi.removeStep(scenarioId, id),
     onSuccess: invalidateSteps,
   });
+  // «Ответить на сообщение» / «просто отправка»: проставляем или снимаем
+  // reply_to_step_id. В рантайме это решает, отвечает ли бот на конкретное
+  // сообщение (цитата) или шлёт реплику без ответа.
+  const setReply = useMutation({
+    mutationFn: (p: { id: number; targetId: number | null }) =>
+      shillingApi.updateStep(scenarioId, p.id, { reply_to_step_id: p.targetId }),
+    onSuccess: invalidateSteps,
+  });
+  // Перестановка шагов перетаскиванием. localOrder держим, пока сервер не
+  // подтвердит — чтобы список не прыгал; при ошибке откатываемся к серверному.
+  const [localOrder, setLocalOrder] = useState<number[] | null>(null);
+  const [dragId, setDragId] = useState<number | null>(null);
+  const reorder = useMutation({
+    mutationFn: (ids: number[]) => shillingApi.reorderSteps(scenarioId, ids),
+    onSuccess: () => {
+      setLocalOrder(null);
+      invalidateSteps();
+    },
+    onError: () => setLocalOrder(null),
+  });
 
   const roleList: Role[] = roles.data ?? [];
-  const stepList: Step[] = steps.data ?? [];
+  const serverSteps: Step[] = steps.data ?? [];
+  // Во время перетаскивания показываем локальный порядок, иначе серверный.
+  const stepById = new Map(serverSteps.map((s) => [s.id, s]));
+  const stepList: Step[] =
+    localOrder != null
+      ? localOrder.map((id) => stepById.get(id)).filter((s): s is Step => s != null)
+      : serverSteps;
   const firstRoleId = roleList[0]?.id;
 
   // Новый шаг добавляем от СЛЕДУЮЩЕЙ роли (чередование) — диалог естественно
@@ -183,8 +210,43 @@ function ScenarioEditor({
     return roleList[(idx + 1) % roleList.length].id;
   };
 
-  // Порядковый номер шага по id — для чипа «ответ на #N».
+  // Позиция шага по id (1-based) в текущем отображаемом порядке — для цитат.
   const orderById = new Map(stepList.map((s, i) => [s.id, i + 1]));
+  const roleMeta = (roleId: number): { roleName: string; color: string } => {
+    const idx = roleList.findIndex((r) => r.id === roleId);
+    const r = roleList[idx];
+    return { roleName: r?.name || "—", color: r ? roleColor(r, idx) : "#888" };
+  };
+  const stepPreview = (s: Step): string =>
+    s.step_type === "reaction" ? s.reaction_emoji || "👍" : s.text?.trim() || "пустая реплика";
+
+  // Drag: при входе в чужой ряд перемещаем перетаскиваемый шаг на его место.
+  const beginDrag = (id: number) => {
+    setDragId(id);
+    if (localOrder == null) setLocalOrder(stepList.map((s) => s.id));
+  };
+  const hoverDrag = (overId: number) => {
+    if (dragId == null || dragId === overId) return;
+    setLocalOrder((prev) => {
+      const base = prev ?? stepList.map((s) => s.id);
+      const from = base.indexOf(dragId);
+      const to = base.indexOf(overId);
+      if (from < 0 || to < 0 || from === to) return base;
+      const next = base.slice();
+      next.splice(to, 0, next.splice(from, 1)[0]);
+      return next;
+    });
+  };
+  const endDrag = () => {
+    setDragId(null);
+    if (localOrder == null) return;
+    const serverIds = serverSteps.map((s) => s.id).join(",");
+    if (localOrder.join(",") !== serverIds) {
+      reorder.mutate(localOrder);
+    } else {
+      setLocalOrder(null); // порядок не изменился — снимаем локальный
+    }
+  };
 
   return (
     <div className="flex flex-col gap-5">
@@ -243,10 +305,26 @@ function ScenarioEditor({
           <div className="mb-3 flex flex-col gap-3">
             {stepList.map((step, i) => {
               const roleIdx = roleList.findIndex((r) => r.id === step.role_id);
-              const replyOrder =
-                step.reply_to_step_id != null
-                  ? orderById.get(step.reply_to_step_id) ?? null
+              // Цитата ответа: цель должна быть ВИДНА (есть в списке) — иначе
+              // (например, цель удалили) показывать нечего.
+              const target =
+                step.reply_to_step_id != null ? stepById.get(step.reply_to_step_id) : undefined;
+              const replyTarget: ReplyTarget | null =
+                target != null
+                  ? {
+                      order: orderById.get(target.id) ?? 0,
+                      preview: stepPreview(target),
+                      ...roleMeta(target.role_id),
+                    }
                   : null;
+              // Ответить можно только на более ранние шаги — то, что в рантайме
+              // уже будет отправлено к моменту этой реплики.
+              const replyOptions: ReplyOption[] = stepList.slice(0, i).map((s, j) => ({
+                stepId: s.id,
+                order: j + 1,
+                preview: stepPreview(s),
+                ...roleMeta(s.role_id),
+              }));
               return (
                 <StepBubble
                   key={step.id}
@@ -254,13 +332,20 @@ function ScenarioEditor({
                   index={i + 1}
                   roles={roleList}
                   roleIndex={roleIdx}
-                  replyTargetOrder={replyOrder}
+                  replyTarget={replyTarget}
+                  replyOptions={replyOptions}
+                  onSetReply={(targetId) => setReply.mutate({ id: step.id, targetId })}
                   active={activeStepId === step.id}
                   onHoverStart={() => onHover(step.id)}
                   onHoverEnd={() => onHover(null)}
                   onEditText={(text) => editStep.mutate({ id: step.id, text })}
                   onChangeRole={(roleId) => changeStepRole.mutate({ id: step.id, roleId })}
                   onDelete={() => deleteStep.mutate(step.id)}
+                  dragging={dragId === step.id}
+                  dropTarget={dragId != null && dragId !== step.id}
+                  onDragStartRow={() => beginDrag(step.id)}
+                  onDragEnterRow={() => hoverDrag(step.id)}
+                  onDragEndRow={endDrag}
                 />
               );
             })}

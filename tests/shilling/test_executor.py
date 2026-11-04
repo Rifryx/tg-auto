@@ -229,3 +229,71 @@ async def test_execute_step_ban_triggers_failover(session):
     # лог failed записан
     logs = ExecutionLogRepository(session).list_by_campaign(ids["campaign_id"])
     assert any(log.status == "failed" for log in logs)
+
+
+def _add_reply_step(session, ids: dict, reply_to_step_id: int) -> int:
+    """Добавляет второй шаг-реплику, отвечающий на ``reply_to_step_id``."""
+    step = ScenarioStepRepository(session).create(
+        ids["scenario_id"],
+        StepCreate(
+            role_id=ids["role_id"],
+            step_type="message",
+            text="А я тоже слышал про Beauty Zone",
+            reply_to_step_id=reply_to_step_id,
+        ),
+    )
+    session.commit()
+    return step.id
+
+
+async def test_reply_step_targets_posted_message_of_referenced_step(session):
+    """Шаг Б с reply_to_step_id отвечает на РЕАЛЬНОЕ сообщение шага А в этой
+    цели (его posted_message_id), а не на корень обсуждения."""
+    ids = make_campaign_with_step(session, phone=next(_PHONE))
+    step_b = _add_reply_step(session, ids, reply_to_step_id=ids["step_id"])
+
+    client = _OkClient()
+    ctx = _ctx(session, client=client)
+    # Сначала шаг А постит — логируется posted_message_id=555.
+    await executor.execute_step(
+        ctx, ids["campaign_id"], ids["target_id"], ids["step_id"], ids["account_id"],
+        thread_msg_id=100,
+    )
+    # Теперь шаг Б: должен ответить на 555 (сообщение А), а не на 100 (корень).
+    await executor.execute_step(
+        ctx, ids["campaign_id"], ids["target_id"], step_b, ids["account_id"],
+        thread_msg_id=100,
+    )
+    assert len(client.sent) == 2
+    assert client.sent[0][2] == 100, "шаг А отвечает на корень обсуждения"
+    assert client.sent[1][2] == 555, "шаг Б отвечает на сообщение шага А"
+
+
+async def test_reply_step_falls_back_to_thread_when_target_not_posted(session):
+    """Если шаг, на который отвечаем, ещё не постил — тихо падаем на корень
+    обсуждения: лучше top-level реплика, чем несработавший шаг."""
+    ids = make_campaign_with_step(session, phone=next(_PHONE))
+    step_b = _add_reply_step(session, ids, reply_to_step_id=ids["step_id"])
+
+    client = _OkClient()
+    ctx = _ctx(session, client=client)
+    # Шаг А НЕ выполняли — лога с posted_message_id нет.
+    await executor.execute_step(
+        ctx, ids["campaign_id"], ids["target_id"], step_b, ids["account_id"],
+        thread_msg_id=100,
+    )
+    assert len(client.sent) == 1
+    assert client.sent[0][2] == 100, "фолбэк на thread_msg_id при отсутствии цели"
+
+
+async def test_plain_step_without_reply_uses_thread_msg_id(session):
+    """Шаг без reply_to_step_id («просто отправка») отвечает на переданный
+    thread_msg_id — для прямого чата это None (обычное сообщение)."""
+    ids = make_campaign_with_step(session, phone=next(_PHONE))
+    client = _OkClient()
+    ctx = _ctx(session, client=client)
+    await executor.execute_step(
+        ctx, ids["campaign_id"], ids["target_id"], ids["step_id"], ids["account_id"],
+        thread_msg_id=None,
+    )
+    assert client.sent[0][2] is None, "прямая отправка без реплая"
