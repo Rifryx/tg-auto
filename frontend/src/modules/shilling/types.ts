@@ -11,6 +11,8 @@ export type CampaignStatus =
 export type AutoResponderMode = "off" | "neuro_dialogs" | "reply_in_chat";
 export type StepType = "message" | "reaction";
 export type TargetKind = "username" | "invite" | "chat_id";
+/** Режим цели — что именно делаем со ссылкой (зеркало ShillingTarget.mode). */
+export type TargetMode = "link" | "chat" | "channel_post" | "channel_monitor";
 export type TargetStatus = "pending" | "resolved" | "error";
 export type ExecutionStatus = "sent" | "failed" | "skipped" | "replaced";
 
@@ -28,6 +30,15 @@ export interface Campaign {
   target_delay_min_sec: number;
   target_delay_max_sec: number;
   posts_per_target: number;
+  /** Темп: 1 — «по одному», 2–3 — столько диалогов одновременно. */
+  max_parallel_chats: number;
+  /** Пауза перед ПЕРВОЙ репликой в новом чате (reply_delay_* — внутри диалога). */
+  first_reply_delay_min_sec: number;
+  first_reply_delay_max_sec: number;
+  /** Раздавать роли заново в каждом чате (закреплённые не трогаются). */
+  shuffle_lineup_between_chats: boolean;
+  /** Сколько часов после диалога подхватываем ответы живых пользователей. */
+  pickup_replies_hours: number;
   scenario_id: number | null;
   media_asset_id: number | null;
   product_id: number | null;
@@ -57,6 +68,11 @@ export interface CampaignCreateBody {
   target_delay_min_sec?: number;
   target_delay_max_sec?: number;
   posts_per_target?: number;
+  max_parallel_chats?: number;
+  first_reply_delay_min_sec?: number;
+  first_reply_delay_max_sec?: number;
+  shuffle_lineup_between_chats?: boolean;
+  pickup_replies_hours?: number;
   scenario_id?: number | null;
   media_asset_id?: number | null;
   product_id?: number | null;
@@ -198,6 +214,11 @@ export interface Target {
   campaign_id: number;
   raw_input: string;
   kind: TargetKind;
+  mode: TargetMode;
+  /** Конкретный пост для mode='channel_post'. */
+  post_id: number | null;
+  /** Курсор обработанных постов для mode='channel_monitor'. */
+  last_seen_post_id: number | null;
   resolved_chat_id: number | null;
   title: string | null;
   status: TargetStatus;

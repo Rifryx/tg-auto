@@ -165,3 +165,53 @@
     background: linear-gradient(135deg, #7b2ff7, #00d2ff);
   }
 }
+
+@layer components {
+  /* Двухползунковый слайдер (модуль шиллинга, DualRange): два <input
+     type="range"> лежат друг на друге поверх нарисованного трека.
+     Полотно инпута должно пропускать клики насквозь, иначе верхний инпут
+     перехватывал бы их и нижняя ручка вообще не двигалась бы; кликабельна
+     только сама ручка. Трек прячем — он рисуется отдельным div'ом. */
+  .dual-range {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    pointer-events: none;
+  }
+  .dual-range:focus {
+    outline: none;
+  }
+  .dual-range::-webkit-slider-runnable-track {
+    background: transparent;
+    height: 20px;
+  }
+  .dual-range::-moz-range-track {
+    background: transparent;
+    height: 20px;
+  }
+  .dual-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: auto;
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+    border-radius: 9999px;
+    background: var(--status-active);
+    border: 2px solid var(--bg-elevated);
+    cursor: pointer;
+  }
+  .dual-range::-moz-range-thumb {
+    pointer-events: auto;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: var(--status-active);
+    border: 2px solid var(--bg-elevated);
+    cursor: pointer;
+  }
+  .dual-range:disabled::-webkit-slider-thumb,
+  .dual-range:disabled::-moz-range-thumb {
+    cursor: not-allowed;
+  }
+}
