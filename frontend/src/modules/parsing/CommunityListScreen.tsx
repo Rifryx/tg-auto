@@ -17,6 +17,37 @@ import { timeAgo } from "../../shared/format";
 import { parsingApi } from "./api";
 import type { CommunityItem } from "./types";
 
+/* Ссылка для копирования/клика. Публичные — всегда @username. Приватные
+   (инвайты t.me/+hash) username не имеют, но у них ЕСТЬ исходная ссылка —
+   это ровно то, что ввёл пользователь (режим «По ссылкам») или что нашёл
+   софт (discovery режим "@/+hash" уже в виде ссылки, а не голого ID — см.
+   community_discover._add/snapshot_from_entity: там input_ref это "@name"
+   когда username есть, иначе голый numeric ID — для такого ссылки нет и
+   не может быть, это настоящий тупик без username). */
+function looksLikeLink(ref: string): boolean {
+  return (
+    /^https?:\/\//i.test(ref) ||
+    ref.startsWith("@") ||
+    ref.startsWith("+") ||
+    ref.startsWith("t.me/") ||
+    ref.startsWith("telegram.me/")
+  );
+}
+
+function normalizeLink(ref: string): string {
+  if (/^https?:\/\//i.test(ref)) return ref;
+  if (ref.startsWith("@")) return `https://t.me/${ref.slice(1)}`;
+  if (ref.startsWith("t.me/") || ref.startsWith("telegram.me/")) return `https://${ref}`;
+  return `https://t.me/${ref}`; // "+hash" без префикса
+}
+
+function linkFor(c: CommunityItem): string | null {
+  if (c.username) return `https://t.me/${c.username}`;
+  const ref = (c.input_ref || "").trim();
+  if (ref && looksLikeLink(ref)) return normalizeLink(ref);
+  return null;
+}
+
 /* Детальный просмотр списка обогащённых сообществ.
 
    Что должно быть под рукой (запрос пользователя):
@@ -49,8 +80,8 @@ export function CommunityListScreen() {
   });
 
   const rows = items.data ?? [];
-  const publicRows = useMemo(
-    () => rows.filter((r) => !!r.username),
+  const copyableRows = useMemo(
+    () => rows.filter((r) => linkFor(r) != null),
     [rows],
   );
 
@@ -63,21 +94,22 @@ export function CommunityListScreen() {
     });
 
   const allSelected =
-    publicRows.length > 0 && publicRows.every((r) => selected.has(r.id));
+    copyableRows.length > 0 && copyableRows.every((r) => selected.has(r.id));
 
   const selectAll = () => {
     if (allSelected) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(publicRows.map((r) => r.id)));
+      setSelected(new Set(copyableRows.map((r) => r.id)));
     }
   };
 
   const linksFor = (ids: number[]): string => {
     const want = new Set(ids);
     return rows
-      .filter((r) => want.has(r.id) && r.username)
-      .map((r) => `https://t.me/${r.username}`)
+      .filter((r) => want.has(r.id))
+      .map((r) => linkFor(r))
+      .filter((l): l is string => l != null)
       .join("\n");
   };
 
@@ -137,15 +169,15 @@ export function CommunityListScreen() {
             <button
               type="button"
               onClick={selectAll}
-              disabled={publicRows.length === 0}
+              disabled={copyableRows.length === 0}
               className="inline-flex h-9 items-center gap-1.5 rounded-pill border border-hairline bg-surface-1 px-3 text-[13px] font-medium text-text-primary active:bg-surface-2 disabled:opacity-50"
             >
               {allSelected ? "Снять выбор" : "Выбрать все"}
             </button>
             <span className="text-[12px] text-text-tertiary">
-              Выбрано: {selected.size} / {publicRows.length}
-              {publicRows.length < rows.length && (
-                <> (приватные {rows.length - publicRows.length} копировать нечем)</>
+              Выбрано: {selected.size} / {copyableRows.length}
+              {copyableRows.length < rows.length && (
+                <> (без username и ссылки: {rows.length - copyableRows.length} — нечем копировать)</>
               )}
             </span>
             <div className="ml-auto flex gap-2">
@@ -169,8 +201,8 @@ export function CommunityListScreen() {
               </button>
               <button
                 type="button"
-                onClick={() => copy(publicRows.map((r) => r.id), "all")}
-                disabled={publicRows.length === 0}
+                onClick={() => copy(copyableRows.map((r) => r.id), "all")}
+                disabled={copyableRows.length === 0}
                 className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-accent px-3 text-[13px] font-semibold text-accent-on active:opacity-80 disabled:opacity-50"
               >
                 {copied === "all" ? (
@@ -222,7 +254,7 @@ function CommunityRow({
   onToggle: () => void;
 }) {
   const Icon = c.kind === "chat" ? MessageSquare : Radio;
-  const link = c.username ? `https://t.me/${c.username}` : null;
+  const link = linkFor(c);
   return (
     <div
       className={[
@@ -230,8 +262,10 @@ function CommunityRow({
         selected ? "border-strong bg-surface-2/70" : "",
       ].join(" ")}
     >
-      {/* Чекбокс — только для публичных (приватные не скопируешь). */}
-      {c.username ? (
+      {/* Чекбокс — для всех, у кого есть хоть какая-то ссылка (публичный
+          @username ИЛИ исходная ссылка на приватный инвайт). Нет чекбокса
+          только когда ссылки нет вообще (ни username, ни пригодного input_ref). */}
+      {link ? (
         <button
           type="button"
           role="checkbox"
@@ -267,7 +301,8 @@ function CommunityRow({
             </span>
           )}
         </div>
-        {/* Кликабельная ссылка t.me, если канал публичный. */}
+        {/* Кликабельная ссылка: @username для публичных, исходный инвайт-линк
+            для приватных (если он у нас есть — см. linkFor). */}
         {link ? (
           <a
             href={link}
@@ -275,11 +310,11 @@ function CommunityRow({
             rel="noreferrer"
             className="inline-flex items-center gap-1 text-[13px] text-accent hover:underline"
           >
-            @{c.username}
+            {c.username ? `@${c.username}` : "приватная ссылка"}
             <ExternalLink className="h-3 w-3" strokeWidth={1.8} aria-hidden />
           </a>
         ) : (
-          <p className="text-[13px] text-text-tertiary">приватный</p>
+          <p className="text-[13px] text-text-tertiary">приватный, ссылки нет</p>
         )}
         <p className="truncate text-[12px] text-text-tertiary">
           {c.kind === "chat" ? "чат" : "канал"}

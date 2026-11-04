@@ -28,6 +28,7 @@ from modules.parsing.repositories import (
     ParsedCommunityItemRepository,
     ParsedListRepository,
 )
+from modules.parsing.worker.progress import NullProgress
 from modules.priming.schemas.enums import ParserSourceKind
 from worker.telegram_refs import classify_ref, invite_hash, public_ref
 
@@ -65,10 +66,19 @@ async def enrich_communities(
         governor = _Governor(ctx.get("redis"))
     now = ctx.get("now") or datetime.now(timezone.utc)
     options = filter_options or CommunityFilterOptions()
+    progress = ctx.get("parsing_progress") or NullProgress()
 
     if not await governor.check_and_reserve(collector_account_id, PARSER_ACTION_TYPE):
         log.info("parsing.community_enrich.rate_limited",
                  collector_account_id=collector_account_id)
+        # Раньше тут не было ни одного progress.log во всей функции — при
+        # рейт-лимите (или просто при долгом прогоне) пользователь не видел
+        # НИЧЕГО и это выглядело как «парсинг по ссылкам вообще не работает».
+        progress.log(
+            "Лимит действий аккаунта-парсера исчерпан (не более 10 запусков в "
+            "час / 40 в сутки на один аккаунт) — попробуйте другой аккаунт-"
+            "парсер или подождите."
+        )
         return None
 
     with session_factory() as session:
@@ -87,8 +97,9 @@ async def enrich_communities(
     def _drop(reason: str) -> None:
         breakdown[reason] = breakdown.get(reason, 0) + 1
 
+    progress.log(f"Обрабатываю {len(refs)} ссылок…")
     try:
-        for raw in refs:
+        for i, raw in enumerate(refs, start=1):
             kind = classify_ref(raw)
             try:
                 if kind == "folder":
@@ -110,6 +121,9 @@ async def enrich_communities(
                 _drop(reason)
                 continue
             rows.append(snap)
+            if i % 10 == 0 or i == len(refs):
+                progress.log(f"Обработано {i} из {len(refs)}…")
+                await progress.heartbeat()
     finally:
         await pool.release(collector_account_id)
 

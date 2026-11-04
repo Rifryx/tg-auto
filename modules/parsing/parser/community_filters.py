@@ -28,6 +28,7 @@ REASON_WRONG_LANGUAGE = "wrong_language"
 REASON_NOFORWARDS = "noforwards_blocked"
 REASON_SLOWMODE_TOO_LOW = "slowmode_too_low"
 REASON_SLOWMODE_TOO_HIGH = "slowmode_too_high"
+REASON_KEYWORD_MISMATCH = "keyword_mismatch"
 
 # Какие алфавиты считаем "русским" / "английским". Эвристика смотрит на долю
 # букв каждого скрипта в title+about. Пороги подобраны так, чтобы смешанные
@@ -81,6 +82,15 @@ class CommunityFilterOptions:
     # Slowmode (сек). None = не фильтровать. Применимо только к чатам/группам.
     min_slowmode_seconds: Optional[int] = None
     max_slowmode_seconds: Optional[int] = None
+    # Ключевики темы — заполняется discover_communities из поля "term", когда
+    # пользователь явно его задал (см. _split_terms). Без этого фильтра
+    # «похожие каналы» (ML-рекомендации Telegram по сидам) не имеют ВООБЩЕ
+    # никакого отношения к введённым словам — Telegram рекомендует похожее на
+    # сам канал-сид, а не на тему поиска, из-за чего кандидаты вроде «техника»
+    # или «сексология» проходили при запросе «спорт, ставки, футбол, бокс».
+    # Кандидат проходит, если хотя бы одно слово встречается в title/about/username
+    # (регистронезависимо, подстрокой).
+    keywords: Optional[list[str]] = None
 
     def _rx(self, pattern: Optional[str]) -> Optional["re.Pattern[str]"]:
         if not pattern:
@@ -156,5 +166,12 @@ def first_community_drop_reason(
         return REASON_SLOWMODE_TOO_LOW
     if options.max_slowmode_seconds is not None and slow > options.max_slowmode_seconds:
         return REASON_SLOWMODE_TOO_HIGH
+
+    if options.keywords:
+        haystack = " ".join(
+            filter(None, [row.get("title"), row.get("about"), row.get("username")])
+        ).lower()
+        if not any(kw.lower() in haystack for kw in options.keywords):
+            return REASON_KEYWORD_MISMATCH
 
     return None
