@@ -140,6 +140,11 @@ export interface Persona {
   avatar_template_url: string | null;
   bio_template: string | null;
   personality_tags: string[];
+  // @username каналов/групп — источник целей для действий прогрева
+  // "Подписки на каналы"/"Вступать в группы" (worker/warming/actions/
+  // subscribe_channel.py, join_group.py). Без интересов — общие публичные
+  // каналы по умолчанию (не относящиеся к нише аккаунта).
+  interests: string[];
 }
 
 export interface LoginStateResponse {

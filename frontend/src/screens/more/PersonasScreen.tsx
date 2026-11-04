@@ -19,6 +19,7 @@ export function PersonasScreen() {
   const qc = useQueryClient();
   const [name, setName] = useState("");
   const [tags, setTags] = useState("");
+  const [interests, setInterests] = useState("");
   const [toDelete, setToDelete] = useState<Persona | null>(null);
 
   const list = useQuery({ queryKey: ["personas"], queryFn: personasApi.list });
@@ -31,10 +32,12 @@ export function PersonasScreen() {
           .split(",")
           .map((t) => t.trim())
           .filter(Boolean),
+        interests: parseInterests(interests),
       }),
     onSuccess: () => {
       setName("");
       setTags("");
+      setInterests("");
       qc.invalidateQueries({ queryKey: ["personas"] });
     },
   });
@@ -71,6 +74,20 @@ export function PersonasScreen() {
               placeholder="дружелюбный, ироничный"
               disabled={blocked}
             />
+          </Field>
+          <Field label="Интересы — каналы/группы для прогрева (через запятую)">
+            <TextInput
+              value={interests}
+              onChange={(e) => setInterests(e.target.value)}
+              placeholder="@crypto_news, @python_ru, durov"
+              disabled={blocked}
+            />
+            <p className="mt-1.5 px-1 text-[12px] text-text-tertiary">
+              Аккаунты с этой персоной при прогреве будут подписываться на эти
+              каналы и вступать в эти группы (действия «Подписки на каналы» /
+              «Вступать в группы»). Пусто — используются общие публичные
+              каналы по умолчанию, без связи с нишей аккаунта.
+            </p>
           </Field>
           <CapsuleButton
             variant={!blocked && name.trim() ? "accent" : "secondary"}
@@ -117,12 +134,14 @@ function PersonaRow({ persona, onDelete }: { persona: Persona; onDelete: () => v
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(persona.name);
   const [tags, setTags] = useState(persona.personality_tags.join(", "));
+  const [interests, setInterests] = useState(persona.interests.join(", "));
 
   const save = useMutation({
     mutationFn: () =>
       personasApi.update(persona.id, {
         name: name.trim(),
         personality_tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+        interests: parseInterests(interests),
       }),
     onSuccess: () => {
       setEditing(false);
@@ -133,6 +152,7 @@ function PersonaRow({ persona, onDelete }: { persona: Persona; onDelete: () => v
   const startEdit = () => {
     setName(persona.name);
     setTags(persona.personality_tags.join(", "));
+    setInterests(persona.interests.join(", "));
     setEditing(true);
   };
 
@@ -144,6 +164,17 @@ function PersonaRow({ persona, onDelete }: { persona: Persona; onDelete: () => v
         </Field>
         <Field label="Теги (через запятую)">
           <TextInput value={tags} onChange={(e) => setTags(e.target.value)} placeholder="дружелюбный, ироничный" />
+        </Field>
+        <Field label="Интересы — каналы/группы для прогрева (через запятую)">
+          <TextInput
+            value={interests}
+            onChange={(e) => setInterests(e.target.value)}
+            placeholder="@crypto_news, @python_ru, durov"
+          />
+          <p className="mt-1.5 px-1 text-[12px] text-text-tertiary">
+            Цели для «Подписки на каналы» / «Вступать в группы» у аккаунтов с
+            этой персоной. Пусто — общие публичные каналы по умолчанию.
+          </p>
         </Field>
         <div className="flex gap-2">
           <CapsuleButton variant="secondary" onClick={() => setEditing(false)}>
@@ -169,6 +200,7 @@ function PersonaRow({ persona, onDelete }: { persona: Persona; onDelete: () => v
         <p className="truncate text-[15px] text-text-primary">{persona.name}</p>
         <p className="truncate text-[12px] text-text-tertiary">
           {persona.personality_tags.join(" · ") || "без тегов"}
+          {persona.interests.length > 0 && ` · ${persona.interests.length} интересов`}
         </p>
       </div>
       <button
@@ -187,6 +219,16 @@ function PersonaRow({ persona, onDelete }: { persona: Persona; onDelete: () => v
       </button>
     </div>
   );
+}
+
+/* "@crypto_news, python_ru" → ["crypto_news", "python_ru"] — убираем "@" для
+   единообразия с worker/warming/actions/base.py DISCOVERY_CHANNELS/GROUPS
+   (там bare-имена без "@"). */
+function parseInterests(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((t) => t.trim().replace(/^@/, ""))
+    .filter(Boolean);
 }
 
 export function BackHeader({ title, onBack }: { title: string; onBack: () => void }) {
