@@ -18,6 +18,21 @@ const ACTIONS = Object.keys(WARMING_ACTION_LABEL).filter(
   (a) => a !== "update_profile",
 );
 
+/* Что реально делает каждое действие (worker/warming/actions/*.py) — жалоба:
+   «методы прогрева непонятно расписаны». */
+const ACTION_HINT: Record<string, string> = {
+  read_history: "Листает историю случайного чата — просто «присутствие», ничего не пишет и не жмёт.",
+  view_media: "Открывает фото/видео в ленте случайного чата.",
+  reaction: "Ставит эмодзи-реакцию на случайное сообщение.",
+  idle_online: "Просто остаётся онлайн некоторое время, не выполняя действий.",
+  subscribe_channel:
+    "Подписывается на канал из «Интересов» персоны этого аккаунта (Ещё → Персоны). Без персоны/интересов — на один из общих публичных каналов по умолчанию.",
+  join_group:
+    "Вступает в группу из «Интересов» персоны этого аккаунта (Ещё → Персоны). Без персоны/интересов — в одну из общих публичных групп по умолчанию.",
+  interact_with_peer:
+    "Листает переписку и иногда ставит реакцию 👀 случайному аккаунту ИЗ ЭТОГО ЖЕ ПУЛА (тот же проект/персона/кампания) — не постороннему пользователю.",
+};
+
 type Form = {
   intervalMin: string;
   intervalMax: string;
@@ -197,7 +212,12 @@ export function WarmingScenarioSection({
           )}
 
           <p className="mb-2 px-0.5 text-[13px] font-semibold text-text-primary">
-            Действий в стартовой пачке
+            Действий за один цикл
+          </p>
+          <p className="-mt-1.5 mb-2 px-0.5 text-[12px] text-text-tertiary">
+            Сколько действий (из микса ниже) выполняется каждый раз, когда
+            подходит время по интервалу выше — не только при первом запуске,
+            а каждый цикл прогрева.
           </p>
           <div className="mb-4 flex gap-2">
             <Field label="от">
@@ -238,6 +258,11 @@ export function WarmingScenarioSection({
                     {form.weights[a] === 0 ? "выкл" : `×${form.weights[a]}`}
                   </span>
                 </div>
+                {ACTION_HINT[a] && (
+                  <p className="mb-1 text-[11px] leading-snug text-text-tertiary">
+                    {ACTION_HINT[a]}
+                  </p>
+                )}
                 <input
                   type="range"
                   min={0}

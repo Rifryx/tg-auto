@@ -6,6 +6,7 @@ export interface PersonaBody {
   bio_template?: string | null;
   personality_tags?: string[];
   avatar_template_url?: string | null;
+  interests?: string[];
 }
 
 export interface ProxyBody {
