@@ -54,6 +54,19 @@ class ShillingCampaign(Base, TimestampMixin):
             "msg_limit_total IS NULL OR msg_limit_total > 0",
             name="msg_limit_total_valid",
         ),
+        CheckConstraint(
+            "max_parallel_chats >= 1 AND max_parallel_chats <= 3",
+            name="max_parallel_chats_valid",
+        ),
+        CheckConstraint(
+            "first_reply_delay_min_sec >= 0 "
+            "AND first_reply_delay_max_sec >= first_reply_delay_min_sec",
+            name="first_reply_delay_range_valid",
+        ),
+        CheckConstraint(
+            "pickup_replies_hours >= 1 AND pickup_replies_hours <= 72",
+            name="pickup_replies_hours_valid",
+        ),
         {"schema": SHILLING_SCHEMA},
     )
 
@@ -94,6 +107,39 @@ class ShillingCampaign(Base, TimestampMixin):
     )
     posts_per_target: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default="1"
+    )
+
+    # ── Темп: сколько чатов ведём одновременно ──────────────────────────
+    # 1 — «По одному»: следующий чат стартует только после того, как диалог в
+    # предыдущем доигран (+ пауза target_delay_*). Так один и тот же разговор
+    # не всплывает в десяти чатах разом — именно это палит сетку.
+    # 2–3 — столько диалогов максимум идёт параллельно: быстрее, но заметнее
+    # и нужны свободные аккаунты на каждый чат.
+    max_parallel_chats: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    # Пауза ПЕРЕД первой репликой в новом чате (reply_delay_* — это паузы
+    # между репликами уже внутри диалога). Зайти в чат и сразу заговорить —
+    # самый заметный паттерн, поэтому по умолчанию 5–15 минут.
+    first_reply_delay_min_sec: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=300, server_default="300"
+    )
+    first_reply_delay_max_sec: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=900, server_default="900"
+    )
+    # Раздавать ли роли заново в каждом новом чате. Выключено (дефолт):
+    # аккаунт играет одну и ту же роль везде — диалог не разваливается, когда
+    # у учёток разные имя, пол и аватарка. Включено: не светим одну и ту же
+    # связку аккаунтов (Telegram банит связанные пачкой), но роли могут
+    # «не подходить» аккаунту. Закреплённые роли (campaign_accounts.role_id)
+    # не перемешиваются в любом случае.
+    shuffle_lineup_between_chats: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Сколько часов после диалога подхватываем ответы живых пользователей
+    # (live_interception). Раньше окно было захардкожено (24ч).
+    pickup_replies_hours: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=6, server_default="6"
     )
 
     # ── Сценарий и медиа ────────────────────────────────────────────────

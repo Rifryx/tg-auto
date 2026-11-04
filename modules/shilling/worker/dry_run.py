@@ -26,7 +26,7 @@ from modules.shilling.repositories import (
     ScenarioStepRepository,
 )
 from modules.shilling.schemas import DryRunReport, DryRunStep
-from modules.shilling.worker.orchestrator import _resolve_discussion_root, _validate_ready
+from modules.shilling.worker.orchestrator import _resolve_posting_target, _validate_ready
 from worker.client_pool import ClientPool
 
 get_logger = structlog.get_logger
@@ -144,8 +144,11 @@ async def dry_run(
     pool = _pool(ctx)
     client = await pool.get(resolver_account_id)
     try:
-        discussion_group_id, _root = await _resolve_discussion_root(
-            client, test_target,
+        # Сухой прогон идёт по произвольному тестовому чату: режим `link`
+        # (авто) — ровно то, что нужно, чтобы проверить доступ и к каналу с
+        # комментариями, и к обычной группе.
+        posting_chat_id, _root = await _resolve_posting_target(
+            client, test_target, mode="link",
             account_id=resolver_account_id, session_factory=session_factory,
             publisher=ctx.get("publisher"), now=publisher_now,
         )
@@ -156,7 +159,7 @@ async def dry_run(
     finally:
         await pool.release(resolver_account_id)
 
-    if discussion_group_id is None:
+    if posting_chat_id is None:
         return _fail("test target has no open comments / discussion group")
 
     # Симуляция шагов.
