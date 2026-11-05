@@ -85,3 +85,27 @@ class ExecutionLogRepository(BaseRepository[ShillingExecutionLog]):
             ShillingExecutionLog.status == "failed",
         )
         return list(self.session.execute(stmt).scalars())
+
+    def find_posted_message(
+        self, campaign_id: int, target_id: int, step_id: int
+    ) -> Optional[int]:
+        """id реально отправленного сообщения данного шага в данной цели.
+
+        Нужно для реплай-чейнинга: когда шаг Б отвечает на шаг А
+        (``reply_to_step_id``), исполнителю Б нужен ``posted_message_id``
+        сообщения А в ЭТОМ прогоне цели (у разных целей id свои). Берём самую
+        свежую успешную отправку этого шага; None — если шаг ещё не постил
+        (например, цепочка идёт быстрее планируемого) или был пропущен."""
+        stmt = (
+            select(ShillingExecutionLog.posted_message_id)
+            .where(
+                ShillingExecutionLog.campaign_id == campaign_id,
+                ShillingExecutionLog.target_id == target_id,
+                ShillingExecutionLog.step_id == step_id,
+                ShillingExecutionLog.status == "sent",
+                ShillingExecutionLog.posted_message_id.is_not(None),
+            )
+            .order_by(ShillingExecutionLog.id.desc())
+            .limit(1)
+        )
+        return self.session.execute(stmt).scalars().first()

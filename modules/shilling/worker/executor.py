@@ -154,6 +154,20 @@ async def execute_step(
         role_name = role.name if role else ""
         role_character = role.character if role else None
 
+        # Реплай-чейнинг. По умолчанию отвечаем на thread_msg_id (корень
+        # обсуждения для комментариев, None для прямого чата). Если у шага задан
+        # reply_to_step_id — отвечаем на РЕАЛЬНОЕ сообщение того шага в этой же
+        # цели (видно как цитата). Если тот шаг ещё не постил (цепочка обогнала
+        # планирование) или был пропущен — тихо падаем обратно на thread_msg_id:
+        # лучше реплика top-level, чем несработавший шаг.
+        reply_to = thread_msg_id
+        if step.reply_to_step_id is not None:
+            posted = ExecutionLogRepository(session).find_posted_message(
+                campaign_id, target_id, step.reply_to_step_id
+            )
+            if posted is not None:
+                reply_to = posted
+
     # Governor: резервируем слот вне сессии (Redis).
     if not await _governor(ctx).check_and_reserve(account_id, "shilling"):
         run_at = now + timedelta(minutes=GOVERNOR_RETRY_MINUTES)
@@ -191,14 +205,14 @@ async def execute_step(
     try:
         if step_type == "reaction":
             sent_id = await _send_reaction(
-                client, chat_id, thread_msg_id, reaction_emoji,
+                client, chat_id, reply_to, reaction_emoji,
                 account_id=account_id, session_factory=session_factory,
                 publisher=publisher, now=now,
             )
             posted_message_id = None
         else:
             sent = await around_telethon_call(
-                lambda: client.send_message(chat_id, text, reply_to=thread_msg_id),
+                lambda: client.send_message(chat_id, text, reply_to=reply_to),
                 account_id=account_id,
                 session_factory=session_factory,
                 publisher=publisher,
