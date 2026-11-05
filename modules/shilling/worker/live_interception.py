@@ -232,6 +232,8 @@ async def _handle_message(
             chat_id=int(event.chat_id),
             replied_message_id=int(msg.reply_to_msg_id),
             responder_account_id=account_id,
+            stale_hours=getattr(campaign, "pickup_replies_hours", None)
+            or _STALE_HOURS,
         )
     if not is_ours:
         return
@@ -308,13 +310,18 @@ def _is_our_message(
     chat_id: int,
     replied_message_id: int,
     responder_account_id: int,
+    stale_hours: int = _STALE_HOURS,
 ) -> bool:
     """True, если сообщение ``replied_message_id`` в чате ``chat_id`` было
     отправлено этой кампанией от аккаунта ``responder_account_id`` (и живее
-    ``_STALE_HOURS``). Проверяется по execution_logs.posted_message_id."""
+    ``stale_hours``). Проверяется по execution_logs.posted_message_id.
+
+    ``stale_hours`` — это настройка кампании «Подхватывать ответы N ч после
+    диалога» (campaign.pickup_replies_hours); ``_STALE_HOURS`` остаётся
+    дефолтом для вызовов без кампании (тесты/прямые вызовы)."""
     from datetime import datetime, timedelta, timezone
 
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=_STALE_HOURS)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=stale_hours)
     stmt = (
         select(ShillingExecutionLog.id)
         .where(

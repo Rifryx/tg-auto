@@ -88,18 +88,37 @@ async def start_campaign(ctx: dict, campaign_id: int) -> int:
         targets = CampaignTargetRepository(session).list_by_campaign(campaign_id)
         delay_lo = campaign.target_delay_min_sec
         delay_hi = campaign.target_delay_max_sec
-        target_ids = [t.id for t in targets]
+        parallel = max(1, min(3, campaign.max_parallel_chats))
+        # Цели в режиме «Мониторинг каналов» не планируем здесь: у них нет
+        # конкретного поста, их подхватывает cron-поллер, когда в канале
+        # выходит НОВЫЙ пост (см. poll_channel_monitors).
+        target_ids = [t.id for t in targets if t.mode != "channel_monitor"]
+        monitors = len(targets) - len(target_ids)
 
-    # Планируем цели последовательно: кулдаун накапливается между целями.
-    cumulative = 0.0
-    for target_id in target_ids:
-        run_at = now + timedelta(seconds=cumulative)
+    # Темп. parallel=1 («По одному») — цели идут цепочкой: каждая следующая
+    # стартует после паузы target_delay_*. parallel=2..3 — столько цепочек
+    # одновременно, то есть пауза копится внутри каждой «дорожки» отдельно.
+    #
+    # Это планирование по времени, а не строгий семафор: мы не знаем заранее,
+    # сколько проиграет диалог. Пауза между чатами задана пользователем именно
+    # как запас поверх диалога — и в UI подписана как «пауза перед следующим
+    # чатом», так что это честная интерпретация, а не приближение.
+    lane_cursor = [0.0] * parallel
+    for idx, target_id in enumerate(target_ids):
+        lane = idx % parallel
+        run_at = now + timedelta(seconds=lane_cursor[lane])
         await task_queue.schedule(
             TaskName.SHILLING_PROCESS_TARGET, run_at, campaign_id, target_id
         )
-        cumulative += rng.uniform(delay_lo, delay_hi)
+        lane_cursor[lane] += rng.uniform(delay_lo, delay_hi)
 
-    log.info("shilling.start.scheduled", campaign_id=campaign_id, targets=len(target_ids))
+    log.info(
+        "shilling.start.scheduled",
+        campaign_id=campaign_id,
+        targets=len(target_ids),
+        monitors=monitors,
+        parallel=parallel,
+    )
     return len(target_ids)
 
 
@@ -127,8 +146,14 @@ def _validate_ready(session, campaign, *, require_targets: bool = True) -> tuple
 # --- задача process_target ---------------------------------------------------
 
 
-async def process_target(ctx: dict, campaign_id: int, target_id: int) -> int:
-    """Готовит цель (резолв + корень обсуждения) и планирует шаги сценария.
+async def process_target(
+    ctx: dict, campaign_id: int, target_id: int, post_id: Optional[int] = None
+) -> int:
+    """Готовит цель (резолв + куда постить) и планирует шаги сценария.
+
+    ``post_id`` — конкретный пост, перекрывающий ``target.post_id``. Его
+    передаёт поллер мониторинга каналов: у цели-«монитора» своего поста нет,
+    пост появляется в канале уже после её создания.
 
     Возвращает число запланированных шагов (0 — если цель пропущена).
     """
@@ -166,24 +191,50 @@ async def process_target(ctx: dict, campaign_id: int, target_id: int) -> int:
         if not message_or_reaction:
             return 0
 
-        raw_ref = target.resolved_chat_id or target.raw_input
+        # Для «монитора» resolved_chat_id — это linked-группа канала (её
+        # записал прошлый прогон), а резолвить нужно сам КАНАЛ: идём от
+        # raw_input. Для остальных режимов resolved_chat_id — валидный короткий
+        # путь без лишнего resolve-запроса.
+        target_mode = target.mode
+        raw_ref = (
+            target.raw_input
+            if target_mode == "channel_monitor"
+            else (target.resolved_chat_id or target.raw_input)
+        )
+        target_post_id = post_id if post_id is not None else target.post_id
         reply_lo = campaign.reply_delay_min_sec
         reply_hi = campaign.reply_delay_max_sec
-        # Заранее подбираем аккаунт на каждый шаг (primary по роли).
+        first_lo = campaign.first_reply_delay_min_sec
+        first_hi = campaign.first_reply_delay_max_sec
+        # Раздача ролей по аккаунтам на ЭТОТ чат. shuffle_lineup_between_chats
+        # решает, тянем ли мы один и тот же состав везде или мешаем заново:
+        # см. _assign_lineup.
         link_repo = CampaignAccountRepository(session)
+        lineup = _assign_lineup(
+            link_repo,
+            campaign_id,
+            [s.role_id for s in message_or_reaction],
+            rng=rng,
+            shuffle=campaign.shuffle_lineup_between_chats,
+        )
         plan: list[tuple[int, Optional[int], Optional[int]]] = []  # (step_id, account_id, delay)
-        for step in message_or_reaction:
-            primaries = link_repo.list_primary_by_role(campaign_id, step.role_id)
-            if not primaries:
+        for idx, step in enumerate(message_or_reaction):
+            account_id = lineup.get(step.role_id)
+            if account_id is None:
                 log.info(
                     "shilling.process_target.step_skip",
                     step_id=step.id, reason="no_account_for_role",
                 )
                 continue
-            account_id = rng.choice(primaries).account_id
             delay = step.delay_before_sec
             if delay is None:
-                delay = rng.uniform(reply_lo, reply_hi)
+                # Первая реплика в чате — отдельная, куда более длинная пауза:
+                # зайти и сразу заговорить это самый заметный паттерн.
+                delay = (
+                    rng.uniform(first_lo, first_hi)
+                    if idx == 0
+                    else rng.uniform(reply_lo, reply_hi)
+                )
             plan.append((step.id, account_id, delay))
 
         # Аккаунт для резолва канала — любой primary.
@@ -196,12 +247,13 @@ async def process_target(ctx: dict, campaign_id: int, target_id: int) -> int:
         log.info("shilling.process_target.skip", target_id=target_id, reason="empty_plan")
         return 0
 
-    # Резолвим канал + находим корневое сообщение обсуждения.
+    # Резолвим цель по её режиму: пишем прямо в чат или в комментарии под постом.
     pool = _pool(ctx)
     client = await pool.get(resolver_account_id)
     try:
-        discussion_group_id, root_msg_id = await _resolve_discussion_root(
+        chat_id, root_msg_id = await _resolve_posting_target(
             client, raw_ref,
+            mode=target_mode, post_id=target_post_id,
             account_id=resolver_account_id, session_factory=session_factory,
             publisher=publisher, now=now,
         )
@@ -216,18 +268,25 @@ async def process_target(ctx: dict, campaign_id: int, target_id: int) -> int:
     finally:
         await pool.release(resolver_account_id)
 
-    if discussion_group_id is None:
+    if chat_id is None:
+        # Для режимов с комментариями это значит «обсуждение закрыто»; для
+        # mode='chat' — что ссылка вообще не резолвится в чат.
+        reason = (
+            "comments closed / no discussion"
+            if target_mode in ("link", "channel_post", "channel_monitor")
+            else "not a chat"
+        )
         with session_factory() as session:
-            CampaignTargetRepository(session).mark_error(target_id, "no_discussion_group")
-            _blacklist_target(session, campaign_id, target_id, reason="comments closed / no discussion")
+            CampaignTargetRepository(session).mark_error(target_id, "no_posting_target")
+            _blacklist_target(session, campaign_id, target_id, reason=reason)
             session.commit()
-        log.info("shilling.process_target.skip", target_id=target_id, reason="no_discussion")
+        log.info("shilling.process_target.skip", target_id=target_id, reason=reason)
         return 0
 
-    # Целевой чат для постинга — discussion-группа (executor шлёт в resolved_chat_id).
+    # Куда постим: discussion-группа (комментарии) либо сам чат (mode='chat').
     with session_factory() as session:
         CampaignTargetRepository(session).mark_resolved(
-            target_id, resolved_chat_id=discussion_group_id
+            target_id, resolved_chat_id=chat_id
         )
         session.commit()
 
@@ -247,24 +306,37 @@ async def process_target(ctx: dict, campaign_id: int, target_id: int) -> int:
         )
     log.info(
         "shilling.process_target.scheduled",
-        target_id=target_id, steps=len(plan), discussion_group_id=discussion_group_id,
+        target_id=target_id, steps=len(plan), chat_id=chat_id, mode=target_mode,
     )
     return len(plan)
 
 
-async def _resolve_discussion_root(
+async def _resolve_posting_target(
     client: Any,
     raw_ref,
     *,
+    mode: str = "link",
+    post_id: Optional[int] = None,
     account_id: int,
     session_factory,
     publisher,
     now,
 ) -> tuple[Optional[int], Optional[int]]:
-    """Возвращает (discussion_group_id, root_msg_id) для последнего поста канала.
+    """Куда и во что писать → ``(chat_id, root_msg_id)``.
 
-    root_msg_id — id корневого сообщения в linked-группе, к которому реплаятся
-    комментарии. None-группа означает, что обсуждения нет (комментарии закрыты).
+    Ветвимся по режиму цели:
+
+    * ``chat`` — пишем ПРЯМО в чат/группу: chat_id = сам чат, root_msg_id=None
+      (executor отправит обычное сообщение, не реплай).
+    * ``channel_post`` / ``channel_monitor`` — комментарии под КОНКРЕТНЫМ
+      постом ``post_id``: chat_id = linked-группа канала, root_msg_id = корень
+      треста обсуждения этого поста.
+    * ``link`` — авто (прежнее поведение): если у канала есть обсуждение —
+      комментируем последний пост; если ссылка ведёт в чат/группу без
+      linked_chat — пишем прямо туда.
+
+    ``chat_id is None`` означает «писать некуда» (комментарии закрыты либо
+    ссылка не резолвится в чат) — вызывающий код уводит цель в ЧС.
     """
     from telethon.tl.functions.channels import GetFullChannelRequest
     from telethon.tl.functions.messages import GetDiscussionMessageRequest
@@ -277,24 +349,206 @@ async def _resolve_discussion_root(
         )
 
     entity = await _call(lambda: client.get_entity(raw_ref))
+
+    # Прямая отправка в чат/группу — обсуждение не ищем вовсе.
+    if mode == "chat":
+        chat_id = getattr(entity, "id", None)
+        return (int(chat_id) if chat_id is not None else None), None
+
     full = await _call(lambda: client(GetFullChannelRequest(entity)))
     linked = getattr(getattr(full, "full_chat", None), "linked_chat_id", None)
     if linked is None:
+        # У обычной группы/супергруппы linked_chat_id нет — в режиме `link`
+        # это не ошибка: пишем прямо в неё (мегагруппа = чат). Для режимов с
+        # явным постом это действительно «комментарии закрыты».
+        if mode == "link" and getattr(entity, "megagroup", False):
+            chat_id = getattr(entity, "id", None)
+            return (int(chat_id) if chat_id is not None else None), None
         return None, None
 
-    posts = await _call(lambda: client.get_messages(entity, limit=1))
-    if not posts:
-        return linked, None
-    post_id = getattr(posts[0], "id", None)
-    if post_id is None:
-        return linked, None
+    # Какой пост комментируем: указанный явно или последний в канале.
+    target_post_id = post_id
+    if target_post_id is None:
+        posts = await _call(lambda: client.get_messages(entity, limit=1))
+        if not posts:
+            return linked, None
+        target_post_id = getattr(posts[0], "id", None)
+        if target_post_id is None:
+            return linked, None
 
     disc = await _call(
-        lambda: client(GetDiscussionMessageRequest(peer=entity, msg_id=post_id))
+        lambda: client(GetDiscussionMessageRequest(peer=entity, msg_id=target_post_id))
     )
     disc_messages = getattr(disc, "messages", None) or []
     root_msg_id = getattr(disc_messages[0], "id", None) if disc_messages else None
     return linked, root_msg_id
+
+
+def _assign_lineup(
+    link_repo,
+    campaign_id: int,
+    role_ids,
+    *,
+    rng: random.Random,
+    shuffle: bool,
+) -> dict[Optional[int], int]:
+    """Раздаёт роли по аккаунтам для ОДНОГО чата → ``{role_id: account_id}``.
+
+    ``shuffle=False`` (дефолт): роль играет тот аккаунт, который за ней
+    закреплён в ``campaign_accounts.role_id``. Один и тот же аккаунт — одна и
+    та же роль во всех чатах: диалог не разваливается, когда у учёток разные
+    имя, пол и аватарка.
+
+    ``shuffle=True``: роли раздаются заново случайными свободными аккаунтами
+    кампании — не светим одну и ту же связку (Telegram банит связанные
+    аккаунты пачкой). ЗАКРЕПЛЁННЫЕ роли не перемешиваются в любом случае:
+    пользователь явно сказал, кто играет эту роль.
+
+    Один аккаунт не получает две роли в одном чате — иначе он отвечал бы сам
+    себе от двух «разных» участников в одном треде.
+    """
+    unique_roles = list(dict.fromkeys(role_ids))
+    lineup: dict[Optional[int], int] = {}
+    taken: set[int] = set()
+
+    # 1) Закреплённые роли — всегда как указано, независимо от shuffle.
+    unpinned: list[Optional[int]] = []
+    for role_id in unique_roles:
+        # list_primary_by_role отдаёт только явно закреплённых за ролью
+        # (role_id == role_id, не резерв).
+        pinned = link_repo.list_primary_by_role(campaign_id, role_id)
+        available = [link for link in pinned if link.account_id not in taken]
+        if available:
+            chosen = rng.choice(available)
+            lineup[role_id] = chosen.account_id
+            taken.add(chosen.account_id)
+        else:
+            unpinned.append(role_id)
+
+    if not unpinned:
+        return lineup
+
+    # 2) Остальные роли добираем из свободных аккаунтов кампании. При
+    # shuffle=True состав мешается, иначе берём в стабильном порядке — тогда
+    # раскладка повторяется от чата к чату.
+    spare = [
+        link
+        for link in link_repo.list_by_campaign(campaign_id)
+        if not link.is_reserve and link.account_id not in taken
+    ]
+    if shuffle:
+        rng.shuffle(spare)
+    for role_id in unpinned:
+        if not spare:
+            break
+        chosen = spare.pop(0)
+        lineup[role_id] = chosen.account_id
+        taken.add(chosen.account_id)
+    return lineup
+
+
+# --- мониторинг каналов (cron) -----------------------------------------------
+
+# Сколько новых постов максимум отрабатываем за один проход по одному каналу.
+# Если канал за время между проходами выдал пачку постов, лезть в каждый —
+# это всплеск активности сетки в одном месте, самый заметный паттерн.
+_MONITOR_MAX_NEW_POSTS = 2
+
+
+async def poll_channel_monitors(ctx: dict) -> int:
+    """Cron: ищет НОВЫЕ посты в каналах, добавленных в режиме «Мониторинг».
+
+    Для каждой цели ``mode='channel_monitor'`` активной кампании смотрит посты
+    свежее ``last_seen_post_id`` и ставит на каждый свой ``process_target`` с
+    этим постом. При ПЕРВОМ проходе (курсора ещё нет) ничего не запускает —
+    только запоминает текущий последний пост: иначе включение мониторинга
+    означало бы заход в комментарии под всем архивом канала.
+
+    Возвращает число запланированных диалогов.
+    """
+    now = _now(ctx)
+    session_factory = ctx["session_factory"]
+    task_queue = _task_queue(ctx)
+    log = get_logger()
+
+    with session_factory() as session:
+        campaigns = CampaignRepository(session).list_active()
+        jobs: list[tuple[int, int, str, Optional[int], Optional[int]]] = []
+        for campaign in campaigns:
+            targets = CampaignTargetRepository(session).list_monitors(campaign.id)
+            if not targets:
+                continue
+            links = [
+                link
+                for link in CampaignAccountRepository(session).list_by_campaign(campaign.id)
+                if not link.is_reserve
+            ]
+            if not links:
+                continue
+            resolver_account_id = links[0].account_id
+            for target in targets:
+                jobs.append(
+                    (
+                        campaign.id,
+                        target.id,
+                        target.raw_input,
+                        target.last_seen_post_id,
+                        resolver_account_id,
+                    )
+                )
+
+    if not jobs:
+        return 0
+
+    pool = _pool(ctx)
+    scheduled = 0
+    for campaign_id, target_id, raw_input, last_seen, resolver_account_id in jobs:
+        try:
+            client = await pool.get(resolver_account_id)
+        except Exception as exc:  # noqa: BLE001 — аккаунт недоступен, не падаем
+            log.info("shilling.monitor.client_failed", target_id=target_id, error=repr(exc))
+            continue
+        try:
+            posts = await client.get_messages(raw_input, limit=_MONITOR_MAX_NEW_POSTS + 1)
+        except Exception as exc:  # noqa: BLE001 — канал недоступен/переименован
+            log.info("shilling.monitor.fetch_failed", target_id=target_id, error=repr(exc))
+            await pool.release(resolver_account_id)
+            continue
+        finally:
+            await pool.release(resolver_account_id)
+
+        post_ids = [p.id for p in posts if getattr(p, "id", None) is not None]
+        if not post_ids:
+            continue
+        newest = max(post_ids)
+
+        if last_seen is None:
+            # Первый проход — только ставим курсор, в архив не лезем.
+            with session_factory() as session:
+                CampaignTargetRepository(session).set_last_seen_post(target_id, newest)
+                session.commit()
+            log.info("shilling.monitor.cursor_init", target_id=target_id, post_id=newest)
+            continue
+
+        fresh = sorted(p for p in post_ids if p > last_seen)[:_MONITOR_MAX_NEW_POSTS]
+        if not fresh:
+            continue
+        for new_post_id in fresh:
+            await task_queue.enqueue(
+                TaskName.SHILLING_PROCESS_TARGET, campaign_id, target_id, new_post_id
+            )
+            scheduled += 1
+        with session_factory() as session:
+            CampaignTargetRepository(session).set_last_seen_post(target_id, max(fresh))
+            session.commit()
+        log.info(
+            "shilling.monitor.new_posts",
+            target_id=target_id, posts=len(fresh), newest=max(fresh),
+        )
+
+    if scheduled:
+        log.info("shilling.monitor.scheduled", dialogs=scheduled, now=now.isoformat())
+    return scheduled
 
 
 # --- задача failover ---------------------------------------------------------

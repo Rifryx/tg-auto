@@ -20,6 +20,7 @@ import type {
   ScenarioGenerateBody,
   Step,
   StepCreateBody,
+  TargetMode,
   StepUpdateBody,
   Target,
 } from "./types";
@@ -75,8 +76,8 @@ export const shillingApi = {
 
   // Цели
   targets: (id: number) => api.get<Target[]>(`${BASE}/${id}/targets`),
-  addTargets: (id: number, raw_inputs: string[]) =>
-    api.post<Target[]>(`${BASE}/${id}/targets`, { raw_inputs }),
+  addTargets: (id: number, raw_inputs: string[], mode: TargetMode = "link") =>
+    api.post<Target[]>(`${BASE}/${id}/targets`, { raw_inputs, mode }),
   removeTarget: (id: number, targetId: number) =>
     api.del<void>(`${BASE}/${id}/targets/${targetId}`),
 

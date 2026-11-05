@@ -30,6 +30,12 @@ class _DelayRangesMixin:
         tmx = getattr(self, "target_delay_max_sec", None)
         if tmn is not None and tmx is not None and tmn > tmx:
             raise ValueError("target_delay_min_sec must be <= target_delay_max_sec")
+        fmn = getattr(self, "first_reply_delay_min_sec", None)
+        fmx = getattr(self, "first_reply_delay_max_sec", None)
+        if fmn is not None and fmx is not None and fmn > fmx:
+            raise ValueError(
+                "first_reply_delay_min_sec must be <= first_reply_delay_max_sec"
+            )
         return self
 
 
@@ -48,6 +54,14 @@ class CampaignCreate(BaseModel, _DelayRangesMixin):
     target_delay_min_sec: int = Field(default=600, ge=0)
     target_delay_max_sec: int = Field(default=1800, ge=0)
     posts_per_target: int = Field(default=1, ge=1)
+
+    # Темп: 1 = «по одному» (следующий чат после завершения предыдущего),
+    # 2–3 = столько диалогов одновременно.
+    max_parallel_chats: int = Field(default=1, ge=1, le=3)
+    first_reply_delay_min_sec: int = Field(default=300, ge=0)
+    first_reply_delay_max_sec: int = Field(default=900, ge=0)
+    shuffle_lineup_between_chats: bool = False
+    pickup_replies_hours: int = Field(default=6, ge=1, le=72)
 
     scenario_id: Optional[int] = None
     media_asset_id: Optional[int] = None
@@ -83,6 +97,12 @@ class CampaignUpdate(BaseModel, _DelayRangesMixin):
     target_delay_max_sec: Optional[int] = Field(default=None, ge=0)
     posts_per_target: Optional[int] = Field(default=None, ge=1)
 
+    max_parallel_chats: Optional[int] = Field(default=None, ge=1, le=3)
+    first_reply_delay_min_sec: Optional[int] = Field(default=None, ge=0)
+    first_reply_delay_max_sec: Optional[int] = Field(default=None, ge=0)
+    shuffle_lineup_between_chats: Optional[bool] = None
+    pickup_replies_hours: Optional[int] = Field(default=None, ge=1, le=72)
+
     scenario_id: Optional[int] = None
     media_asset_id: Optional[int] = None
     product_id: Optional[int] = None
@@ -114,6 +134,11 @@ class CampaignRead(ORMModel):
     target_delay_min_sec: int
     target_delay_max_sec: int
     posts_per_target: int
+    max_parallel_chats: int = 1
+    first_reply_delay_min_sec: int = 300
+    first_reply_delay_max_sec: int = 900
+    shuffle_lineup_between_chats: bool = False
+    pickup_replies_hours: int = 6
     scenario_id: Optional[int]
     media_asset_id: Optional[int]
     product_id: Optional[int] = None

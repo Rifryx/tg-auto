@@ -281,54 +281,92 @@ def _validate_role_in_campaign(session: Session, campaign, role_id: int) -> None
 
 _INVITE_RE = re.compile(r"(?:t\.me/|telegram\.me/)(?:joinchat/|\+)", re.IGNORECASE)
 _TME_RE = re.compile(r"(?:https?://)?t\.me/", re.IGNORECASE)
+# Ссылка на КОНКРЕТНЫЙ пост: t.me/channel/123 или t.me/c/1234567890/123
+# (второй вид — приватный канал, там первый сегмент это internal id).
+_POST_RE = re.compile(
+    r"(?:https?://)?t\.me/(?:c/)?(?P<chan>[A-Za-z0-9_]{3,32}|\d+)/(?P<post>\d+)",
+    re.IGNORECASE,
+)
 
 
-def normalize_target(raw: str) -> tuple[str, str]:
-    """Нормализует ввод цели → (canonical_raw_input, kind).
+def normalize_target(raw: str) -> tuple[str, str, Optional[int]]:
+    """Нормализует ввод цели → ``(canonical_raw_input, kind, post_id)``.
 
     * ``-1001234`` / ``1001234`` → chat_id
     * ссылка-приглашение (t.me/joinchat/…, t.me/+…) → invite (как есть, trim)
+    * ``t.me/channel/123`` → username ``channel`` + ``post_id=123`` (ссылка на
+      конкретный пост — вызывающий код ставит mode='channel_post')
     * @username / t.me/username / username → username (без @, lower)
     """
     s = raw.strip()
     if not s:
-        return s, "username"
+        return s, "username", None
 
     # chat_id: только цифры (возможно с ведущим -)
     if re.fullmatch(r"-?\d+", s):
-        return s, "chat_id"
+        return s, "chat_id", None
 
     # invite-ссылка
     if _INVITE_RE.search(s):
-        return s, "invite"
+        return s, "invite", None
+
+    # Ссылка на конкретный пост — вытаскиваем канал и номер поста.
+    post_match = _POST_RE.fullmatch(s.split("?")[0].rstrip("/"))
+    if post_match is not None:
+        chan = post_match.group("chan")
+        return chan.lower(), ("chat_id" if chan.isdigit() else "username"), int(
+            post_match.group("post")
+        )
 
     # username в любом виде → нормализуем к голому lower-case юзернейму
     s = _TME_RE.sub("", s)
     s = s.lstrip("@")
     s = s.split("/")[0].split("?")[0]  # обрезаем хвосты /42 ?comment=
-    return s.lower(), "username"
+    return s.lower(), "username", None
 
 
 def add_targets_bulk(
-    session: Session, campaign_id: int, raw_inputs: list[str]
+    session: Session,
+    campaign_id: int,
+    raw_inputs: list[str],
+    *,
+    mode: str = "link",
 ) -> list[ShillingTarget]:
-    """Bulk-добавление целей. Дубли (по нормализованному raw_input) — молча."""
+    """Bulk-добавление целей. Дубли (по нормализованному raw_input) — молча.
+
+    ``mode`` — режим цели из вкладки UI («Чаты» / «Мониторинг каналов» /
+    «Ссылки» / «Посты каналов»). Ссылка вида ``t.me/channel/123`` всегда даёт
+    ``channel_post`` независимо от вкладки: номер поста в ней уже есть, и
+    трактовать её как «весь канал» значило бы молча делать не то, что просили.
+
+    Ключ дедупликации — пара (raw_input, post_id): один и тот же канал может
+    быть добавлен и на мониторинг, и отдельными постами.
+    """
     if CampaignRepository(session).get(campaign_id) is None:
         raise ShillingNotFound(f"campaign {campaign_id} not found")
 
     from modules.shilling.schemas import TargetCreate
 
     repo = CampaignTargetRepository(session)
-    existing = {t.raw_input for t in repo.list_by_campaign(campaign_id)}
+    existing = {
+        (t.raw_input, t.post_id) for t in repo.list_by_campaign(campaign_id)
+    }
     created: list[ShillingTarget] = []
     for raw in raw_inputs:
-        canonical, kind = normalize_target(raw)
-        if not canonical or canonical in existing:
+        canonical, kind, post_id = normalize_target(raw)
+        effective_mode = "channel_post" if post_id is not None else mode
+        if not canonical or (canonical, post_id) in existing:
             continue
         target = repo.create(
-            campaign_id, TargetCreate(raw_input=canonical, kind=kind)
+            campaign_id,
+            TargetCreate(
+                raw_input=canonical,
+                kind=kind,
+                mode=effective_mode,
+                post_id=post_id,
+            ),
         )
-        existing.add(canonical)
+        existing.add((canonical, post_id))
         created.append(target)
     return created
 

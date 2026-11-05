@@ -47,8 +47,26 @@ class CampaignTargetRepository(BaseRepository[ShillingTarget]):
             campaign_id=campaign_id,
             raw_input=raw,
             kind=payload.get("kind", "username"),
+            mode=payload.get("mode", "link"),
+            post_id=payload.get("post_id"),
         )
         return self._add(target)
+
+    def list_monitors(self, campaign_id: int) -> list[ShillingTarget]:
+        """Цели в режиме «Мониторинг каналов» — их опрашивает cron-поллер."""
+        stmt = select(ShillingTarget).where(
+            ShillingTarget.campaign_id == campaign_id,
+            ShillingTarget.mode == "channel_monitor",
+        )
+        return list(self.session.execute(stmt).scalars())
+
+    def set_last_seen_post(self, id_: int, post_id: int) -> None:
+        """Двигает курсор обработанных постов для channel_monitor."""
+        target = self.get(id_)
+        if target is None:
+            return
+        target.last_seen_post_id = post_id
+        self.session.flush()
 
     def mark_resolved(
         self, id_: int, *, resolved_chat_id: int, title: Optional[str] = None

@@ -51,6 +51,7 @@ from modules.shilling.worker.dry_run import dry_run as shilling_dry_run_impl
 from modules.shilling.worker.executor import execute_step as shilling_execute_step_impl
 from modules.shilling.worker.orchestrator import (
     failover as shilling_failover_impl,
+    poll_channel_monitors as shilling_poll_channel_monitors_impl,
     process_target as shilling_process_target_impl,
     start_campaign as shilling_start_campaign_impl,
 )
@@ -199,6 +200,9 @@ shilling_execute_step = task(TaskName.SHILLING_EXECUTE_STEP.value)(
 )
 shilling_failover = task(TaskName.SHILLING_FAILOVER.value)(shilling_failover_impl)
 shilling_dry_run = task(TaskName.SHILLING_DRY_RUN.value)(shilling_dry_run_impl)
+shilling_poll_channel_monitors = task(
+    TaskName.SHILLING_POLL_CHANNEL_MONITORS.value
+)(shilling_poll_channel_monitors_impl)
 sweep_abandoned_logins = task(
     TaskName.ACCOUNTS_SWEEP_ABANDONED_LOGINS.value
 )(sweep_abandoned_logins_impl)
@@ -414,6 +418,16 @@ CRON_JOBS = [
         reconcile_payments_impl,
         name=TaskName.BILLING_RECONCILE_PAYMENTS.value,
         minute=set(range(0, 60, 2)),
+        run_at_startup=False,
+        max_tries=1,
+    ),
+    # Шиллинг: раз в 5 минут проверяем каналы в режиме «Мониторинг» на новые
+    # посты. Чаще смысла нет — после выхода поста комментарии всё равно
+    # набегают не мгновенно, а мы ещё и ждём «паузу до первой реплики».
+    cron(
+        shilling_poll_channel_monitors,
+        name=TaskName.SHILLING_POLL_CHANNEL_MONITORS.value,
+        minute=set(range(0, 60, 5)),
         run_at_startup=False,
         max_tries=1,
     ),

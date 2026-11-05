@@ -67,6 +67,8 @@ class TaskName(str, Enum):
     SHILLING_EXECUTE_STEP = "shilling.execute_step"
     SHILLING_FAILOVER = "shilling.failover"
     SHILLING_DRY_RUN = "shilling.dry_run"
+    # Cron: опрос каналов в режиме «Мониторинг» на новые посты.
+    SHILLING_POLL_CHANNEL_MONITORS = "shilling.poll_channel_monitors"
 
     # --- Модуль priming ---
     # execute_prime — один прайм (target × campaign_account, промпт 2.2).

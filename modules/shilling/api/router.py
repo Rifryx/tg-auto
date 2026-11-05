@@ -637,7 +637,9 @@ def add_targets(
         len(CampaignTargetRepository(session).list_by_campaign(campaign_id)),
     )
     try:
-        created = service.add_targets_bulk(session, campaign_id, body.raw_inputs)
+        created = service.add_targets_bulk(
+            session, campaign_id, body.raw_inputs, mode=body.mode
+        )
     except service.ShillingNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     session.commit()

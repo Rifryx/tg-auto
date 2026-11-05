@@ -9,13 +9,19 @@ import { AccountsTab } from "./components/AccountsTab";
 import { BlacklistTab } from "./components/BlacklistTab";
 import { DryRunSimulator } from "./components/DryRunSimulator";
 import { HistoryTab } from "./components/HistoryTab";
+import { LaunchTab } from "./components/LaunchTab";
 import { ScenarioBuilder } from "./components/ScenarioBuilder";
 import { TargetsTab } from "./components/TargetsTab";
 import type { CampaignReadiness, CampaignStatus, ExecutionStatus } from "./types";
 
-type Tab = "overview" | "scenario" | "accounts" | "targets" | "history" | "blacklist";
+type Tab = "launch" | "overview" | "scenario" | "accounts" | "targets" | "history" | "blacklist";
 
+/* «Запуск» — первая вкладка и точка входа: там собрано всё, что нужно перед
+   стартом (сценарий, цели, аккаунты с ролями, параметры, темп). Остальные
+   вкладки остаются для детальной работы: сценарий построчно, цели списком,
+   резерв аккаунтов, история и ЧС. */
 const TABS: { key: Tab; label: string }[] = [
+  { key: "launch", label: "Запуск" },
   { key: "overview", label: "Обзор" },
   { key: "scenario", label: "Сценарий" },
   { key: "accounts", label: "Аккаунты" },
@@ -38,7 +44,7 @@ export function ShillingDetailScreen() {
   const campaignId = Number(id);
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab>("launch");
   const [dryRunOpen, setDryRunOpen] = useState(false);
 
   const campaign = useQuery({
@@ -136,6 +142,13 @@ export function ShillingDetailScreen() {
         </div>
       </div>
 
+      {tab === "launch" && (
+        <LaunchTab
+          campaignId={campaignId}
+          onEditScenario={() => setTab("scenario")}
+          onOpenHistory={() => setTab("history")}
+        />
+      )}
       {tab === "overview" && <OverviewTab campaignId={campaignId} />}
       {tab === "scenario" && <ScenarioBuilder campaignId={campaignId} />}
       {tab === "accounts" && <AccountsTab campaignId={campaignId} />}
@@ -144,6 +157,7 @@ export function ShillingDetailScreen() {
       {tab === "blacklist" && <BlacklistTab campaignId={campaignId} />}
 
       <StickyLaunchPanel
+        campaignId={campaignId}
         readiness={readiness.data}
         isRunning={isRunning}
         busy={toggle.isPending}
@@ -398,18 +412,32 @@ function LogDot({ status }: { status: ExecutionStatus }) {
 }
 
 function StickyLaunchPanel({
+  campaignId,
   readiness,
   isRunning,
   busy,
   onToggle,
   onDryRun,
 }: {
+  campaignId: number;
   readiness?: CampaignReadiness;
   isRunning: boolean;
   busy: boolean;
   onToggle: () => void;
   onDryRun: () => void;
 }) {
+  // Счётчики на кнопке: «сколько аккаунтов и целей реально поедет». Без них
+  // «Запустить» выглядит одинаково и когда всё готово, и когда целей ноль.
+  const accounts = useQuery({
+    queryKey: ["shilling", "campaign", campaignId, "accounts"],
+    queryFn: () => shillingApi.accounts(campaignId),
+  });
+  const targets = useQuery({
+    queryKey: ["shilling", "campaign", campaignId, "targets"],
+    queryFn: () => shillingApi.targets(campaignId),
+  });
+  const accCount = (accounts.data ?? []).filter((l) => !l.is_reserve).length;
+  const targetCount = (targets.data ?? []).length;
   const canRun = readiness?.can_run ?? false;
   const checks = readiness
     ? [readiness.accounts, readiness.scenario, readiness.targets]
@@ -463,7 +491,12 @@ function StickyLaunchPanel({
             ) : (
               <>
                 <Rocket className="h-4 w-4" strokeWidth={2.2} aria-hidden />
-                Запустить
+                <span>
+                  Запустить
+                  <span className="ml-1 font-normal opacity-80 nums">
+                    · {accCount} акк / {targetCount} целей
+                  </span>
+                </span>
               </>
             )}
           </button>
