@@ -103,6 +103,17 @@ export interface Scenario {
   updated_at: string;
 }
 
+/** Строка списка сценариев кампании (счётчики + флаг активности). */
+export interface ScenarioListItem {
+  id: number;
+  name: string | null;
+  persons_count: number;
+  ai_generated: boolean;
+  roles_count: number;
+  steps_count: number;
+  is_active: boolean;
+}
+
 export interface ScenarioCreateBody {
   campaign_id?: number | null;
   name?: string | null;

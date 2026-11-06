@@ -46,6 +46,22 @@ class ScenarioRead(ORMModel):
     updated_at: datetime
 
 
+class ScenarioListItem(BaseModel):
+    """Строка списка сценариев кампании: id, имя, счётчики и флаг активности.
+
+    Активный (``is_active``) — тот, по которому реально идёт рассылка
+    (``campaigns.scenario_id``). Счётчики ролей/реплик — чтобы в списке было
+    видно наполнение, не открывая каждый сценарий."""
+
+    id: int
+    name: Optional[str]
+    persons_count: int
+    ai_generated: bool
+    roles_count: int
+    steps_count: int
+    is_active: bool
+
+
 # --- роль --------------------------------------------------------------------
 
 

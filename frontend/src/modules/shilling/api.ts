@@ -17,6 +17,7 @@ import type {
   RoleUpdateBody,
   Scenario,
   ScenarioCreateBody,
+  ScenarioListItem,
   ScenarioGenerateBody,
   Step,
   StepCreateBody,
@@ -44,6 +45,15 @@ export const shillingApi = {
     api.put<Scenario>(`${BASE}/${id}/scenario`, body),
   generateScenario: (id: number, body: ScenarioGenerateBody) =>
     api.post<GeneratedScenario>(`${BASE}/${id}/scenario/generate`, body),
+
+  // Несколько сценариев на кампанию: список / создать / активировать / удалить.
+  scenarios: (id: number) => api.get<ScenarioListItem[]>(`${BASE}/${id}/scenarios`),
+  createScenario: (id: number, body: ScenarioCreateBody) =>
+    api.post<Scenario>(`${BASE}/${id}/scenarios`, body),
+  activateScenario: (id: number, scenarioId: number) =>
+    api.post<Scenario>(`${BASE}/${id}/scenarios/${scenarioId}/activate`),
+  deleteScenario: (id: number, scenarioId: number) =>
+    api.del<void>(`${BASE}/${id}/scenarios/${scenarioId}`),
 
   // Роли сценария
   roles: (scenarioId: number) => api.get<Role[]>(`${SCEN}/${scenarioId}/roles`),

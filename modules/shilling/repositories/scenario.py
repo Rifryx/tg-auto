@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from core.repositories.base import BaseRepository
 from modules.shilling.models import (
+    ShillingCampaign,
     ShillingScenario,
     ShillingScenarioRole,
     ShillingScenarioStep,
@@ -31,8 +32,36 @@ class ScenarioRepository(BaseRepository[ShillingScenario]):
     model = ShillingScenario
 
     def get_by_campaign(self, campaign_id: int) -> Optional[ShillingScenario]:
-        stmt = select(ShillingScenario).where(ShillingScenario.campaign_id == campaign_id)
+        """АКТИВНЫЙ сценарий кампании (campaigns.scenario_id), иначе — первый.
+
+        У кампании может быть несколько сценариев; «активный» — тот, по
+        которому реально идёт рассылка (на него смотрят оркестратор, dry-run,
+        readiness). Если scenario_id не проставлен (старые кампании) — берём
+        первый по id, чтобы ничего не сломалось."""
+        active_id = self.session.execute(
+            select(ShillingCampaign.scenario_id).where(
+                ShillingCampaign.id == campaign_id
+            )
+        ).scalar_one_or_none()
+        if active_id is not None:
+            sc = self.session.get(ShillingScenario, active_id)
+            if sc is not None and sc.campaign_id == campaign_id:
+                return sc
+        stmt = (
+            select(ShillingScenario)
+            .where(ShillingScenario.campaign_id == campaign_id)
+            .order_by(ShillingScenario.id.asc())
+        )
         return self.session.execute(stmt).scalars().first()
+
+    def list_by_campaign(self, campaign_id: int) -> list[ShillingScenario]:
+        """Все сценарии кампании, старые сверху (стабильный порядок по id)."""
+        stmt = (
+            select(ShillingScenario)
+            .where(ShillingScenario.campaign_id == campaign_id)
+            .order_by(ShillingScenario.id.asc())
+        )
+        return list(self.session.execute(stmt).scalars())
 
     def list_templates(self) -> list[ShillingScenario]:
         stmt = (
