@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertCircle, ArrowLeft, Filter, Link2, Play, Sparkles, UserCheck } from "lucide-react";
+import { AlertCircle, ArrowLeft, Filter, Link2, Sparkles, UserCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
@@ -20,10 +20,16 @@ function accountLabel(a: Account): string {
 }
 
 /* Единый экран поиска каналов/чатов (раньше были два почти одинаковых —
-   «Сообщества» и «Найти каналы»). Два режима:
-   - «По ссылкам» — обогащаем и фильтруем уже известные ссылки (runCommunities);
-   - «Найти новые» — находим каналы ниши (похожие/поиск/snowball) и фильтруем
-     (runDiscover).
+   «Сообщества» и «Найти каналы»). Два режима — оба НАХОДЯТ новые каналы
+   (оба идут через runDiscover):
+   - «По ссылкам» — простой: вставил ссылки → они идут сидами, по ним берём
+     «похожие каналы» (рекомендации Telegram) + глобальный поиск. На выходе
+     сами ссылки + новые похожие каналы. Без лишних настроек.
+   - «Найти новые» — продвинутый: сиды + ключевик + выбор методов (похожие/
+     поиск/форварды/упоминания) + глубина/лимит.
+   Раньше «По ссылкам» лишь ОБОГАЩАЛ переданные ссылки (runCommunities) и
+   возвращал их же — пользователи воспринимали это как «парсинг не работает»
+   (вставил 2 ссылки → получил те же 2). Теперь он тоже ищет похожие.
    Фильтры результатов общие для обоих режимов. После запуска открываем окно
    живого прогресса (/modules/parsing/run/:jobId). */
 
@@ -109,10 +115,22 @@ export function CommunitiesScreen() {
     mutationFn: () => {
       if (!collectorId) throw new Error("no collector");
       if (mode === "refs") {
-        return parsingApi.runCommunities({
+        // «По ссылкам» = упрощённый discovery: вставленные ссылки идут сидами,
+        // по ним берём «похожие каналы» (рекомендации Telegram) + глобальный
+        // поиск по слову из названия сида. Так пользователь, вставив ссылки,
+        // получает их САМИ + новые похожие каналы, а не те же ссылки назад.
+        // (Движок discover уже кладёт сиды в результат и обогащает их.)
+        return parsingApi.runDiscover({
           name: name.trim(),
           collector_account_id: collectorId,
-          refs,
+          seeds: refs,
+          term: null,
+          use_search: true,
+          use_recommendations: true,
+          use_forwards: false,
+          use_mentions: false,
+          depth: 2,
+          max_results: 200,
           ...commonFilters,
         });
       }
@@ -142,7 +160,12 @@ export function CommunitiesScreen() {
   if (!name.trim()) problems.push("Укажите имя списка");
   if (!collectorId) problems.push("Выберите аккаунт-парсер (collector)");
   if (mode === "refs") {
-    if (refs.length === 0) problems.push("Вставьте хотя бы одну ссылку на канал/чат");
+    if (refs.length === 0)
+      problems.push("Вставьте хотя бы одну ссылку на канал — по ней найдём похожие");
+    // seeds на бэкенде ограничены 50 (RunDiscoverRequest) — предупредим заранее,
+    // иначе прилетит невнятная 422.
+    if (refs.length > 50)
+      problems.push("Слишком много ссылок — оставьте не больше 50 (по ним ищем похожие)");
   } else {
     if (!useSearch && !useRecs && !useForwards && !useMentions)
       problems.push("Выберите хотя бы один метод поиска");
@@ -190,7 +213,7 @@ export function CommunitiesScreen() {
         </div>
         <p className="-mt-2 px-1 text-[12px] text-text-tertiary">
           {mode === "refs"
-            ? "Только обогащаем и фильтруем уже известные ссылки — новые каналы НЕ ищем (для этого — «Найти новые»)."
+            ? "Вставьте ссылки на каналы — найдём их и ПОХОЖИЕ новые каналы (рекомендации Telegram + поиск по слову из названия). Нужны тонкие настройки (форварды, упоминания, ключевик, глубина) — вкладка «Найти новые»."
             : "Находим новые каналы ниши: похожие (рекомендации Telegram), поиск по ключевику, форварды и упоминания."}
         </p>
 
@@ -210,16 +233,21 @@ export function CommunitiesScreen() {
             <div className="mb-3 flex items-center gap-2">
               <Link2 className="h-4 w-4 text-accent" strokeWidth={2.2} aria-hidden />
               <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">
-                Ссылки на каналы/чаты ({refs.length})
+                Ссылки на каналы ({refs.length})
               </div>
             </div>
             <textarea
               value={refsText}
               onChange={(e) => setRefsText(e.target.value)}
               rows={5}
-              placeholder="@ainews, https://t.me/durov, t.me/+AbCd… — по одной в строке или через запятую"
+              placeholder="@sportexpress, https://t.me/durov — по одной в строке или через запятую"
               className="w-full rounded-xl border border-hairline bg-surface-2 p-3 text-[14px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
             />
+            <p className="mt-2 text-[12px] text-text-tertiary">
+              Публичные каналы (@ или t.me/name). По каждому Telegram подберёт
+              похожие каналы — они и попадут в список вместе с исходными.
+              Приватные инвайты (t.me/+…) для подбора похожих не подходят.
+            </p>
           </div>
         ) : (
           <div className="card relative overflow-hidden p-5">
@@ -462,12 +490,8 @@ export function CommunitiesScreen() {
               problems.length === 0 ? "bg-accent text-accent-on active:opacity-80" : "bg-surface-2 text-text-tertiary",
             ].join(" ")}
           >
-            {mode === "refs" ? (
-              <Play className="h-4 w-4" strokeWidth={2.4} aria-hidden />
-            ) : (
-              <Sparkles className="h-4 w-4" strokeWidth={2.4} aria-hidden />
-            )}
-            {submit.isPending ? "Запуск…" : mode === "refs" ? "Обогатить и отфильтровать" : "Найти каналы"}
+            <Sparkles className="h-4 w-4" strokeWidth={2.4} aria-hidden />
+            {submit.isPending ? "Запуск…" : mode === "refs" ? "Найти похожие каналы" : "Найти каналы"}
           </button>
         </div>
       </div>
