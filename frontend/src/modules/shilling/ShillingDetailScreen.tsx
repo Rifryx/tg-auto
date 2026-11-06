@@ -5,6 +5,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { haptic } from "../../shared/tg";
 import { timeAgo } from "../../shared/format";
 import { productsApi, shillingApi } from "./api";
+import { humanizeShillingError } from "./errors";
 import { AccountsTab } from "./components/AccountsTab";
 import { BlacklistTab } from "./components/BlacklistTab";
 import { DryRunSimulator } from "./components/DryRunSimulator";
@@ -213,7 +214,8 @@ function OverviewTab({ campaignId }: { campaignId: number }) {
                 <LogDot status={log.status} />
                 <span className="shrink-0 text-text-tertiary nums">{timeAgo(log.created_at)}</span>
                 <span className="min-w-0 flex-1 truncate text-text-secondary">
-                  {log.message_text || (log.status === "failed" ? log.error : "—")}
+                  {log.message_text ||
+                    (log.status === "failed" ? humanizeShillingError(log.error) : "—")}
                 </span>
               </div>
             ))}

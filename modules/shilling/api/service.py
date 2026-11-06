@@ -71,7 +71,7 @@ def upsert_scenario_for_campaign(
     """
     campaign = CampaignRepository(session).get(campaign_id)
     if campaign is None:
-        raise ShillingNotFound(f"campaign {campaign_id} not found")
+        raise ShillingNotFound(f"Кампания {campaign_id} не найдена")
 
     existing = ScenarioRepository(session).get_by_campaign(campaign_id)
     if existing is not None:
@@ -107,7 +107,7 @@ def delete_role(session: Session, scenario_id: int, role_id: int) -> None:
     role_repo = ScenarioRoleRepository(session)
     role = role_repo.get(role_id)
     if role is None or role.scenario_id != scenario_id:
-        raise ShillingNotFound(f"role {role_id} not found in scenario {scenario_id}")
+        raise ShillingNotFound(f"Роль {role_id} не найдена в сценарии {scenario_id}")
 
     step_repo = ScenarioStepRepository(session)
     dependents = step_repo.list_by_role(role_id)
@@ -137,7 +137,7 @@ def delete_step(session: Session, scenario_id: int, step_id: int) -> int:
     step_repo = ScenarioStepRepository(session)
     step = step_repo.get(step_id)
     if step is None or step.scenario_id != scenario_id:
-        raise ShillingNotFound(f"step {step_id} not found in scenario {scenario_id}")
+        raise ShillingNotFound(f"Шаг {step_id} не найден в сценарии {scenario_id}")
 
     stmt = (
         update(ShillingScenarioStep)
@@ -161,10 +161,10 @@ def reorder_steps(
     в репозитории: чужой id → False, ничего не меняется.
     """
     if ScenarioRepository(session).get(scenario_id) is None:
-        raise ShillingNotFound(f"scenario {scenario_id} not found")
+        raise ShillingNotFound(f"Сценарий {scenario_id} не найден")
 
     if len(set(step_ids_in_order)) != len(step_ids_in_order):
-        raise ShillingValidation("step_ids contain duplicates")
+        raise ShillingValidation("В списке порядка шагов есть повторы")
 
     existing = ScenarioStepRepository(session).list_by_scenario(scenario_id)
     if len(step_ids_in_order) != len(existing):
@@ -204,11 +204,11 @@ def attach_account(
     """
     campaign = CampaignRepository(session).get(campaign_id)
     if campaign is None:
-        raise ShillingNotFound(f"campaign {campaign_id} not found")
+        raise ShillingNotFound(f"Кампания {campaign_id} не найдена")
 
     account = AccountRepository(session).get(account_id)
     if account is None:
-        raise ShillingNotFound(f"account {account_id} not found")
+        raise ShillingNotFound(f"Аккаунт {account_id} не найден")
     if account.status not in _USABLE_ACCOUNT_STATUSES:
         raise ShillingValidation(
             f"account {account_id} is '{account.status}', must be "
@@ -238,7 +238,7 @@ def update_account_link(
     """PATCH привязки: смена роли / флага резерва."""
     campaign = CampaignRepository(session).get(campaign_id)
     if campaign is None:
-        raise ShillingNotFound(f"campaign {campaign_id} not found")
+        raise ShillingNotFound(f"Кампания {campaign_id} не найдена")
 
     link_repo = CampaignAccountRepository(session)
     link = link_repo.get_link(campaign_id, account_id)
@@ -257,7 +257,7 @@ def update_account_link(
 
 def detach_account(session: Session, campaign_id: int, account_id: int) -> None:
     if CampaignRepository(session).get(campaign_id) is None:
-        raise ShillingNotFound(f"campaign {campaign_id} not found")
+        raise ShillingNotFound(f"Кампания {campaign_id} не найдена")
     if not CampaignAccountRepository(session).detach(campaign_id, account_id):
         raise ShillingNotFound(
             f"account {account_id} is not attached to campaign {campaign_id}"
@@ -268,7 +268,7 @@ def _validate_role_in_campaign(session: Session, campaign, role_id: int) -> None
     """Роль должна принадлежать сценарию этой кампании (иначе 400)."""
     role = ScenarioRoleRepository(session).get(role_id)
     if role is None:
-        raise ShillingValidation(f"role {role_id} not found")
+        raise ShillingValidation(f"Роль {role_id} не найдена")
     if campaign.scenario_id is None or role.scenario_id != campaign.scenario_id:
         raise ShillingValidation(
             f"role {role_id} does not belong to campaign {campaign.id}'s scenario"
@@ -343,7 +343,7 @@ def add_targets_bulk(
     быть добавлен и на мониторинг, и отдельными постами.
     """
     if CampaignRepository(session).get(campaign_id) is None:
-        raise ShillingNotFound(f"campaign {campaign_id} not found")
+        raise ShillingNotFound(f"Кампания {campaign_id} не найдена")
 
     from modules.shilling.schemas import TargetCreate
 
@@ -386,7 +386,7 @@ def compute_readiness(session: Session, campaign_id: int) -> CampaignReadiness:
     """
     campaign = CampaignRepository(session).get(campaign_id)
     if campaign is None:
-        raise ShillingNotFound(f"campaign {campaign_id} not found")
+        raise ShillingNotFound(f"Кампания {campaign_id} не найдена")
 
     scenario = ScenarioRepository(session).get_by_campaign(campaign_id)
     role_repo = ScenarioRoleRepository(session)
@@ -455,7 +455,7 @@ def compute_readiness(session: Session, campaign_id: int) -> CampaignReadiness:
 
 def compute_stats(session: Session, campaign_id: int) -> CampaignStats:
     if CampaignRepository(session).get(campaign_id) is None:
-        raise ShillingNotFound(f"campaign {campaign_id} not found")
+        raise ShillingNotFound(f"Кампания {campaign_id} не найдена")
     counts = ExecutionLogRepository(session).count_by_status(campaign_id)
     total = sum(counts.values())
     sent = counts.get("sent", 0)
@@ -478,9 +478,9 @@ def prepare_start(session: Session, campaign_id: int) -> None:
     """
     campaign = CampaignRepository(session).get(campaign_id)
     if campaign is None:
-        raise ShillingNotFound(f"campaign {campaign_id} not found")
+        raise ShillingNotFound(f"Кампания {campaign_id} не найдена")
     if campaign.status == "running":
-        raise ShillingConflict(f"campaign {campaign_id} is already running")
+        raise ShillingConflict(f"Кампания {campaign_id} уже запущена")
 
     readiness = compute_readiness(session, campaign_id)
     if not readiness.can_run:
@@ -498,5 +498,5 @@ def prepare_stop(session: Session, campaign_id: int) -> None:
     """Перевод в paused. Идемпотентно для не-running (draft/paused/completed)."""
     campaign = CampaignRepository(session).get(campaign_id)
     if campaign is None:
-        raise ShillingNotFound(f"campaign {campaign_id} not found")
+        raise ShillingNotFound(f"Кампания {campaign_id} не найдена")
     CampaignRepository(session).set_status(campaign_id, "paused")
