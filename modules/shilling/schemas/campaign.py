@@ -62,6 +62,7 @@ class CampaignCreate(BaseModel, _DelayRangesMixin):
     first_reply_delay_max_sec: int = Field(default=900, ge=0)
     shuffle_lineup_between_chats: bool = False
     pickup_replies_hours: int = Field(default=6, ge=1, le=72)
+    monitor_all_dialogs: bool = False
 
     scenario_id: Optional[int] = None
     media_asset_id: Optional[int] = None
@@ -102,6 +103,7 @@ class CampaignUpdate(BaseModel, _DelayRangesMixin):
     first_reply_delay_max_sec: Optional[int] = Field(default=None, ge=0)
     shuffle_lineup_between_chats: Optional[bool] = None
     pickup_replies_hours: Optional[int] = Field(default=None, ge=1, le=72)
+    monitor_all_dialogs: Optional[bool] = None
 
     scenario_id: Optional[int] = None
     media_asset_id: Optional[int] = None
@@ -139,6 +141,7 @@ class CampaignRead(ORMModel):
     first_reply_delay_max_sec: int = 900
     shuffle_lineup_between_chats: bool = False
     pickup_replies_hours: int = 6
+    monitor_all_dialogs: bool = False
     scenario_id: Optional[int]
     media_asset_id: Optional[int]
     product_id: Optional[int] = None

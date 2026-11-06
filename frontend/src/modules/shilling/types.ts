@@ -39,6 +39,8 @@ export interface Campaign {
   shuffle_lineup_between_chats: boolean;
   /** Сколько часов после диалога подхватываем ответы живых пользователей. */
   pickup_replies_hours: number;
+  /** Тумблер «мониторить всё, что на аккаунте». */
+  monitor_all_dialogs: boolean;
   scenario_id: number | null;
   media_asset_id: number | null;
   product_id: number | null;
@@ -73,6 +75,7 @@ export interface CampaignCreateBody {
   first_reply_delay_max_sec?: number;
   shuffle_lineup_between_chats?: boolean;
   pickup_replies_hours?: number;
+  monitor_all_dialogs?: boolean;
   scenario_id?: number | null;
   media_asset_id?: number | null;
   product_id?: number | null;
@@ -219,6 +222,8 @@ export interface Target {
   post_id: number | null;
   /** Курсор обработанных постов для mode='channel_monitor'. */
   last_seen_post_id: number | null;
+  /** Цель заведена автодискавери (тумблер «мониторить всё»), не руками. */
+  auto_discovered: boolean;
   resolved_chat_id: number | null;
   title: string | null;
   status: TargetStatus;

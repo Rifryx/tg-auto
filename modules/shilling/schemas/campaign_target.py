@@ -23,6 +23,8 @@ class TargetCreate(BaseModel):
     kind: TargetKind = "username"
     mode: TargetMode = "link"
     post_id: Optional[int] = Field(default=None, gt=0)
+    # Заводится автодискавери (тумблер «мониторить всё»), не руками.
+    auto_discovered: bool = False
 
 
 class TargetBulkCreate(BaseModel):
@@ -44,6 +46,7 @@ class TargetRead(ORMModel):
     mode: TargetMode = "link"
     post_id: Optional[int] = None
     last_seen_post_id: Optional[int] = None
+    auto_discovered: bool = False
     resolved_chat_id: Optional[int]
     title: Optional[str]
     status: TargetStatus

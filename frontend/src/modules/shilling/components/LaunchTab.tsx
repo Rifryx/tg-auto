@@ -374,6 +374,22 @@ function TargetsSection({ campaignId }: { campaignId: number }) {
     onSuccess: invalidate,
   });
 
+  // Тумблер «мониторить всё, что на аккаунте» — флаг кампании. Когда включён,
+  // ссылки вводить не нужно: софт сам соберёт каналы из подписок аккаунта.
+  const campaign = useQuery({
+    queryKey: ["shilling", "campaign", campaignId],
+    queryFn: () => shillingApi.get(campaignId),
+  });
+  const patchCampaign = useMutation({
+    mutationFn: (body: { monitor_all_dialogs: boolean }) =>
+      shillingApi.update(campaignId, body),
+    onSuccess: (updated) => {
+      qc.setQueryData(["shilling", "campaign", campaignId], updated);
+      invalidate();
+    },
+  });
+  const monitorAll = campaign.data?.monitor_all_dialogs ?? false;
+
   const lines = useMemo(() => splitLines(text), [text]);
   // Ссылки на посты считаем всегда: бэкенд делает из них channel_post
   // независимо от вкладки, и пользователь должен видеть, что его ввод
@@ -410,6 +426,40 @@ function TargetsSection({ campaignId }: { campaignId: number }) {
 
       <p className="mb-3 text-[12px] leading-snug text-text-tertiary">{tab.hint}</p>
 
+      {mode === "channel_monitor" && (
+        <div className="mb-3 rounded-chip border border-hairline bg-surface-1 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="min-w-0 text-[13px] text-text-primary">
+              Мониторить всё, что на аккаунте
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={monitorAll}
+              aria-label="Мониторить всё, что на аккаунте"
+              disabled={patchCampaign.isPending}
+              onClick={() => patchCampaign.mutate({ monitor_all_dialogs: !monitorAll })}
+              className={[
+                "relative inline-flex h-[26px] w-[44px] shrink-0 items-center rounded-full border transition-colors disabled:opacity-50",
+                monitorAll ? "border-transparent bg-status-active" : "border-hairline bg-surface-2",
+              ].join(" ")}
+            >
+              <span
+                className={[
+                  "inline-block h-[20px] w-[20px] rounded-full bg-white shadow-sm transition-transform duration-150",
+                  monitorAll ? "translate-x-[21px]" : "translate-x-[2px]",
+                ].join(" ")}
+              />
+            </button>
+          </div>
+          <p className="mt-1.5 text-[11px] leading-snug text-text-tertiary">
+            {monitorAll
+              ? "Ссылки вводить не нужно — софт сам собирает каналы из подписок аккаунта-парсера и следит за новыми постами. Они появятся ниже со значком «авто»."
+              : "Включите, чтобы не перечислять каналы вручную: софт возьмёт их из подписок аккаунта."}
+          </p>
+        </div>
+      )}
+
       {current.length > 0 ? (
         <div className="mb-3 flex flex-wrap gap-2">
           {current.map((t) => (
@@ -434,22 +484,32 @@ function TargetsSection({ campaignId }: { campaignId: number }) {
                   <span className="text-text-tertiary nums">/{t.post_id}</span>
                 )}
               </span>
-              <button
-                onClick={() => remove.mutate(t.id)}
-                aria-label="Удалить цель"
-                className="text-text-tertiary active:text-status-critical"
-              >
-                <X className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
-              </button>
+              {t.auto_discovered ? (
+                <span className="rounded-pill bg-surface-2 px-1.5 text-[10px] font-medium text-text-tertiary">
+                  авто
+                </span>
+              ) : (
+                <button
+                  onClick={() => remove.mutate(t.id)}
+                  aria-label="Удалить цель"
+                  className="text-text-tertiary active:text-status-critical"
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
+                </button>
+              )}
             </span>
           ))}
         </div>
       ) : (
         <p className="mb-3 text-[13px] text-text-tertiary">
-          В этом режиме целей пока нет.
+          {mode === "channel_monitor" && monitorAll
+            ? "Каналы появятся здесь после ближайшей проверки подписок (каждые 5 минут)."
+            : "В этом режиме целей пока нет."}
         </p>
       )}
 
+      {!(mode === "channel_monitor" && monitorAll) && (
+      <>
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -473,6 +533,8 @@ function TargetsSection({ campaignId }: { campaignId: number }) {
           {add.isPending ? "Добавляем…" : "Добавить"}
         </button>
       </div>
+      </>
+      )}
     </Block>
   );
 }
