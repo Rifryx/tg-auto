@@ -125,6 +125,9 @@ export function GenerateScenarioSheet({
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["shilling", "campaign", campaignId, "scenario"] });
+      // Список сценариев тоже обновляем — PUT пересобирает активный (новый id).
+      qc.invalidateQueries({ queryKey: ["shilling", "campaign", campaignId, "scenarios"] });
+      qc.invalidateQueries({ queryKey: ["shilling", "campaign", campaignId] });
       onApplied();
       onClose();
     },

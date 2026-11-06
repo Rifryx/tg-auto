@@ -59,6 +59,7 @@ from modules.shilling.schemas import (
     RoleRead,
     RoleUpdate,
     ScenarioCreate,
+    ScenarioListItem,
     ScenarioRead,
     StepCreate,
     StepRead,
@@ -215,13 +216,104 @@ def put_campaign_scenario(
     body: ScenarioCreate,
     session: Session = Depends(get_session),
 ) -> ScenarioRead:
-    """Создать или заменить сценарий кампании (старый удаляется каскадом)."""
+    """Создать или заменить АКТИВНЫЙ сценарий кампании (старый каскадом).
+
+    Используется потоком ИИ-генерации: PUT пересобирает активный сценарий.
+    Другие сценарии кампании не трогаются."""
     try:
         scenario = service.upsert_scenario_for_campaign(session, campaign_id, body)
     except service.ShillingNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     session.commit()
     return ScenarioRead.model_validate(scenario)
+
+
+@router.get("/campaigns/{campaign_id}/scenarios", response_model=list[ScenarioListItem])
+def list_campaign_scenarios(
+    campaign_id: int, session: Session = Depends(get_session)
+) -> list[ScenarioListItem]:
+    """Все сценарии кампании с счётчиками и флагом активности."""
+    campaign = CampaignRepository(session).get(campaign_id)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Кампания {campaign_id} не найдена")
+    scen_repo = ScenarioRepository(session)
+    role_repo = ScenarioRoleRepository(session)
+    step_repo = ScenarioStepRepository(session)
+    out: list[ScenarioListItem] = []
+    for sc in scen_repo.list_by_campaign(campaign_id):
+        out.append(
+            ScenarioListItem(
+                id=sc.id,
+                name=sc.name,
+                persons_count=sc.persons_count,
+                ai_generated=sc.ai_generated,
+                roles_count=len(role_repo.list_by_scenario(sc.id)),
+                steps_count=len(step_repo.list_by_scenario(sc.id)),
+                is_active=(campaign.scenario_id == sc.id),
+            )
+        )
+    return out
+
+
+@router.post(
+    "/campaigns/{campaign_id}/scenarios",
+    response_model=ScenarioRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_campaign_scenario(
+    campaign_id: int,
+    body: ScenarioCreate,
+    session: Session = Depends(get_session),
+) -> ScenarioRead:
+    """Создать НОВЫЙ (пустой) сценарий кампании, не трогая остальные.
+
+    Первый сценарий кампании сразу становится активным; последующие —
+    нет (их активируют отдельной ручкой), чтобы не переключить рассылку
+    случайно."""
+    try:
+        scenario = service.add_scenario_for_campaign(session, campaign_id, body)
+    except service.ShillingNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    session.commit()
+    return ScenarioRead.model_validate(scenario)
+
+
+@router.post(
+    "/campaigns/{campaign_id}/scenarios/{scenario_id}/activate",
+    response_model=ScenarioRead,
+)
+def activate_campaign_scenario(
+    campaign_id: int,
+    scenario_id: int,
+    session: Session = Depends(get_session),
+) -> ScenarioRead:
+    """Сделать сценарий активным — по нему пойдёт рассылка."""
+    try:
+        scenario = service.activate_scenario(session, campaign_id, scenario_id)
+    except service.ShillingNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    session.commit()
+    return ScenarioRead.model_validate(scenario)
+
+
+@router.delete(
+    "/campaigns/{campaign_id}/scenarios/{scenario_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+def delete_campaign_scenario(
+    campaign_id: int,
+    scenario_id: int,
+    session: Session = Depends(get_session),
+) -> None:
+    """Удалить сценарий кампании. Активный — переназначается на оставшийся."""
+    try:
+        ok = service.delete_scenario(session, campaign_id, scenario_id)
+    except service.ShillingNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    if not ok:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Сценарий не найден")
+    session.commit()
 
 
 @router.post(

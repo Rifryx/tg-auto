@@ -1,38 +1,60 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquarePlus, Plus, Smile } from "lucide-react";
+import { Check, MessageSquarePlus, Plus, Smile, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { shillingApi } from "../api";
-import type { Role, Step } from "../types";
+import type { Role, ScenarioListItem, Step } from "../types";
 import { GenerateScenarioSheet } from "./GenerateScenarioSheet";
 import { RoleCard, roleColor } from "./RoleCard";
 import { ScenarioPreview } from "./ScenarioPreview";
 import { StepBubble } from "./StepBubble";
 import type { ReplyOption, ReplyTarget } from "./StepBubble";
 
-/* Конструктор сценария: слева редактор (роли + шаги), справа — превью (6.2).
-   На узких экранах превью скрыто (появится pinnable-полосой в 6.2). */
+/* Конструктор сценария. У кампании может быть НЕСКОЛЬКО сценариев — сверху
+   селектор: переключение активного + создание/удаление. Редактор и ИИ-
+   генерация работают с АКТИВНЫМ сценарием (по нему идёт рассылка), поэтому
+   выбор сценария в селекторе = сделать его активным. */
 export function ScenarioBuilder({ campaignId }: { campaignId: number }) {
   const qc = useQueryClient();
 
-  const scenario = useQuery({
-    queryKey: ["shilling", "campaign", campaignId, "scenario"],
-    queryFn: () => shillingApi.scenario(campaignId),
-    retry: false, // 404 = сценария ещё нет
+  const scenarios = useQuery({
+    queryKey: ["shilling", "campaign", campaignId, "scenarios"],
+    queryFn: () => shillingApi.scenarios(campaignId),
   });
+
+  // Инвалидируем всё, что зависит от активного сценария.
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ["shilling", "campaign", campaignId, "scenarios"] });
+    qc.invalidateQueries({ queryKey: ["shilling", "campaign", campaignId, "scenario"] });
+    qc.invalidateQueries({ queryKey: ["shilling", "campaign", campaignId] });
+  };
 
   const createScenario = useMutation({
-    mutationFn: () => shillingApi.putScenario(campaignId, { persons_count: 2 }),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["shilling", "campaign", campaignId, "scenario"] }),
+    mutationFn: async () => {
+      const created = await shillingApi.createScenario(campaignId, { persons_count: 2 });
+      // Новый сценарий сразу делаем активным — чтобы пользователь его правил.
+      await shillingApi.activateScenario(campaignId, created.id);
+      return created;
+    },
+    onSuccess: invalidateAll,
+  });
+  const activate = useMutation({
+    mutationFn: (scenarioId: number) => shillingApi.activateScenario(campaignId, scenarioId),
+    onSuccess: invalidateAll,
+  });
+  const removeScenario = useMutation({
+    mutationFn: (scenarioId: number) => shillingApi.deleteScenario(campaignId, scenarioId),
+    onSuccess: invalidateAll,
   });
 
-  if (scenario.isLoading) {
+  if (scenarios.isLoading) {
     return <div className="card h-40 animate-pulse bg-surface-2" />;
   }
-  if (scenario.isError || !scenario.data) {
+  const list: ScenarioListItem[] = scenarios.data ?? [];
+
+  if (list.length === 0) {
     return (
       <div className="card p-6 text-center">
-        <p className="text-[15px] font-medium text-text-secondary">Сценарий не создан</p>
+        <p className="text-[15px] font-medium text-text-secondary">Сценариев пока нет</p>
         <p className="mx-auto mt-1 mb-4 max-w-[280px] text-[13px] text-text-tertiary">
           Создайте сценарий, затем добавьте роли и реплики диалога.
         </p>
@@ -48,7 +70,125 @@ export function ScenarioBuilder({ campaignId }: { campaignId: number }) {
     );
   }
 
-  return <BuilderBody scenarioId={scenario.data.id} campaignId={campaignId} />;
+  const active = list.find((s) => s.is_active) ?? list[0];
+
+  return (
+    <div className="flex flex-col gap-4">
+      <ScenarioSelector
+        list={list}
+        busy={activate.isPending || createScenario.isPending || removeScenario.isPending}
+        onSelect={(id) => {
+          if (id !== active.id) activate.mutate(id);
+        }}
+        onCreate={() => createScenario.mutate()}
+        onDelete={(id) => removeScenario.mutate(id)}
+      />
+      {/* key на active.id — чистый ремаунт редактора при смене активного. */}
+      <BuilderBody key={active.id} scenarioId={active.id} campaignId={campaignId} />
+    </div>
+  );
+}
+
+/* Селектор сценариев: карточки с именем/счётчиками, активный подсвечен;
+   «Новый сценарий» и удаление. Клик по карточке делает сценарий активным. */
+function ScenarioSelector({
+  list,
+  busy,
+  onSelect,
+  onCreate,
+  onDelete,
+}: {
+  list: ScenarioListItem[];
+  busy: boolean;
+  onSelect: (id: number) => void;
+  onCreate: () => void;
+  onDelete: (id: number) => void;
+}) {
+  const [confirmId, setConfirmId] = useState<number | null>(null);
+  return (
+    <div className="flex flex-wrap gap-2">
+      {list.map((s, i) => (
+        <div
+          key={s.id}
+          className={[
+            "group relative flex min-w-[160px] items-center gap-2 rounded-card border px-3 py-2 transition-colors",
+            s.is_active
+              ? "border-status-active/60 bg-status-active/5"
+              : "border-hairline bg-surface-1 hover:border-strong",
+          ].join(" ")}
+        >
+          <button
+            type="button"
+            onClick={() => onSelect(s.id)}
+            disabled={busy}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:opacity-60"
+          >
+            <span
+              className={[
+                "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px]",
+                s.is_active ? "bg-status-active text-white" : "bg-surface-2 text-text-tertiary",
+              ].join(" ")}
+            >
+              {s.is_active ? <Check className="h-3 w-3" strokeWidth={3} aria-hidden /> : i + 1}
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-[13px] font-medium text-text-primary">
+                {s.name || `Сценарий ${i + 1}`}
+              </span>
+              <span className="block text-[11px] text-text-tertiary">
+                {s.roles_count} рол. · {s.steps_count} репл.
+                {s.is_active && <span className="text-status-active"> · активен</span>}
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirmId(s.id)}
+            disabled={busy}
+            aria-label="Удалить сценарий"
+            className="shrink-0 text-text-tertiary hover:text-status-critical disabled:opacity-40"
+          >
+            <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
+          </button>
+
+          {confirmId === s.id && (
+            <div className="absolute left-0 top-[calc(100%+4px)] z-30 w-56 rounded-chip border border-hairline bg-bg-elevated p-3 shadow-lg">
+              <p className="mb-2 text-[12px] text-text-secondary">
+                Удалить «{s.name || `Сценарий ${i + 1}`}» со всеми ролями и репликами?
+                {s.is_active && " Активным станет другой сценарий."}
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setConfirmId(null)}
+                  className="h-8 rounded-pill bg-surface-2 px-3 text-[12px] text-text-secondary"
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={() => {
+                    onDelete(s.id);
+                    setConfirmId(null);
+                  }}
+                  className="h-8 rounded-pill bg-status-critical/90 px-3 text-[12px] font-medium text-white"
+                >
+                  Удалить
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={onCreate}
+        disabled={busy}
+        className="inline-flex min-h-[52px] items-center gap-1.5 rounded-card border border-dashed border-hairline px-4 text-[13px] font-medium text-text-secondary hover:border-strong hover:text-text-primary disabled:opacity-50"
+      >
+        <Plus className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+        Новый сценарий
+      </button>
+    </div>
+  );
 }
 
 function BuilderBody({

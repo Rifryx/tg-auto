@@ -93,6 +93,71 @@ def upsert_scenario_for_campaign(
     return scenario
 
 
+def add_scenario_for_campaign(
+    session: Session, campaign_id: int, data
+) -> ShillingScenario:
+    """Создаёт НОВЫЙ сценарий кампании, не трогая существующие.
+
+    Первый сценарий кампании сразу делаем активным (иначе кампания осталась
+    бы без активного и рассылать было бы нечем); последующие активируются
+    отдельной ручкой, чтобы случайный клик «Новый» не переключил рассылку."""
+    campaign = CampaignRepository(session).get(campaign_id)
+    if campaign is None:
+        raise ShillingNotFound(f"Кампания {campaign_id} не найдена")
+
+    payload = data.model_dump(exclude_unset=True)
+    payload["campaign_id"] = campaign_id
+    scenario = ShillingScenario(**payload)
+    session.add(scenario)
+    session.flush()
+    if campaign.scenario_id is None:
+        campaign.scenario_id = scenario.id
+        session.flush()
+    return scenario
+
+
+def activate_scenario(
+    session: Session, campaign_id: int, scenario_id: int
+) -> ShillingScenario:
+    """Делает сценарий активным — по нему пойдёт рассылка."""
+    campaign = CampaignRepository(session).get(campaign_id)
+    if campaign is None:
+        raise ShillingNotFound(f"Кампания {campaign_id} не найдена")
+    scenario = ScenarioRepository(session).get(scenario_id)
+    if scenario is None or scenario.campaign_id != campaign_id:
+        raise ShillingNotFound(
+            f"Сценарий {scenario_id} не найден в кампании {campaign_id}"
+        )
+    campaign.scenario_id = scenario.id
+    session.flush()
+    return scenario
+
+
+def delete_scenario(session: Session, campaign_id: int, scenario_id: int) -> bool:
+    """Удаляет сценарий кампании. Если удалили активный — активным становится
+    любой оставшийся (или ничего, если это был последний)."""
+    campaign = CampaignRepository(session).get(campaign_id)
+    if campaign is None:
+        raise ShillingNotFound(f"Кампания {campaign_id} не найдена")
+    repo = ScenarioRepository(session)
+    scenario = repo.get(scenario_id)
+    if scenario is None or scenario.campaign_id != campaign_id:
+        return False
+    was_active = campaign.scenario_id == scenario_id
+    if was_active:
+        # Снимаем ссылку до удаления (SET NULL иначе оставит на миг зависший id).
+        campaign.scenario_id = None
+        session.flush()
+    session.delete(scenario)
+    session.flush()
+    if was_active:
+        rest = repo.list_by_campaign(campaign_id)
+        if rest:
+            campaign.scenario_id = rest[0].id
+            session.flush()
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Роли
 # ---------------------------------------------------------------------------
