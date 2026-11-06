@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, String, Text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.models.base import SHILLING_SCHEMA, Base, CreatedAtMixin
@@ -72,6 +72,12 @@ class ShillingTarget(Base, CreatedAtMixin):
     # обработали. Посты старше него не трогаем — иначе при первом включении
     # мониторинга бот бы ломанулся комментировать весь архив канала.
     last_seen_post_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    # True — цель заведена автоматически из подписок аккаунта (тумблер
+    # monitor_all_dialogs), а не введена руками. При выключении тумблера такие
+    # цели чистятся; в UI помечаются «авто».
+    auto_discovered: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     resolved_chat_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(

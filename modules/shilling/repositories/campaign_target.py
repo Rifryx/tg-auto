@@ -49,8 +49,34 @@ class CampaignTargetRepository(BaseRepository[ShillingTarget]):
             kind=payload.get("kind", "username"),
             mode=payload.get("mode", "link"),
             post_id=payload.get("post_id"),
+            auto_discovered=payload.get("auto_discovered", False),
         )
         return self._add(target)
+
+    def existing_raw_inputs(self, campaign_id: int) -> set[str]:
+        """Нормализованные raw_input всех целей кампании — чтобы автодискавери
+        не плодил дубли уже введённых руками каналов."""
+        rows = self.session.execute(
+            select(ShillingTarget.raw_input).where(
+                ShillingTarget.campaign_id == campaign_id
+            )
+        ).scalars()
+        return {r for r in rows}
+
+    def delete_auto_discovered(self, campaign_id: int) -> int:
+        """Удаляет авто-цели кампании (при выключении тумблера «мониторить всё»).
+
+        Введённые руками цели не трогаем (auto_discovered=False)."""
+        from sqlalchemy import delete as sa_delete
+
+        result = self.session.execute(
+            sa_delete(ShillingTarget).where(
+                ShillingTarget.campaign_id == campaign_id,
+                ShillingTarget.auto_discovered.is_(True),
+            )
+        )
+        self.session.flush()
+        return int(result.rowcount or 0)
 
     def list_monitors(self, campaign_id: int) -> list[ShillingTarget]:
         """Цели в режиме «Мониторинг каналов» — их опрашивает cron-поллер."""

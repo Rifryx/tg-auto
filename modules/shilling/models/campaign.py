@@ -141,6 +141,12 @@ class ShillingCampaign(Base, TimestampMixin):
     pickup_replies_hours: Mapped[int] = mapped_column(
         Integer, nullable=False, default=6, server_default="6"
     )
+    # «Мониторить всё, что на аккаунте»: когда включён, не нужно вручную
+    # перечислять каналы — поллер сам собирает broadcast-каналы аккаунта
+    # кампании и заводит на них channel_monitor-цели (auto_discovered=True).
+    monitor_all_dialogs: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     # ── Сценарий и медиа ────────────────────────────────────────────────
     # scenario_id — обратная FK на shilling.scenarios (у кампании один активный

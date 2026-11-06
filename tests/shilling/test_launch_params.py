@@ -33,6 +33,7 @@ from modules.shilling.repositories import (
 )
 from modules.shilling.schemas import (
     CampaignCreate,
+    CampaignUpdate,
     RoleCreate,
     ScenarioCreate,
     StepCreate,
@@ -516,3 +517,100 @@ async def test_monitor_post_override_comments_under_that_post(session):
     )
     assert count == 2
     assert client.discussion_asked_for == [501]
+
+
+# --- тумблер «мониторить всё, что на аккаунте» -------------------------------
+
+
+class _DialogsClient:
+    """Фейк: подписки аккаунта. get_dialogs() отдаёт каналы и группы."""
+
+    def __init__(self, dialogs):
+        # dialogs: список (id, username|None, broadcast)
+        self._dialogs = dialogs
+
+    async def get_dialogs(self):
+        out = []
+        for cid, username, broadcast in self._dialogs:
+            ent = SimpleNamespace(
+                id=cid, username=username, broadcast=broadcast,
+                megagroup=not broadcast, title=f"ch{cid}",
+            )
+            out.append(SimpleNamespace(entity=ent, name=f"ch{cid}"))
+        return out
+
+
+async def _reconcile(session, client):
+    # _reconcile_monitor_all(ctx, session_factory, pool, log)
+    await orchestrator._reconcile_monitor_all(
+        None, _factory(session), _FakePool(client), orchestrator.get_logger()
+    )
+
+
+@pytest.mark.asyncio
+async def test_monitor_all_discovers_account_channels(session):
+    ids = _setup(session, monitor_all_dialogs=True)
+    client = _DialogsClient([
+        (-111, "news", True),      # канал → берём
+        (-222, None, True),        # приватный канал (без username) → берём по id
+        (-333, "chatgroup", False),  # группа → НЕ берём (мониторим каналы)
+    ])
+    await _reconcile(session, client)
+    targets = CampaignTargetRepository(session).list_monitors(ids["campaign_id"])
+    raws = sorted(t.raw_input for t in targets)
+    assert raws == ["-222", "@news"]
+    assert all(t.auto_discovered and t.mode == "channel_monitor" for t in targets)
+
+
+@pytest.mark.asyncio
+async def test_monitor_all_does_not_duplicate_manual_targets(session):
+    ids = _setup(
+        session, monitor_all_dialogs=True,
+        targets=[{"raw_input": "@news", "mode": "channel_monitor"}],
+    )
+    client = _DialogsClient([(-111, "news", True), (-222, "other", True)])
+    await _reconcile(session, client)
+    targets = CampaignTargetRepository(session).list_monitors(ids["campaign_id"])
+    news = [t for t in targets if t.raw_input == "@news"]
+    assert len(news) == 1, "ручной @news не должен дублироваться авто-целью"
+    assert not news[0].auto_discovered, "ручная цель остаётся ручной"
+    assert {t.raw_input for t in targets} == {"@news", "@other"}
+
+
+@pytest.mark.asyncio
+async def test_monitor_all_off_removes_auto_targets_keeps_manual(session):
+    ids = _setup(
+        session, monitor_all_dialogs=True,
+        targets=[{"raw_input": "@manual", "mode": "channel_monitor"}],
+    )
+    # Сначала дискавери добавил авто-цели.
+    await _reconcile(session, _DialogsClient([(-111, "auto1", True), (-222, "auto2", True)]))
+    assert len(CampaignTargetRepository(session).list_monitors(ids["campaign_id"])) == 3
+
+    # Выключаем тумблер и реконсайлим — авто-цели уходят, ручная остаётся.
+    CampaignRepository(session).update(
+        ids["campaign_id"], CampaignUpdate(monitor_all_dialogs=False)
+    )
+    session.commit()
+    await _reconcile(session, _DialogsClient([]))
+    left = CampaignTargetRepository(session).list_monitors(ids["campaign_id"])
+    assert [t.raw_input for t in left] == ["@manual"]
+    assert not left[0].auto_discovered
+
+
+@pytest.mark.asyncio
+async def test_auto_target_without_discussion_skips_without_blacklist(session):
+    """Авто-канал без комментариев — не ошибка пользователя: тихо пропускаем,
+    в ЧС не заносим."""
+    ids = _setup(
+        session,
+        targets=[{"raw_input": "chan", "mode": "channel_monitor", "auto_discovered": True}],
+    )
+    # Клиент без linked-группы (комментарии закрыты).
+    client = _ChannelClient(linked=None, megagroup=False)
+    count = await orchestrator.process_target(
+        _ctx(session, client=client), ids["campaign_id"], ids["target_ids"][0], 501
+    )
+    assert count == 0
+    from modules.shilling.repositories import BlacklistRepository
+    assert BlacklistRepository(session).list_by_campaign(ids["campaign_id"]) == []

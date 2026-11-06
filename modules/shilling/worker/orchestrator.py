@@ -26,7 +26,7 @@ from modules.shilling.repositories import (
     ScenarioRepository,
     ScenarioStepRepository,
 )
-from modules.shilling.schemas import BlacklistCreate, ExecutionLogCreate
+from modules.shilling.schemas import BlacklistCreate, ExecutionLogCreate, TargetCreate
 from worker.client_pool import ClientPool
 
 get_logger = structlog.get_logger
@@ -196,6 +196,7 @@ async def process_target(
         # raw_input. Для остальных режимов resolved_chat_id — валидный короткий
         # путь без лишнего resolve-запроса.
         target_mode = target.mode
+        target_is_auto = target.auto_discovered
         raw_ref = (
             target.raw_input
             if target_mode == "channel_monitor"
@@ -269,6 +270,12 @@ async def process_target(
         await pool.release(resolver_account_id)
 
     if chat_id is None:
+        # Авто-цель (из подписок аккаунта по тумблеру «мониторить всё») без
+        # комментариев — не ошибка пользователя и не повод для ЧС: канал
+        # просто без обсуждения. Тихо пропускаем, цель остаётся жить.
+        if target_is_auto:
+            log.info("shilling.process_target.skip", target_id=target_id, reason="auto_no_discussion")
+            return 0
         # Для режимов с комментариями это значит «обсуждение закрыто»; для
         # mode='chat' — что ссылка вообще не резолвится в чат.
         reason = (
@@ -455,6 +462,93 @@ def _assign_lineup(
 _MONITOR_MAX_NEW_POSTS = 2
 
 
+# Сколько каналов максимум заводим авто-дискавери за один проход по кампании —
+# чтобы крупная подписка не превратилась в лавину resolve-запросов разом.
+_MONITOR_ALL_MAX_CHANNELS = 50
+
+
+async def _discover_account_channels(client) -> list[tuple[str, int]]:
+    """Broadcast-каналы аккаунта из подписок → список (raw_input, channel_id).
+
+    raw_input — @username (публичные) либо строковый id (приватные). Берём
+    только каналы (broadcast), не группы: мониторим посты, а в группах постов
+    в этом смысле нет. Приватные каналы без username мониторить можем —
+    get_messages по id работает, пока аккаунт подписан."""
+    out: list[tuple[str, int]] = []
+    for dialog in await client.get_dialogs():
+        entity = dialog.entity
+        if not getattr(entity, "broadcast", False):
+            continue
+        cid = getattr(entity, "id", None)
+        if cid is None:
+            continue
+        username = getattr(entity, "username", None)
+        raw = f"@{username}" if username else str(int(cid))
+        out.append((raw, int(cid)))
+        if len(out) >= _MONITOR_ALL_MAX_CHANNELS:
+            break
+    return out
+
+
+async def _reconcile_monitor_all(ctx, session_factory, pool, log) -> None:
+    """Сверяет авто-цели с подписками аккаунта по тумблеру monitor_all_dialogs.
+
+    Включён у кампании → заводим channel_monitor-цели на broadcast-каналы
+    аккаунта-резолвера (auto_discovered=True), не трогая введённые руками и не
+    плодя дубли. Выключен → удаляем авто-цели. Сам опрос постов делает основной
+    цикл poll_channel_monitors — одинаково для ручных и авто-целей."""
+    with session_factory() as session:
+        plan: list[tuple[int, int]] = []  # (campaign_id, resolver_account_id)
+        for campaign in CampaignRepository(session).list_active():
+            target_repo = CampaignTargetRepository(session)
+            if not campaign.monitor_all_dialogs:
+                removed = target_repo.delete_auto_discovered(campaign.id)
+                if removed:
+                    session.commit()
+                    log.info("shilling.monitor_all.cleanup", campaign_id=campaign.id, removed=removed)
+                continue
+            links = [
+                link
+                for link in CampaignAccountRepository(session).list_by_campaign(campaign.id)
+                if not link.is_reserve
+            ]
+            if links:
+                plan.append((campaign.id, links[0].account_id))
+
+    for campaign_id, account_id in plan:
+        try:
+            client = await pool.get(account_id)
+        except Exception as exc:  # noqa: BLE001
+            log.info("shilling.monitor_all.client_failed", campaign_id=campaign_id, error=repr(exc))
+            continue
+        try:
+            channels = await _discover_account_channels(client)
+        except Exception as exc:  # noqa: BLE001 — подписки недоступны, пропускаем проход
+            log.info("shilling.monitor_all.discover_failed", campaign_id=campaign_id, error=repr(exc))
+            await pool.release(account_id)
+            continue
+        finally:
+            await pool.release(account_id)
+
+        added = 0
+        with session_factory() as session:
+            target_repo = CampaignTargetRepository(session)
+            existing = target_repo.existing_raw_inputs(campaign_id)
+            for raw, _cid in channels:
+                if raw in existing:
+                    continue
+                target_repo.create(
+                    campaign_id,
+                    TargetCreate(raw_input=raw, mode="channel_monitor", auto_discovered=True),
+                )
+                existing.add(raw)
+                added += 1
+            if added:
+                session.commit()
+        if added:
+            log.info("shilling.monitor_all.discovered", campaign_id=campaign_id, added=added)
+
+
 async def poll_channel_monitors(ctx: dict) -> int:
     """Cron: ищет НОВЫЕ посты в каналах, добавленных в режиме «Мониторинг».
 
@@ -469,7 +563,14 @@ async def poll_channel_monitors(ctx: dict) -> int:
     now = _now(ctx)
     session_factory = ctx["session_factory"]
     task_queue = _task_queue(ctx)
+    pool = _pool(ctx)
     log = get_logger()
+
+    # Тумблер «мониторить всё, что на аккаунте»: до основного цикла сверяем
+    # авто-цели с подписками аккаунта (у кого включено) и чистим их (у кого
+    # выключено). Дальше цикл опрашивает ВСЕ channel_monitor-цели — и ручные,
+    # и авто — одинаково.
+    await _reconcile_monitor_all(ctx, session_factory, pool, log)
 
     with session_factory() as session:
         campaigns = CampaignRepository(session).list_active()
@@ -500,7 +601,6 @@ async def poll_channel_monitors(ctx: dict) -> int:
     if not jobs:
         return 0
 
-    pool = _pool(ctx)
     scheduled = 0
     for campaign_id, target_id, raw_input, last_seen, resolver_account_id in jobs:
         try:
