@@ -135,7 +135,7 @@ def get_campaign(
 ) -> CampaignRead:
     campaign = CampaignRepository(session).get(campaign_id)
     if campaign is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Кампания {campaign_id} не найдена")
     return CampaignRead.model_validate(campaign)
 
 
@@ -162,7 +162,7 @@ def patch_campaign(
 ) -> CampaignRead:
     campaign = CampaignRepository(session).update(campaign_id, body)
     if campaign is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Кампания {campaign_id} не найдена")
     session.commit()
     return CampaignRead.model_validate(campaign)
 
@@ -179,7 +179,7 @@ def delete_campaign(
     repo = CampaignRepository(session)
     campaign = repo.get(campaign_id)
     if campaign is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Кампания {campaign_id} не найдена")
     # Мягкий отказ на running: пусть пользователь сначала остановит через /stop,
     # чтобы избежать гонки с воркером (задачи в полёте могут писать в логи).
     if campaign.status == "running":
@@ -199,12 +199,12 @@ def get_campaign_scenario(
     campaign_id: int, session: Session = Depends(get_session)
 ) -> ScenarioRead:
     if CampaignRepository(session).get(campaign_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Кампания {campaign_id} не найдена")
     scenario = ScenarioRepository(session).get_by_campaign(campaign_id)
     if scenario is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
-            f"campaign {campaign_id} has no scenario",
+            f"У кампании {campaign_id} нет сценария",
         )
     return ScenarioRead.model_validate(scenario)
 
@@ -249,7 +249,7 @@ async def generate_scenario(
 
     campaign = CampaignRepository(session).get(campaign_id)
     if campaign is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Кампания {campaign_id} не найдена")
 
     # Продукт для контекста: явный body.product_id → с кампании → ничего.
     product = None
@@ -266,7 +266,7 @@ async def generate_scenario(
     if not brand:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "brand_name is required (pass it, set it on the campaign, or привяжите продукт)",
+            "Укажите бренд: впишите его, задайте на кампании или привяжите продукт",
         )
 
     forced_roles = (
@@ -325,7 +325,7 @@ async def generate_scenario(
 def _require_scenario(session: Session, scenario_id: int) -> None:
     if ScenarioRepository(session).get(scenario_id) is None:
         raise HTTPException(
-            status.HTTP_404_NOT_FOUND, f"scenario {scenario_id} not found"
+            status.HTTP_404_NOT_FOUND, f"Сценарий {scenario_id} не найден"
         )
 
 
@@ -367,7 +367,7 @@ def patch_role(
     if existing is None or existing.scenario_id != scenario_id:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
-            f"role {role_id} not found in scenario {scenario_id}",
+            f"Роль {role_id} не найдена в сценарии {scenario_id}",
         )
     role = role_repo.update(role_id, body)
     session.commit()
@@ -438,7 +438,7 @@ def create_step(
         if ref is None or ref.scenario_id != scenario_id:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
-                f"reply_to_step_id {body.reply_to_step_id} is not in scenario {scenario_id}",
+                f"Нельзя ответить на шаг {body.reply_to_step_id}: он из другого сценария",
             )
     step = ScenarioStepRepository(session).create(scenario_id, body)
     session.commit()
@@ -460,7 +460,7 @@ def patch_step(
     if existing is None or existing.scenario_id != scenario_id:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
-            f"step {step_id} not found in scenario {scenario_id}",
+            f"Шаг {step_id} не найден в сценарии {scenario_id}",
         )
     # Проверки принадлежности новой role_id / reply_to_step_id этому сценарию.
     if body.role_id is not None:
@@ -475,7 +475,7 @@ def patch_step(
         if ref is None or ref.scenario_id != scenario_id:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
-                f"reply_to_step_id {body.reply_to_step_id} is not in scenario {scenario_id}",
+                f"Нельзя ответить на шаг {body.reply_to_step_id}: он из другого сценария",
             )
         if body.reply_to_step_id == step_id:
             raise HTTPException(
@@ -532,7 +532,7 @@ def list_campaign_accounts(
     campaign_id: int, session: Session = Depends(get_session)
 ) -> list[CampaignAccountRead]:
     if CampaignRepository(session).get(campaign_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Кампания {campaign_id} не найдена")
     links = CampaignAccountRepository(session).list_by_campaign(campaign_id)
     return [CampaignAccountRead.model_validate(link) for link in links]
 
@@ -610,7 +610,7 @@ def list_targets(
     campaign_id: int, session: Session = Depends(get_session)
 ) -> list[TargetRead]:
     if CampaignRepository(session).get(campaign_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Кампания {campaign_id} не найдена")
     items = CampaignTargetRepository(session).list_by_campaign(campaign_id)
     return [TargetRead.model_validate(i) for i in items]
 
@@ -628,7 +628,7 @@ def add_targets(
 ) -> list[TargetRead]:
     """Bulk-добавление: нормализация + дедуп. Возвращает только созданные."""
     if CampaignRepository(session).get(campaign_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Кампания {campaign_id} не найдена")
     # Лимит целей на кампанию: блокируем, когда уже достигнут.
     _enforce_child_limit(
         session,
@@ -657,7 +657,7 @@ def delete_target(
     session: Session = Depends(get_session),
 ) -> None:
     if not CampaignTargetRepository(session).delete(campaign_id, target_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "target not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Цель не найдена")
     session.commit()
 
 
@@ -671,7 +671,7 @@ def list_blacklist(
     campaign_id: int, session: Session = Depends(get_session)
 ) -> list[BlacklistRead]:
     if CampaignRepository(session).get(campaign_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Кампания {campaign_id} не найдена")
     items = BlacklistRepository(session).list_by_campaign(campaign_id)
     return [BlacklistRead.model_validate(i) for i in items]
 
@@ -690,13 +690,13 @@ def add_blacklist(
     from sqlalchemy.exc import IntegrityError
 
     if CampaignRepository(session).get(campaign_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Кампания {campaign_id} не найдена")
     try:
         entry = BlacklistRepository(session).create(campaign_id, body, auto=False)
         session.commit()
     except IntegrityError:
         session.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "already blacklisted") from None
+        raise HTTPException(status.HTTP_409_CONFLICT, "Уже в чёрном списке") from None
     return BlacklistRead.model_validate(entry)
 
 
@@ -711,7 +711,7 @@ def remove_blacklist(
     session: Session = Depends(get_session),
 ) -> None:
     if not BlacklistRepository(session).delete(campaign_id, entry_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "blacklist entry not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Запись чёрного списка не найдена")
     session.commit()
 
 
@@ -749,7 +749,7 @@ def list_logs(
     session: Session = Depends(get_session),
 ) -> list[ExecutionLogRead]:
     if CampaignRepository(session).get(campaign_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Кампания {campaign_id} не найдена")
     logs = ExecutionLogRepository(session).list_by_campaign(
         campaign_id, status=status_filter, limit=limit, offset=offset
     )
@@ -834,7 +834,7 @@ async def dry_run_campaign(
     from modules.shilling.worker.dry_run import dry_run_req_key
 
     if CampaignRepository(session).get(campaign_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {campaign_id} not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Кампания {campaign_id} не найдена")
     job_id = uuid.uuid4().hex
     redis_client = aioredis.from_url(get_settings().redis_url)
     try:

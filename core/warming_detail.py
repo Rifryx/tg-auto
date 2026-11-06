@@ -9,6 +9,16 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+# Категории ошибок прогрева (worker/warming/actions/base._categorize_error) —
+# в понятные пользователю фразы. Раньше в ленте светилось «не удалось
+# (unknown)» / «(rate_limit)» — английские коды, которые ничего не говорят.
+_ERROR_CATEGORY_RU: dict[str, str] = {
+    "target_broken": "цель недоступна",
+    "rate_limit": "слишком часто, ждём",
+    "fatal": "аккаунт недоступен",
+    "unknown": "неизвестная ошибка",
+}
+
 
 def _handle(target: Optional[str]) -> str:
     """Нормализует цель к виду @username (если это похоже на username)."""
@@ -30,8 +40,9 @@ def warming_detail(
     """Короткое описание действия прогрева на русском."""
     meta = meta or {}
     if status == "failed":
-        err = meta.get("error_category") or "ошибка"
-        return f"не удалось ({err})"
+        code = meta.get("error_category")
+        err = _ERROR_CATEGORY_RU.get(code, "ошибка") if code else "ошибка"
+        return f"не удалось: {err}"
     if status == "skipped":
         return "пропущено"
 
@@ -59,8 +70,8 @@ def warming_detail(
         return f"обновил {label}"
     if action_type == "interact_with_peer":
         if not where:
-            return "искал peer для взаимодействия"
+            return "искал аккаунт для общения"
         extra = ", реакция 👀" if meta.get("reacted") else ""
-        return f"взаимодействие с {where}{extra}"
+        return f"общение с {where}{extra}"
     # fallback — сырой тип.
     return action_type.replace("_", " ")

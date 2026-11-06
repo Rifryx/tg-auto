@@ -5,6 +5,7 @@ import { accountsApi } from "../../../shared/accounts";
 import { maskPhone, timeAgo } from "../../../shared/format";
 import { SegmentedControl } from "../../commenting/components/ui";
 import { shillingApi } from "../api";
+import { humanizeShillingError } from "../errors";
 import type { ExecutionLog, ExecutionStatus, Target } from "../types";
 
 type StatusFilter = "all" | ExecutionStatus;
@@ -135,7 +136,7 @@ function LogRow({
       : log.status === "failed"
         ? "bg-status-critical"
         : "bg-status-neutral";
-  const preview = log.message_text || log.error || "—";
+  const preview = log.message_text || humanizeShillingError(log.error) || "—";
   return (
     <button onClick={() => setOpen((v) => !v)} className="flex flex-col gap-1 py-2 text-left">
       <div className="flex items-center gap-2 text-[13px]">
