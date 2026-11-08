@@ -44,7 +44,7 @@ from modules.shilling.repositories import (
     CampaignRepository,
     ProductRepository,
 )
-from worker.llm import get_provider, with_direct_output
+from worker.llm import fallback_provider, get_provider, with_direct_output
 from worker.llm.base import Message
 from worker.tasks.logging import get_logger
 
@@ -391,9 +391,21 @@ async def _generate_reply(
             max_tokens=300,
             temperature=0.9,
         )
-    except Exception as exc:  # noqa: BLE001 — LLM недоступен — молчим
-        get_logger().warning("shilling.live.llm_failed", error=repr(exc))
-        return None
+    except Exception as exc:  # noqa: BLE001 — пробуем второй провайдер
+        fb = fallback_provider(campaign.llm_provider)
+        if fb is None:
+            get_logger().warning("shilling.live.llm_failed", error=repr(exc))
+            return None
+        try:
+            raw = await fb.generate(
+                system=_LLM_SYSTEM,
+                messages=[Message(role="user", content=user_prompt)],
+                max_tokens=300,
+                temperature=0.9,
+            )
+        except Exception as exc2:  # noqa: BLE001 — оба провайдера недоступны — молчим
+            get_logger().warning("shilling.live.llm_failed", error=repr(exc2))
+            return None
     text = (raw or "").strip()
     # Убираем кавычки, которые часто навязывает LLM вокруг «реплики».
     if (text.startswith('"') and text.endswith('"')) or (

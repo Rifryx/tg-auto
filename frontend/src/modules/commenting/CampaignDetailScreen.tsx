@@ -27,17 +27,11 @@ import {
   Field,
   RangeField,
   Section,
-  SegmentedControl,
   TextArea,
   TextInput,
   Toggle,
 } from "./components/ui";
-import type { CampaignUpdateBody, ChannelAlert, LLMProvider } from "./types";
-
-const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
-  { value: "deepseek", label: "DeepSeek" },
-  { value: "gemini", label: "Gemini" },
-];
+import type { CampaignUpdateBody, ChannelAlert } from "./types";
 
 export function CampaignDetailScreen() {
   const { id } = useParams();
@@ -201,14 +195,6 @@ export function CampaignDetailScreen() {
             value={c.name}
             onSave={(v) => save.mutateAsync({ name: v })}
           />
-          <div className="mb-4">
-            <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">Модель</p>
-            <SegmentedControl
-              options={LLM_OPTIONS}
-              value={c.llm_provider}
-              onChange={(v) => save.mutate({ llm_provider: v })}
-            />
-          </div>
           <div className="mb-4">
             <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">Персона (по умолчанию)</p>
             <Select

@@ -464,21 +464,17 @@ def _limit_skip_reason(session, campaign, post_date_ts: Optional[float], now: da
 
 
 def _fallback_provider(ctx, primary_name: str):
-    """Другой LLM-провайдер, если его ключ задан — страховка на случай, когда у
-    выбранного в кампании провайдера ключ пустой/битый (частый кейс: в кампании
-    стоит deepseek, а рабочий ключ — у gemini, и наоборот → 401). В тестах с
-    инъекцией ``ctx['llm_provider']`` фолбэк отключаем."""
+    """Другой LLM-провайдер, если для него есть рабочий путь — страховка на
+    случай, когда у выбранного провайдера ключ пустой/битый/недоступен
+    (401, таймаут, квота). Модель больше не выбирает пользователь (убрано из
+    UI) — это единственный способ «переключиться» при сбое, см.
+    worker/llm/factory.py::fallback_provider. В тестах с инъекцией
+    ``ctx['llm_provider']`` фолбэк отключаем."""
     if ctx.get("llm_provider") is not None:
         return None
-    from core.config import get_settings
+    from worker.llm import fallback_provider
 
-    other = "gemini" if primary_name == "deepseek" else "deepseek"
-    if getattr(get_settings(), f"{other}_api_key", None):
-        try:
-            return get_provider(other)
-        except Exception:  # noqa: BLE001
-            return None
-    return None
+    return fallback_provider(primary_name)
 
 
 async def _generate(ctx, session, campaign, account, provider, context) -> tuple[str, bool]:

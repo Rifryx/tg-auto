@@ -586,6 +586,7 @@ async def test_generate_falls_back_to_other_provider(monkeypatch):
 
     import core.config as _cfg
     import modules.commenting.worker.runner as r
+    import worker.llm.factory as _factory
 
     class _Bad:
         async def generate(self, *_a, **_k):
@@ -603,7 +604,9 @@ async def test_generate_falls_back_to_other_provider(monkeypatch):
         _cfg, "get_settings",
         lambda: SimpleNamespace(deepseek_api_key="x", gemini_api_key="y"),
     )
-    monkeypatch.setattr(r, "get_provider", lambda name: _Good())
+    # Фолбэк теперь живёт в worker/llm/factory.py (общий для commenting и
+    # shilling) — патчим get_provider ТАМ, а не на runner.
+    monkeypatch.setattr(_factory, "get_provider", lambda name: _Good())
 
     campaign = SimpleNamespace(llm_provider="deepseek", min_words=0)
     text, ok = await r._generate({}, None, campaign, None, _Bad(), [])
