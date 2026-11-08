@@ -180,13 +180,15 @@ async def dry_run(
             text = item["base_text"]
             if unique and text:
                 provider = ctx.get("llm_provider")
+                fallback = None
                 if provider is None:
-                    from worker.llm import get_provider
+                    from worker.llm import fallback_provider, get_provider
 
                     provider = get_provider(provider_name)
+                    fallback = fallback_provider(provider_name)
                 from modules.shilling.llm import ReplicaRewriter
 
-                text = await ReplicaRewriter(provider).rewrite(
+                text = await ReplicaRewriter(provider, fallback=fallback).rewrite(
                     item["base_text"],
                     role_name=item["role_name"],
                     role_character=item["role_character"],

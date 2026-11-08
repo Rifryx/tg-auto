@@ -12,18 +12,12 @@ import {
   CapsuleButton,
   Field,
   RangeField,
-  SegmentedControl,
   TextArea,
   TextInput,
 } from "../commenting/components/ui";
 import { shillingApi } from "./api";
 import { ScenarioBuilder } from "./components/ScenarioBuilder";
 import type { LLMProvider } from "./types";
-
-const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
-  { value: "deepseek", label: "DeepSeek" },
-  { value: "gemini", label: "Gemini" },
-];
 
 interface Draft {
   name: string;
@@ -260,14 +254,6 @@ function StepBasics({
           placeholder="Напр.: Beauty Zone"
         />
       </Field>
-      <div>
-        <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">Модель ИИ</p>
-        <SegmentedControl
-          options={LLM_OPTIONS}
-          value={draft.llm_provider}
-          onChange={(v) => set("llm_provider", v)}
-        />
-      </div>
     </div>
   );
 }

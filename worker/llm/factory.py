@@ -57,3 +57,37 @@ def get_provider(name: str) -> LLMProvider:
 def reset_cache() -> None:
     """Сбрасывает кэш провайдеров (тесты)."""
     _cache.clear()
+
+
+def other_provider_name(primary: str) -> str:
+    """Имя второго провайдера (deepseek↔gemini) — для сообщений/логов."""
+    return "gemini" if primary == "deepseek" else "deepseek"
+
+
+def fallback_provider(primary_name: str) -> LLMProvider | None:
+    """Второй провайдер, если для него есть рабочий путь — страховка на
+    случай, когда у выбранного провайдера ключ пустой/битый/недоступен
+    (401, таймаут, квота и т.п.). Модель больше НЕ выбирает пользователь
+    (убрано из UI — ему это ничего не даёт решать), так что эта функция —
+    единственный способ «переключиться», когда что-то пошло не так.
+
+    AnyModel (единый ключ на оба имени) считается рабочим путём для
+    фолбэка независимо от того, заданы ли отдельные DEEPSEEK_API_KEY/
+    GEMINI_API_KEY — раньше фолбэк молчал в AnyModel-режиме именно из-за
+    этого несовпадения (ключ есть, но не под тем именем настройки)."""
+    # Локальный импорт (не модульный): тесты монкипатчат core.config.get_settings
+    # по месту вызова — модульный `from ... import get_settings` зафиксировал
+    # бы оригинал на момент импорта модуля и не увидел бы подмену.
+    from core.config import get_settings
+
+    settings = get_settings()
+    other = other_provider_name(primary_name)
+    has_path = bool(getattr(settings, "anymodel_api_key", None)) or bool(
+        getattr(settings, f"{other}_api_key", None)
+    )
+    if not has_path:
+        return None
+    try:
+        return get_provider(other)
+    except Exception:  # noqa: BLE001
+        return None

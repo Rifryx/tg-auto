@@ -93,3 +93,23 @@ def test_enforce_max_len_trims_on_word_boundary():
 
 def test_ensure_brand_noop_when_no_brand():
     assert _ensure_brand("любой текст", None) == "любой текст"
+
+
+# ── провайдер-фолбэк (deepseek↔gemini при сбое основного) ────────────────────
+
+
+class _FailingProvider(LLMProvider):
+    async def generate(self, system, messages, max_tokens=200, temperature=0.8):
+        raise RuntimeError("401 Unauthorized")
+
+
+async def test_rewrite_uses_fallback_provider_on_primary_failure():
+    rw = ReplicaRewriter(_FailingProvider(), fallback=_FakeProvider("ответ от резервного"))
+    out = await rw.rewrite("исходный текст", role_name="Ответчик")
+    assert out == "ответ от резервного"
+
+
+async def test_rewrite_raises_without_fallback_provider():
+    rw = ReplicaRewriter(_FailingProvider())
+    with pytest.raises(RuntimeError):
+        await rw.rewrite("исходный текст", role_name="Ответчик")

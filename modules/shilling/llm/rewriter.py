@@ -40,10 +40,16 @@ class ReplicaRewriter:
         self,
         provider: LLMProvider,
         *,
+        fallback: Optional[LLMProvider] = None,
         max_tokens: int = 200,
         temperature: float = 0.9,
     ) -> None:
         self._provider = provider
+        # Второй провайдер (deepseek↔gemini), если есть рабочий ключ —
+        # пользователь больше не выбирает модель сам (убрано из UI), так что
+        # при сбое основного провайдера (401/таймаут/квота) переключаемся
+        # молча вместо падения всего шага. См. worker/llm/factory.py.
+        self._fallback = fallback
         self._max_tokens = max_tokens
         self._temperature = temperature
 
@@ -63,12 +69,22 @@ class ReplicaRewriter:
         user_prompt = _build_user_prompt(
             original, role_name, role_character, brand_name, post_context
         )
-        raw = await self._provider.generate(
-            system=SYSTEM_PROMPT,
-            messages=[Message(role="user", content=user_prompt)],
-            max_tokens=self._max_tokens,
-            temperature=self._temperature,
-        )
+        try:
+            raw = await self._provider.generate(
+                system=SYSTEM_PROMPT,
+                messages=[Message(role="user", content=user_prompt)],
+                max_tokens=self._max_tokens,
+                temperature=self._temperature,
+            )
+        except Exception:  # noqa: BLE001 — пробуем второй провайдер
+            if self._fallback is None:
+                raise
+            raw = await self._fallback.generate(
+                system=SYSTEM_PROMPT,
+                messages=[Message(role="user", content=user_prompt)],
+                max_tokens=self._max_tokens,
+                temperature=self._temperature,
+            )
         text = _clean_output(raw)
         if not text:
             # LLM промолчал — безопаснее вернуть оригинал, чем пустую реплику.

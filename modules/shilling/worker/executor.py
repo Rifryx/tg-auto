@@ -187,13 +187,15 @@ async def execute_step(
     text = base_text
     if step_type == "message" and unique and base_text:
         provider = ctx.get("llm_provider")
+        fallback = None
         if provider is None:
-            from worker.llm import get_provider
+            from worker.llm import fallback_provider, get_provider
 
             provider = get_provider(provider_name)
+            fallback = fallback_provider(provider_name)
         from modules.shilling.llm import ReplicaRewriter
 
-        text = await ReplicaRewriter(provider).rewrite(
+        text = await ReplicaRewriter(provider, fallback=fallback).rewrite(
             base_text,
             role_name=role_name,
             role_character=role_character,
