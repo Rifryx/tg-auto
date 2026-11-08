@@ -62,6 +62,18 @@ class CampaignCreate(BaseModel):
     verify_delay_sec: int = Field(default=300, gt=0)
     thread_simulation_enabled: bool = True
 
+    # ── Нейрокомментинг: доп. режимы ────────────────────────────────────
+    token_economy_enabled: bool = False
+    scheduled_start_at: Optional[datetime] = None
+    product_mention_enabled: bool = False
+    product_name: Optional[str] = None
+    product_url: Optional[str] = None
+    product_mention_chance_percent: int = Field(default=20, ge=0, le=100)
+    postbot_forward_enabled: bool = False
+    postbot_username: Optional[str] = None
+    postbot_message_ids: list[int] = Field(default_factory=list)
+    captcha_solving_enabled: bool = False
+
 
 class CampaignUpdate(BaseModel):
     name: Optional[str] = None
@@ -105,6 +117,19 @@ class CampaignUpdate(BaseModel):
     verify_after_post: Optional[bool] = None
     verify_delay_sec: Optional[int] = Field(default=None, gt=0)
     thread_simulation_enabled: Optional[bool] = None
+
+    token_economy_enabled: Optional[bool] = None
+    # Optional[datetime] = None и так различает «не передали» (exclude_unset)
+    # от «явно очистили» (передали null) — отдельный флаг не нужен.
+    scheduled_start_at: Optional[datetime] = None
+    product_mention_enabled: Optional[bool] = None
+    product_name: Optional[str] = None
+    product_url: Optional[str] = None
+    product_mention_chance_percent: Optional[int] = Field(default=None, ge=0, le=100)
+    postbot_forward_enabled: Optional[bool] = None
+    postbot_username: Optional[str] = None
+    postbot_message_ids: Optional[list[int]] = None
+    captcha_solving_enabled: Optional[bool] = None
 
 
 class CampaignRead(ORMModel):
@@ -150,5 +175,15 @@ class CampaignRead(ORMModel):
     verify_after_post: bool
     verify_delay_sec: int
     thread_simulation_enabled: bool
+    token_economy_enabled: bool
+    scheduled_start_at: Optional[datetime]
+    product_mention_enabled: bool
+    product_name: Optional[str]
+    product_url: Optional[str]
+    product_mention_chance_percent: int
+    postbot_forward_enabled: bool
+    postbot_username: Optional[str]
+    postbot_message_ids: list[int]
+    captcha_solving_enabled: bool
     created_at: datetime
     updated_at: datetime

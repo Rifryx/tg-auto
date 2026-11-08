@@ -44,6 +44,7 @@ from telethon.errors import (
 
 from modules.commenting.worker import delivery, limits
 from modules.commenting.worker.alerts import auto_blacklist, raise_alert
+from modules.commenting.worker.captcha import maybe_solve_captcha
 from modules.commenting.worker.timeline import TimelineKind
 
 
@@ -52,6 +53,7 @@ _SKIP_LABELS = {
     "daily_limit_reached": "достигнут дневной лимит аккаунта",
     "outside_post_window": "пост старше окна «комментировать после публикации»",
     "paused": "пауза между комментариями",
+    "scheduled_not_started": "ещё не наступило время отложенного запуска",
 }
 
 
@@ -168,6 +170,16 @@ def is_within_active_hours(now: datetime, campaign) -> bool:
     return local >= start or local <= end
 
 
+def _scheduled_not_yet(campaign, now: datetime) -> bool:
+    """Отложенный запуск: True — время scheduled_start_at ещё не наступило."""
+    at = getattr(campaign, "scheduled_start_at", None)
+    if at is None:
+        return False
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    return now < at
+
+
 def _assigned_accounts(session, campaign_id: int) -> list:
     links = CampaignAccountRepository(session).list_by_campaign(campaign_id)
     accounts_repo = AccountRepository(session)
@@ -179,7 +191,28 @@ def _assigned_accounts(session, campaign_id: int) -> list:
     return result
 
 
-def _build_system_prompt(session, campaign, account) -> str:
+def _product_mention_suffix(campaign, rng: Optional[random.Random]) -> str:
+    """С вероятностью product_mention_chance_percent просим LLM органично
+    упомянуть продукт/бренд кампании (+ ссылку, если задана). Без тумблера
+    или без имени продукта — пусто (поведение не меняется)."""
+    if not getattr(campaign, "product_mention_enabled", False):
+        return ""
+    name = (getattr(campaign, "product_name", None) or "").strip()
+    if not name:
+        return ""
+    chance = max(0, min(100, int(getattr(campaign, "product_mention_chance_percent", 0) or 0)))
+    r = rng or random.Random()
+    if r.randint(1, 100) > chance:
+        return ""
+    url = (getattr(campaign, "product_url", None) or "").strip()
+    line = f"\n\nЕстественно и ненавязчиво упомяни в комментарии «{name}»"
+    if url:
+        line += f" (ссылка: {url})"
+    line += ". Это должно звучать органично, как личная рекомендация, а не реклама."
+    return line
+
+
+def _build_system_prompt(session, campaign, account, *, rng: Optional[random.Random] = None) -> str:
     override = CampaignAccountRepository(session).get(campaign.id, account.id)
     prompt = (override.override_prompt if override and override.override_prompt else None)
     prompt = prompt or campaign.base_system_prompt
@@ -202,6 +235,7 @@ def _build_system_prompt(session, campaign, account) -> str:
     max_words = getattr(campaign, "max_words", None)
     if max_words:
         prompt += f"\n\nКоммент должен быть коротким — не длиннее {max_words} слов."
+    prompt += _product_mention_suffix(campaign, rng)
     return prompt
 
 
@@ -285,6 +319,43 @@ async def _schedule_verify(ctx: dict, campaign_id: int, comment_log_id: Optional
     await _task_queue(ctx).schedule(
         TaskName.COMMENTING_VERIFY_COMMENT, run_at, comment_log_id
     )
+
+
+async def _maybe_solve_captcha(ctx, client, account_id: int, discussion_group_id: int, campaign, now: datetime) -> None:
+    """Best-effort капча-солвер перед отправкой коммента (см. worker/captcha.py).
+
+    Никогда не бросает и не блокирует обычный комментинг надолго — своя
+    логика внутри уже best-effort/с таймаутами на уровне Telethon-вызовов."""
+    if discussion_group_id is None:
+        return
+    try:
+        provider = ctx.get("llm_provider") or get_provider(campaign.llm_provider)
+        await maybe_solve_captcha(
+            ctx, client,
+            account_id=account_id,
+            discussion_group_id=discussion_group_id,
+            provider=provider,
+            publisher=ctx.get("publisher"),
+            now=now,
+        )
+    except Exception as exc:  # noqa: BLE001 — капча вспомогательная, не роняем коммент
+        get_logger().info("commenting.captcha.unexpected_error", account_id=account_id, error=repr(exc))
+
+
+def _postbot_failure_log(session_factory, campaign_id: int, account_id: int, channel_msg_id: int, reply_to: int, exc: Exception) -> None:
+    with session_factory() as session:
+        CommentLogRepository(session).create(
+            CommentLogCreate(
+                campaign_id=campaign_id,
+                account_id=account_id,
+                post_channel_msg_id=channel_msg_id,
+                comment_text="[Postbot]",
+                status=CommentStatus.FAILED,
+                in_reply_to_message_id=reply_to,
+                error=f"postbot_failed:{type(exc).__name__}: {exc}"[:500],
+            )
+        )
+        session.commit()
 
 
 async def _handle_access_error(
@@ -412,7 +483,7 @@ def _fallback_provider(ctx, primary_name: str):
 
 async def _generate(ctx, session, campaign, account, provider, context) -> tuple[str, bool]:
     """Текст коммента с учётом min_words (до 3 попыток) и стиля (E4.1)."""
-    system = _build_system_prompt(session, campaign, account)
+    system = _build_system_prompt(session, campaign, account, rng=_rng(ctx))
     persona = _persona_for(session, account)
     style = _style(ctx)
     fallback = _fallback_provider(ctx, campaign.llm_provider)
@@ -431,6 +502,18 @@ async def _generate(ctx, session, campaign, account, provider, context) -> tuple
         return delivery.apply_style(raw, campaign, persona, style)
 
     return await limits.generate_with_min_words(once, campaign.min_words or 0)
+
+
+def _skip_llm_mode(campaign) -> str:
+    """'postbot' | 'economy' | 'normal' — какой режим доставки для кампании.
+
+    Postbot важнее economy: если включены оба, LLM и так не нужен ни в одном
+    из них, и postbot — более явный, явно заданный пользователем пул постов."""
+    if getattr(campaign, "postbot_forward_enabled", False) and getattr(campaign, "postbot_message_ids", None):
+        return "postbot"
+    if getattr(campaign, "token_economy_enabled", False):
+        return "economy"
+    return "normal"
 
 
 def _log_below_min_words(session, campaign, account_id, channel_msg_id, text, reply_to) -> None:
@@ -472,6 +555,9 @@ async def on_new_post(
         if campaign is None or not campaign.enabled:
             log.info("commenting.on_new_post.skip", campaign_id=campaign_id, reason="disabled")
             return 0
+        if _scheduled_not_yet(campaign, now):
+            log.info("commenting.on_new_post.skip", campaign_id=campaign_id, reason="scheduled_not_started")
+            return 0
         if not is_within_active_hours(now, campaign):
             log.info("commenting.on_new_post.skip", campaign_id=campaign_id, reason="inactive_hours")
             return 0
@@ -496,15 +582,22 @@ async def on_new_post(
         provider = ctx.get("llm_provider") or get_provider(campaign.llm_provider)
         delay_lo = campaign.posting_delay_min_sec
         delay_hi = campaign.posting_delay_max_sec
+        # postbot/economy: LLM не зовём ЗДЕСЬ вообще — postbot тексту не
+        # нужен, economy откладывает ИИ-вызов до прохождения стаб-пробника
+        # (post_comment). Так реально экономим токены, а не только на словах.
+        mode = _skip_llm_mode(campaign)
 
         plans = []
         for account in chosen:
-            context = _thread_context(session, campaign_id, channel_msg_id, post_text)
-            text, ok = await _generate(ctx, session, campaign, account, provider, context)
-            if not ok:
-                _log_below_min_words(session, campaign, account.id, channel_msg_id, text, reply_target)
-                log.info("commenting.on_new_post.skip_account", account_id=account.id, reason="below_min_words")
-                continue
+            if mode != "normal":
+                text, ok = "", True
+            else:
+                context = _thread_context(session, campaign_id, channel_msg_id, post_text)
+                text, ok = await _generate(ctx, session, campaign, account, provider, context)
+                if not ok:
+                    _log_below_min_words(session, campaign, account.id, channel_msg_id, text, reply_target)
+                    log.info("commenting.on_new_post.skip_account", account_id=account.id, reason="below_min_words")
+                    continue
             delay = rng.uniform(delay_lo, delay_hi)
             plans.append((account.id, text, delay))
 
@@ -520,6 +613,9 @@ async def on_new_post(
             reply_target,
             thread_depth=thread_depth,
             post_date_ts=post_date_ts,
+            post_text=post_text if mode == "economy" else None,
+            economy_stub=mode == "economy",
+            postbot_forward=mode == "postbot",
         )
     log.info(
         "commenting.on_new_post.scheduled",
@@ -543,6 +639,9 @@ async def post_comment(
     in_reply_to_message_id: int,
     thread_depth: int = 0,
     post_date_ts: Optional[float] = None,
+    post_text: Optional[str] = None,
+    economy_stub: bool = False,
+    postbot_forward: bool = False,
 ) -> Optional[int]:
     now = _now(ctx)
     session_factory = ctx["session_factory"]
@@ -561,6 +660,9 @@ async def post_comment(
             in_reply_to_message_id,
             thread_depth=thread_depth,
             post_date_ts=post_date_ts,
+            post_text=post_text,
+            economy_stub=economy_stub,
+            postbot_forward=postbot_forward,
         )
 
     with session_factory() as session:
@@ -609,19 +711,102 @@ async def post_comment(
     with session_factory() as session:
         campaign_row = CampaignRepository(session).get(campaign_id)
 
+    async def _generate_real() -> str:
+        """Полноценная ИИ-генерация на месте — используется economy-пробником
+        и как safety net, если text пуст (кампания сменила режим между
+        планированием on_new_post и отправкой: флаг economy/postbot успели
+        выключить, а запланированный текст был пуст — лучше сгенерировать,
+        чем отправить пустое сообщение)."""
+        with session_factory() as gen_session:
+            gen_campaign = CampaignRepository(gen_session).get(campaign_id)
+            gen_account = AccountRepository(gen_session).get(account_id)
+            gen_provider = ctx.get("llm_provider") or get_provider(gen_campaign.llm_provider)
+            gen_context = _thread_context(gen_session, campaign_id, channel_msg_id, post_text)
+            gen_text, ok = await _generate(ctx, gen_session, gen_campaign, gen_account, gen_provider, gen_context)
+            return gen_text if ok else delivery.stub_text(_rng(ctx))
+
     pool = _pool(ctx)
     client = await pool.get(account_id)
     try:
-        sent, delivery_mode = await delivery.deliver_comment(
-            ctx, client, campaign_row,
-            account_id=account_id,
-            discussion_group_id=discussion_group_id,
-            text=text,
-            reply_to=in_reply_to_message_id,
-            now=now,
-            publisher=publisher,
-            rng=_rng(ctx),
-        )
+        if campaign_row.captcha_solving_enabled:
+            await _maybe_solve_captcha(ctx, client, account_id, discussion_group_id, campaign_row, now)
+        final_text = text
+        is_economy = False
+        if postbot_forward and campaign_row.postbot_forward_enabled and campaign_row.postbot_message_ids:
+            try:
+                sent, delivery_mode, picked_id = await delivery.deliver_postbot(
+                    ctx, client, campaign_row,
+                    account_id=account_id,
+                    discussion_group_id=discussion_group_id,
+                    reply_to=in_reply_to_message_id,
+                    now=now,
+                    publisher=publisher,
+                    rng=_rng(ctx),
+                )
+            except ACCESS_ERRORS as exc:
+                await _handle_access_error(
+                    ctx, exc, campaign_id=campaign_id, account_id=account_id,
+                    channel_msg_id=channel_msg_id, text=text, reply_to=in_reply_to_message_id,
+                    channel_ref=target_channel, channel_tg_id=None, monitored_channel_id=None,
+                )
+                return None
+            except Exception as exc:  # noqa: BLE001 — бот/пост Postbot недоступен
+                log.warning("commenting.post_comment.postbot_failed", account_id=account_id, error=repr(exc))
+                _postbot_failure_log(session_factory, campaign_id, account_id, channel_msg_id, in_reply_to_message_id, exc)
+                return None
+            final_text = f"[Postbot #{picked_id}]"
+        elif economy_stub and campaign_row.token_economy_enabled:
+            sent, delivery_mode, final_text = await delivery.deliver_economy(
+                ctx, client, campaign_row,
+                account_id=account_id,
+                discussion_group_id=discussion_group_id,
+                reply_to=in_reply_to_message_id,
+                now=now,
+                publisher=publisher,
+                rng=_rng(ctx),
+                generate_real=_generate_real,
+            )
+            is_economy = True
+            if delivery_mode == "economy_failed":
+                with session_factory() as session:
+                    CommentLogRepository(session).create(
+                        CommentLogCreate(
+                            campaign_id=campaign_id,
+                            account_id=account_id,
+                            post_channel_msg_id=channel_msg_id,
+                            comment_text=final_text,
+                            status=CommentStatus.FAILED,
+                            in_reply_to_message_id=in_reply_to_message_id,
+                            error="economy_probe_failed",
+                            is_economy_stub=True,
+                        )
+                    )
+                    session.commit()
+                log.info("commenting.post_comment.economy_probe_failed", account_id=account_id)
+                _push(
+                    ctx, campaign_id, TimelineKind.COMMENT_FAILED,
+                    f"Экономия токенов (акк. #{account_id}): заглушка не прошла "
+                    "(удалена ботом/модератором) — ИИ не вызывался, токены сэкономлены.",
+                    {"account_id": account_id, "reason": "economy_probe_failed"},
+                )
+                return None
+        else:
+            # Safety net: text пуст, если scheduling был под economy/postbot,
+            # но кампания успела сменить режим до отправки — генерируем, а не
+            # шлём пустое сообщение.
+            if not text:
+                text = await _generate_real()
+                final_text = text
+            sent, delivery_mode = await delivery.deliver_comment(
+                ctx, client, campaign_row,
+                account_id=account_id,
+                discussion_group_id=discussion_group_id,
+                text=text,
+                reply_to=in_reply_to_message_id,
+                now=now,
+                publisher=publisher,
+                rng=_rng(ctx),
+            )
     except ACCESS_ERRORS as exc:
         await _handle_access_error(
             ctx, exc, campaign_id=campaign_id, account_id=account_id,
@@ -640,10 +825,11 @@ async def post_comment(
                 campaign_id=campaign_id,
                 account_id=account_id,
                 post_channel_msg_id=channel_msg_id,
-                comment_text=text,
+                comment_text=final_text,
                 status=CommentStatus.POSTED,
                 posted_message_id=posted_message_id,
                 in_reply_to_message_id=in_reply_to_message_id,
+                is_economy_stub=is_economy,
             )
         )
         session.commit()
@@ -760,6 +946,9 @@ async def on_channel_post(
         if campaign is None or not campaign.enabled:
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="no_campaign")
             return 0
+        if _scheduled_not_yet(campaign, now):
+            log.info("commenting.on_channel_post.skip", account_id=account_id, reason="scheduled_not_started")
+            return 0
         ch = MonitoredChannelRepository(session).get(monitored_channel_id)
         ch_name = (ch.title or ch.channel_ref or ch.input_ref) if ch else "?"
         if not is_within_active_hours(now, campaign):
@@ -811,39 +1000,46 @@ async def on_channel_post(
         _push(ctx, campaign_id, TimelineKind.GENERATION_STARTED, gen_msg,
               {"account_id": account_id, "channel_msg_id": channel_msg_id})
         reply_target = in_reply_to if in_reply_to is not None else channel_msg_id
-        provider = ctx.get("llm_provider") or get_provider(campaign.llm_provider)
-        context = _thread_context(session, campaign_id, channel_msg_id, post_text)
-        try:
-            # Жёсткий потолок на генерацию: даже если у провайдера нет своего
-            # таймаута, «Генерирую…» не зависает навсегда. Ошибку показываем.
-            text, ok = await asyncio.wait_for(
-                _generate(ctx, session, campaign, account, provider, context),
-                timeout=_GENERATE_TIMEOUT_SEC,
-            )
-        except asyncio.TimeoutError:
-            log.warning("commenting.on_channel_post.generate_timeout", account_id=account_id)
-            _push(ctx, campaign_id, TimelineKind.COMMENT_FAILED,
-                  f"Генерация ответа зависла (> {_GENERATE_TIMEOUT_SEC}с) — проверьте "
-                  "LLM-провайдера (ключ/доступ к API). Коммент не создан.",
-                  {"reason": "generate_timeout", "account_id": account_id})
-            return 0
-        except Exception as exc:  # noqa: BLE001 — показываем причину, а не молчим
-            log.warning("commenting.on_channel_post.generate_failed",
-                        account_id=account_id, error=repr(exc))
-            _push(ctx, campaign_id, TimelineKind.COMMENT_FAILED,
-                  f"Ошибка генерации ответа: {type(exc).__name__}: {exc}. "
-                  "Проверьте LLM-провайдера (ключ/доступ). Коммент не создан.",
-                  {"reason": "generate_failed", "account_id": account_id,
-                   "error": repr(exc)[:200]})
-            return 0
-        if not ok:
-            _log_below_min_words(session, campaign, account_id, channel_msg_id, text, reply_target)
-            log.info("commenting.on_channel_post.skip", account_id=account_id, reason="below_min_words")
-            _push(ctx, campaign_id, TimelineKind.COMMENT_SKIPPED,
-                  f"Пост #{channel_msg_id} в «{ch_name}»: ответ короче минимума "
-                  f"({campaign.min_words} слов) — пропуск.",
-                  {"reason": "below_min_words", "account_id": account_id})
-            return 0
+        # postbot/economy: LLM не зовём здесь вообще — см. on_new_post (тот же
+        # приём) и modules/commenting/worker/delivery.py (deliver_postbot/
+        # deliver_economy).
+        mode = _skip_llm_mode(campaign)
+        if mode != "normal":
+            text, ok = "", True
+        else:
+            provider = ctx.get("llm_provider") or get_provider(campaign.llm_provider)
+            context = _thread_context(session, campaign_id, channel_msg_id, post_text)
+            try:
+                # Жёсткий потолок на генерацию: даже если у провайдера нет своего
+                # таймаута, «Генерирую…» не зависает навсегда. Ошибку показываем.
+                text, ok = await asyncio.wait_for(
+                    _generate(ctx, session, campaign, account, provider, context),
+                    timeout=_GENERATE_TIMEOUT_SEC,
+                )
+            except asyncio.TimeoutError:
+                log.warning("commenting.on_channel_post.generate_timeout", account_id=account_id)
+                _push(ctx, campaign_id, TimelineKind.COMMENT_FAILED,
+                      f"Генерация ответа зависла (> {_GENERATE_TIMEOUT_SEC}с) — проверьте "
+                      "LLM-провайдера (ключ/доступ к API). Коммент не создан.",
+                      {"reason": "generate_timeout", "account_id": account_id})
+                return 0
+            except Exception as exc:  # noqa: BLE001 — показываем причину, а не молчим
+                log.warning("commenting.on_channel_post.generate_failed",
+                            account_id=account_id, error=repr(exc))
+                _push(ctx, campaign_id, TimelineKind.COMMENT_FAILED,
+                      f"Ошибка генерации ответа: {type(exc).__name__}: {exc}. "
+                      "Проверьте LLM-провайдера (ключ/доступ). Коммент не создан.",
+                      {"reason": "generate_failed", "account_id": account_id,
+                       "error": repr(exc)[:200]})
+                return 0
+            if not ok:
+                _log_below_min_words(session, campaign, account_id, channel_msg_id, text, reply_target)
+                log.info("commenting.on_channel_post.skip", account_id=account_id, reason="below_min_words")
+                _push(ctx, campaign_id, TimelineKind.COMMENT_SKIPPED,
+                      f"Пост #{channel_msg_id} в «{ch_name}»: ответ короче минимума "
+                      f"({campaign.min_words} слов) — пропуск.",
+                      {"reason": "below_min_words", "account_id": account_id})
+                return 0
         delay = (
             0.0
             if prescheduled
@@ -862,6 +1058,9 @@ async def on_channel_post(
         reply_target,
         thread_depth=thread_depth,
         post_date_ts=post_date_ts,
+        post_text=post_text if mode == "economy" else None,
+        economy_stub=mode == "economy",
+        postbot_forward=mode == "postbot",
     )
     log.info(
         "commenting.on_channel_post.scheduled",
@@ -885,6 +1084,9 @@ async def post_channel_comment(
     in_reply_to_message_id: int,
     thread_depth: int = 0,
     post_date_ts: Optional[float] = None,
+    post_text: Optional[str] = None,
+    economy_stub: bool = False,
+    postbot_forward: bool = False,
 ) -> Optional[int]:
     """Постит коммент аккаунта в discussion-группу его канала (+ governor)."""
     now = _now(ctx)
@@ -905,6 +1107,9 @@ async def post_channel_comment(
             in_reply_to_message_id,
             thread_depth=thread_depth,
             post_date_ts=post_date_ts,
+            post_text=post_text,
+            economy_stub=economy_stub,
+            postbot_forward=postbot_forward,
         )
 
     with session_factory() as session:
@@ -972,24 +1177,71 @@ async def post_channel_comment(
     with session_factory() as session:
         campaign_row = CampaignRepository(session).get(campaign_id)
 
+    async def _generate_real() -> str:
+        """Полноценная ИИ-генерация на месте — economy-пробник и safety net
+        (см. post_comment._generate_real — тот же приём, своя копия тут из-за
+        разной сигнатуры/контекста account-центричного пайплайна)."""
+        with session_factory() as gen_session:
+            gen_account = AccountRepository(gen_session).get(account_id)
+            _, gen_campaign = _account_campaign(gen_session, account_id)
+            gen_provider = ctx.get("llm_provider") or get_provider(gen_campaign.llm_provider)
+            gen_context = _thread_context(gen_session, campaign_id, channel_msg_id, post_text)
+            gen_text, ok = await _generate(ctx, gen_session, gen_campaign, gen_account, gen_provider, gen_context)
+            return gen_text if ok else delivery.stub_text(_rng(ctx))
+
     pool = _pool(ctx)
     client = await pool.get(account_id)
     try:
         # Таймаут на отправку: без него зависший Telethon-вызов (проблемы прокси/
         # сети) держит коммент в «вечной загрузке» молча. Падаем с понятной
-        # ошибкой в таймлайн вместо бесконечного ожидания.
-        sent, delivery_mode = await asyncio.wait_for(
-            delivery.deliver_comment(
+        # ошибкой в таймлайн вместо бесконечного ожидания. Один общий таймаут на
+        # капчу+доставку — economy добавляет к ней ещё ECONOMY_PROBE_DELAY_SEC,
+        # укладывается с запасом в _DELIVER_TIMEOUT_SEC (90с).
+        async def _do_deliver():
+            if campaign_row.captcha_solving_enabled:
+                await _maybe_solve_captcha(ctx, client, account_id, discussion_group_id, campaign_row, now)
+            if postbot_forward and campaign_row.postbot_forward_enabled and campaign_row.postbot_message_ids:
+                sent_, mode_, picked_id = await delivery.deliver_postbot(
+                    ctx, client, campaign_row,
+                    account_id=account_id,
+                    discussion_group_id=discussion_group_id,
+                    reply_to=in_reply_to_message_id,
+                    now=now,
+                    publisher=publisher,
+                    rng=_rng(ctx),
+                )
+                return sent_, mode_, f"[Postbot #{picked_id}]", False
+            if economy_stub and campaign_row.token_economy_enabled:
+                sent_, mode_, final_ = await delivery.deliver_economy(
+                    ctx, client, campaign_row,
+                    account_id=account_id,
+                    discussion_group_id=discussion_group_id,
+                    reply_to=in_reply_to_message_id,
+                    now=now,
+                    publisher=publisher,
+                    rng=_rng(ctx),
+                    generate_real=_generate_real,
+                )
+                return sent_, mode_, final_, True
+            send_text = text
+            if not send_text:
+                # Safety net: пустой text — scheduling был под economy/postbot,
+                # а кампания успела сменить режим до отправки.
+                send_text = await _generate_real()
+            sent_, mode_ = await delivery.deliver_comment(
                 ctx, client, campaign_row,
                 account_id=account_id,
                 discussion_group_id=discussion_group_id,
-                text=text,
+                text=send_text,
                 reply_to=in_reply_to_message_id,
                 now=now,
                 publisher=publisher,
                 rng=_rng(ctx),
-            ),
-            timeout=_DELIVER_TIMEOUT_SEC,
+            )
+            return sent_, mode_, send_text, False
+
+        sent, delivery_mode, final_text, is_economy = await asyncio.wait_for(
+            _do_deliver(), timeout=_DELIVER_TIMEOUT_SEC,
         )
     except asyncio.TimeoutError:
         _push(ctx, campaign_id, TimelineKind.COMMENT_FAILED,
@@ -1020,6 +1272,30 @@ async def post_channel_comment(
     finally:
         await pool.release(account_id)
 
+    if delivery_mode == "economy_failed":
+        with session_factory() as session:
+            CommentLogRepository(session).create(
+                CommentLogCreate(
+                    campaign_id=campaign_id,
+                    account_id=account_id,
+                    post_channel_msg_id=channel_msg_id,
+                    comment_text=final_text,
+                    status=CommentStatus.FAILED,
+                    in_reply_to_message_id=in_reply_to_message_id,
+                    error="economy_probe_failed",
+                    is_economy_stub=True,
+                )
+            )
+            session.commit()
+        log.info("commenting.post_channel_comment.economy_probe_failed", account_id=account_id)
+        _push(
+            ctx, campaign_id, TimelineKind.COMMENT_FAILED,
+            f"Экономия токенов (акк. #{account_id}) в «{mon_name}»: заглушка не прошла "
+            "(удалена ботом/модератором) — ИИ не вызывался, токены сэкономлены.",
+            {"account_id": account_id, "reason": "economy_probe_failed"},
+        )
+        return None
+
     posted_message_id = getattr(sent, "id", None)
     comment_log_id = None
     with session_factory() as session:
@@ -1028,10 +1304,11 @@ async def post_channel_comment(
                 campaign_id=campaign_id,
                 account_id=account_id,
                 post_channel_msg_id=channel_msg_id,
-                comment_text=text,
+                comment_text=final_text,
                 status=CommentStatus.POSTED,
                 posted_message_id=posted_message_id,
                 in_reply_to_message_id=in_reply_to_message_id,
+                is_economy_stub=is_economy,
             )
         )
         session.commit()
