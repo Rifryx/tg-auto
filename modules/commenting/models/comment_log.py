@@ -5,6 +5,7 @@ from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -61,4 +62,10 @@ class CommentLog(Base, CreatedAtMixin):
     )
     removed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    # Экономия токенов: True — коммент прошёл через стаб-пробник (сначала
+    # короткая заглушка, потом ИИ-текст на замену/или провал без LLM-вызова).
+    # Чисто информационное поле для UI/статистики.
+    is_economy_stub: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )

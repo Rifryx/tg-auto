@@ -5,13 +5,14 @@
 Alembic и остальному коду; ``core.models.commenting`` только реэкспортирует.
 """
 
-from datetime import time
+from datetime import datetime, time
 from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Integer,
     String,
@@ -105,6 +106,10 @@ class Campaign(Base, TimestampMixin):
         CheckConstraint(
             "existing_scope_max_age_days IS NULL OR existing_scope_max_age_days > 0",
             name="campaign_existing_scope_max_age_days_valid",
+        ),
+        CheckConstraint(
+            "product_mention_chance_percent BETWEEN 0 AND 100",
+            name="campaign_product_mention_chance_percent_valid",
         ),
         {"schema": COMMENTING_SCHEMA},
     )
@@ -251,4 +256,47 @@ class Campaign(Base, TimestampMixin):
     # повторы в логе для тех, кто такого не ожидал.
     thread_simulation_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
+    )
+
+    # ── Нейрокомментинг: доп. режимы (как у конкурента) ────────────────
+    # Экономия токенов: сначала короткая заглушка, и только если она «прошла»
+    # (не удалена ботом/фильтром канала за ECONOMY_PROBE_DELAY_SEC) —
+    # генерируем и подставляем настоящий ИИ-коммент. Экономит LLM-токены на
+    # заблокированных/мёртвых каналах. Итоговый коммент всегда текстовый
+    # (редактируется на месте — Telegram не даёт поменять тип сообщения).
+    token_economy_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Отложенный запуск: пока не наступит это время, on_new_post/on_channel_post
+    # молча пропускают посты (кампания может быть enabled=True и слушатель
+    # уже подключён — просто публикация откладывается). NULL — без отсрочки.
+    scheduled_start_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Упоминание продукта: с вероятностью product_mention_chance_percent LLM
+    # получает инструкцию органично упомянуть продукт/бренд (и ссылку, если
+    # задана) в комментарии.
+    product_mention_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    product_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    product_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    product_mention_chance_percent: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=20, server_default="20"
+    )
+    # Пересылка Postbot: вместо ИИ-комментария аккаунт публикует готовый пост
+    # из внешнего @PostBot (по id сообщения в чате аккаунта с ботом) — без
+    # LLM-вызова. postbot_message_ids — пул id, из которого выбираем случайно.
+    postbot_forward_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    postbot_username: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    postbot_message_ids: Mapped[list[int]] = mapped_column(
+        ARRAY(BigInteger), nullable=False, server_default="{}"
+    )
+    # Решение капчи (BETA): если бот обсуждения требует капчу (текст/кнопки)
+    # — ИИ решает её, чтобы аккаунт мог комментировать. Картиночные капчи пока
+    # не поддержаны (нужен vision-провайдер) — см. modules/commenting/worker/captcha.py.
+    captcha_solving_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )

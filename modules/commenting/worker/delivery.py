@@ -19,9 +19,10 @@ Runtime-эффект: `deliver_comment` заменяет прежний вызо
 
 from __future__ import annotations
 
+import asyncio
 import io
 import random
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 import structlog
 
@@ -36,6 +37,23 @@ get_logger = structlog.get_logger
 # sticker_chance_percent / image_chance_percent (в процентах).
 STICKER_CHANCE = 0.25
 IMAGE_CHANCE = 0.40
+
+# Экономия токенов: сколько ждём после заглушки, прежде чем проверить, что
+# она ещё на месте (не удалена анти-спам ботом/модератором канала). Держим
+# в диапазоне «задержки перед ответом на новый пост» конкурента (3-10с) —
+# достаточно, чтобы бот-фильтр успел среагировать, но не растягивает
+# публикацию надолго.
+ECONOMY_PROBE_DELAY_SEC = 7
+_ECONOMY_STUB_DIGITS = 3
+
+
+def stub_text(rng: random.Random) -> str:
+    """Короткая нейтральная заглушка для economy-пробника (напр. «4 1 7»).
+
+    Не несёт смысла специально — она одноразовая и либо живёт ~секунды до
+    замены настоящим текстом, либо палится фильтром канала (и тогда ИИ вообще
+    не вызывается — в этом и экономия)."""
+    return " ".join(str(rng.randint(0, 9)) for _ in range(_ECONOMY_STUB_DIGITS))
 
 
 def _chance(campaign: Campaign, attr: str, default: float) -> float:
@@ -440,3 +458,163 @@ async def deliver_comment(
         )
     )
     return sent, "text"
+
+
+# --- экономия токенов (стаб → проверка → замена на ИИ-текст) ----------------
+
+
+async def deliver_economy(
+    ctx: dict,
+    client,
+    campaign: Campaign,
+    *,
+    account_id: int,
+    discussion_group_id: int,
+    reply_to: int,
+    now,
+    publisher,
+    rng: random.Random,
+    generate_real: Callable[[], Awaitable[str]],
+) -> tuple[Any, str, str]:
+    """Economy-режим: короткая заглушка → пауза → проверка → замена текстом.
+
+    1. Шлём короткую нейтральную заглушку (``stub_text``) — без единого
+       LLM-вызова.
+    2. Ждём ``ECONOMY_PROBE_DELAY_SEC`` — анти-спам бот/модератор канала
+       успевает среагировать, если умеет.
+    3. Если заглушка всё ещё на месте — ТОЛЬКО ТЕПЕРЬ зовём ``generate_real``
+       (платный LLM-вызов) и подменяем текст сообщения на реальный коммент
+       (``edit_message`` — отправка нового сообщения не нужна).
+    4. Если заглушку удалили — ИИ вообще не вызывается, токены сэкономлены.
+
+    Ограничение: итоговый коммент всегда ТЕКСТОВЫЙ — стикер/картинка не
+    применяются (Telegram не даёт поменять тип уже отправленного сообщения,
+    а отправлять заглушку сразу стикером/фото бессмысленно — сам стаб должен
+    быть maximally дешёвым и неприметным).
+
+    Возвращает ``(sent_message, mode, final_text)``, где ``mode`` —
+    ``economy_passed`` (заменили на ИИ-текст) | ``economy_failed`` (заглушку
+    удалили, ИИ не вызывался) | ``economy_edit_failed`` (заменить не удалось,
+    заглушка осталась висеть как есть).
+    """
+    session_factory = ctx["session_factory"]
+    stub = stub_text(rng)
+    log = get_logger()
+
+    async def _call(factory):
+        return await around_telethon_call(
+            factory,
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+            now=now,
+        )
+
+    sent = await _call(
+        lambda: client.send_message(discussion_group_id, stub, reply_to=reply_to)
+    )
+
+    await asyncio.sleep(ECONOMY_PROBE_DELAY_SEC)
+
+    try:
+        messages = await _call(
+            lambda: client.get_messages(discussion_group_id, ids=[sent.id])
+        )
+        found = messages[0] if isinstance(messages, (list, tuple)) else messages
+        still_there = found is not None
+    except Exception as exc:  # noqa: BLE001 — не смогли проверить: считаем, что прошло
+        log.info(
+            "commenting.delivery.economy_probe_check_failed",
+            account_id=account_id, error=repr(exc),
+        )
+        still_there = True
+
+    if not still_there:
+        log.info("commenting.delivery.economy_probe_failed", account_id=account_id)
+        return sent, "economy_failed", stub
+
+    real_text = await generate_real()
+    try:
+        await _call(
+            lambda: client.edit_message(discussion_group_id, sent.id, real_text)
+        )
+    except Exception as exc:  # noqa: BLE001 — заглушка уже висит, оставим как есть
+        log.info(
+            "commenting.delivery.economy_edit_failed",
+            account_id=account_id, error=repr(exc),
+        )
+        return sent, "economy_edit_failed", stub
+    return sent, "economy_passed", real_text
+
+
+# --- пересылка готовых постов из внешнего @PostBot ---------------------------
+
+
+DEFAULT_POSTBOT_USERNAME = "PostBot"
+
+
+async def deliver_postbot(
+    ctx: dict,
+    client,
+    campaign: Campaign,
+    *,
+    account_id: int,
+    discussion_group_id: int,
+    reply_to: int,
+    now,
+    publisher,
+    rng: random.Random,
+) -> tuple[Any, str, int]:
+    """Публикует под постом готовый пост из @PostBot вместо ИИ-комментария.
+
+    Берём случайный id из ``campaign.postbot_message_ids`` (сообщения из
+    чата аккаунта с ботом — заранее подготовленные пользователем), копируем
+    его содержимое (текст и/или медиа) и шлём РЕПЛАЕМ в обсуждение. Это не
+    Telegram-"forward" (не показывает «Переслано от»): нужен именно reply в
+    треде обсуждения, а forward такого не умеет. ИИ-токены не тратятся,
+    промт/фото кампании не используются.
+
+    Бросает исключение, если бот/сообщение недоступны (аккаунт никогда не
+    писал боту, сообщение удалено и т.п.) — вызывающий код обрабатывает это
+    как обычную ошибку доставки.
+    """
+    if not campaign.postbot_message_ids:
+        raise ValueError("postbot_message_ids is empty")
+    msg_id = rng.choice(campaign.postbot_message_ids)
+    bot_username = campaign.postbot_username or DEFAULT_POSTBOT_USERNAME
+
+    async def _call(factory):
+        return await around_telethon_call(
+            factory,
+            account_id=account_id,
+            session_factory=ctx["session_factory"],
+            publisher=publisher,
+            now=now,
+        )
+
+    source_messages = await _call(
+        lambda: client.get_messages(bot_username, ids=[int(msg_id)])
+    )
+    source = (
+        source_messages[0]
+        if isinstance(source_messages, (list, tuple))
+        else source_messages
+    )
+    if source is None:
+        raise ValueError(f"postbot message #{msg_id} not found (bot={bot_username})")
+
+    if getattr(source, "media", None) is not None:
+        sent = await _call(
+            lambda: client.send_file(
+                discussion_group_id,
+                file=source,
+                caption=source.text or None,
+                reply_to=reply_to,
+            )
+        )
+    else:
+        body = source.text or source.message or ""
+        sent = await _call(
+            lambda: client.send_message(discussion_group_id, body, reply_to=reply_to)
+        )
+    return sent, "postbot", int(msg_id)
