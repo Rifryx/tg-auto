@@ -27,17 +27,11 @@ import {
   Field,
   RangeField,
   Section,
-  SegmentedControl,
   TextArea,
   TextInput,
   Toggle,
 } from "./components/ui";
-import type { CampaignUpdateBody, ChannelAlert, LLMProvider } from "./types";
-
-const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
-  { value: "deepseek", label: "DeepSeek" },
-  { value: "gemini", label: "Gemini" },
-];
+import type { CampaignUpdateBody, ChannelAlert } from "./types";
 
 export function CampaignDetailScreen() {
   const { id } = useParams();
@@ -51,6 +45,7 @@ export function CampaignDetailScreen() {
   const [delayMax, setDelayMax] = useState<number | null>(null);
   const [stickerChance, setStickerChance] = useState<number | null>(null);
   const [imageChance, setImageChance] = useState<number | null>(null);
+  const [productChance, setProductChance] = useState<number | null>(null);
 
   const campaign = useQuery({
     queryKey: ["campaign", campaignId],
@@ -157,6 +152,7 @@ export function CampaignDetailScreen() {
       setDelayMax((p) => (p == null ? c.posting_delay_max_sec : p));
       setStickerChance((p) => (p == null ? c.sticker_chance_percent : p));
       setImageChance((p) => (p == null ? c.image_chance_percent : p));
+      setProductChance((p) => (p == null ? c.product_mention_chance_percent : p));
     }
   }, [c]);
 
@@ -199,14 +195,6 @@ export function CampaignDetailScreen() {
             value={c.name}
             onSave={(v) => save.mutateAsync({ name: v })}
           />
-          <div className="mb-4">
-            <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">Модель</p>
-            <SegmentedControl
-              options={LLM_OPTIONS}
-              value={c.llm_provider}
-              onChange={(v) => save.mutate({ llm_provider: v })}
-            />
-          </div>
           <div className="mb-4">
             <p className="mb-1.5 px-1 text-[13px] text-text-tertiary">Персона (по умолчанию)</p>
             <Select
@@ -427,6 +415,104 @@ export function CampaignDetailScreen() {
       </Section>
 
       {c.attach_image && <CampaignMediaSection campaignId={campaignId} />}
+
+      <Section title="Нейрокомментинг">
+        <div className="card flex flex-col gap-3 p-4">
+          <StyleToggle
+            label="Экономия токенов"
+            hint="Сначала отправляем короткую заглушку (напр. «4 1 7»). Только если она прошла (не удалена ботом/фильтром канала) — генерируем ИИ-коммент и заменяем им заглушку. Экономит токены на заблокированных/мёртвых каналах. Итоговый коммент всегда текстовый (без стикера/картинки)."
+            checked={c.token_economy_enabled}
+            onChange={(v) => save.mutate({ token_economy_enabled: v })}
+          />
+          <StyleToggle
+            label="Отложенный запуск"
+            hint="Кампания может быть включена и слушать канал заранее — публикация комментариев начнётся только после указанного времени."
+            checked={c.scheduled_start_at != null}
+            onChange={(v) =>
+              save.mutate({
+                scheduled_start_at: v ? new Date(Date.now() + 60 * 60 * 1000).toISOString() : null,
+              })
+            }
+          />
+          {c.scheduled_start_at != null && (
+            <ScheduledStartField
+              value={c.scheduled_start_at}
+              onSave={(iso) => save.mutateAsync({ scheduled_start_at: iso })}
+            />
+          )}
+          <StyleToggle
+            label="Решение капчи"
+            hint="Если бот обсуждения требует капчу (арифметика, кнопки) — ИИ решает её автоматически, чтобы аккаунт мог комментировать. Картиночные капчи пока не поддержаны. Один пробник на группу — дальше из кэша. BETA."
+            checked={c.captcha_solving_enabled}
+            onChange={(v) => save.mutate({ captcha_solving_enabled: v })}
+          />
+
+          <div className="my-1 border-t border-hairline" />
+
+          <StyleToggle
+            label="Упоминание продукта"
+            hint="С заданной вероятностью ИИ органично упомянет в комментарии название продукта/бренда (и ссылку, если указана)."
+            checked={c.product_mention_enabled}
+            onChange={(v) => save.mutate({ product_mention_enabled: v })}
+          />
+          {c.product_mention_enabled && (
+            <>
+              <AutoText
+                label="Название продукта"
+                value={c.product_name ?? ""}
+                onSave={(v) => save.mutateAsync({ product_name: v })}
+              />
+              <AutoText
+                label="Ссылка (опционально)"
+                value={c.product_url ?? ""}
+                onSave={(v) => save.mutateAsync({ product_url: v })}
+              />
+              {productChance != null && (
+                <RangeField
+                  label="Вероятность упоминания"
+                  value={productChance}
+                  min={0}
+                  max={100}
+                  unit="%"
+                  onChange={setProductChance}
+                  onCommit={() => save.mutate({ product_mention_chance_percent: productChance })}
+                />
+              )}
+            </>
+          )}
+
+          <div className="my-1 border-t border-hairline" />
+
+          <StyleToggle
+            label="Пересылка Postbot"
+            hint="Вместо ИИ-комментария аккаунт публикует готовый пост из внешнего @PostBot (по id сообщения в чате аккаунта с ботом). ИИ-токены не тратятся, промт/фото кампании не используются."
+            checked={c.postbot_forward_enabled}
+            onChange={(v) => save.mutate({ postbot_forward_enabled: v })}
+          />
+          {c.postbot_forward_enabled && (
+            <>
+              <AutoText
+                label="Username бота (по умолчанию PostBot)"
+                value={c.postbot_username ?? ""}
+                onSave={(v) => save.mutateAsync({ postbot_username: v })}
+              />
+              <AutoText
+                label="Id сообщений для пересылки (через запятую)"
+                value={c.postbot_message_ids.join(", ")}
+                onSave={(v) =>
+                  save.mutateAsync({
+                    postbot_message_ids: v
+                      .split(/[\s,]+/)
+                      .map((s) => Number(s.trim()))
+                      .filter((n) => Number.isFinite(n) && n > 0),
+                  })
+                }
+                textarea
+              />
+            </>
+          )}
+        </div>
+      </Section>
       </div>
 
       <div className="min-w-0">
@@ -539,6 +625,42 @@ function AutoText({
       ) : (
         <TextInput value={v} onChange={(e) => setV(e.target.value)} onBlur={commit} />
       )}
+    </Field>
+  );
+}
+
+/* Дата/время отложенного запуска — <input type="datetime-local"> в
+   локальном времени браузера, сохраняем как ISO (UTC). */
+function ScheduledStartField({
+  value,
+  onSave,
+}: {
+  value: string;
+  onSave: (iso: string) => Promise<unknown>;
+}) {
+  const toLocalInput = (iso: string) => {
+    const d = new Date(iso);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const [v, setV] = useState(toLocalInput(value));
+  useEffect(() => setV(toLocalInput(value)), [value]);
+
+  const commit = async () => {
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return;
+    await onSave(d.toISOString());
+  };
+
+  return (
+    <Field label="Запустить не раньше">
+      <input
+        type="datetime-local"
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={commit}
+        className="w-full rounded-chip border border-hairline bg-surface-1 px-4 py-3 text-[15px] text-text-primary outline-none focus:border-strong"
+      />
     </Field>
   );
 }

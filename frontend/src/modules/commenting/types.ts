@@ -51,6 +51,17 @@ export interface Campaign {
   verify_after_post: boolean;
   verify_delay_sec: number;
   thread_simulation_enabled: boolean;
+  /* ── Нейрокомментинг: доп. режимы ─────────────────────────────────── */
+  token_economy_enabled: boolean;
+  scheduled_start_at: string | null;
+  product_mention_enabled: boolean;
+  product_name: string | null;
+  product_url: string | null;
+  product_mention_chance_percent: number;
+  postbot_forward_enabled: boolean;
+  postbot_username: string | null;
+  postbot_message_ids: number[];
+  captcha_solving_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -171,6 +182,16 @@ export interface CampaignCreateBody {
   verify_after_post?: boolean;
   verify_delay_sec?: number;
   thread_simulation_enabled?: boolean;
+  token_economy_enabled?: boolean;
+  scheduled_start_at?: string | null;
+  product_mention_enabled?: boolean;
+  product_name?: string | null;
+  product_url?: string | null;
+  product_mention_chance_percent?: number;
+  postbot_forward_enabled?: boolean;
+  postbot_username?: string | null;
+  postbot_message_ids?: number[];
+  captcha_solving_enabled?: boolean;
 }
 
 export interface CampaignChannel {

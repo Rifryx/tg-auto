@@ -69,11 +69,6 @@ const TZ_OPTIONS = [
   "America/Los_Angeles",
   "America/Sao_Paulo",
 ];
-const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
-  { value: "deepseek", label: "DeepSeek" },
-  { value: "gemini", label: "Gemini" },
-];
-
 export function NewCampaignScreen() {
   const navigate = useNavigate();
   const limit = useLimit("campaigns_active_max");
@@ -81,7 +76,10 @@ export function NewCampaignScreen() {
     if (limit?.atLimit) navigate("/billing", { replace: true });
   }, [limit?.atLimit, navigate]);
   const [name, setName] = useState("");
-  const [llm, setLlm] = useState<LLMProvider>("deepseek");
+  // Выбор модели убран из UI (пользователю это ничего не даёт решать) — всегда
+  // deepseek, автоматический фолбэк на gemini при сбое живёт в воркере
+  // (modules/commenting/worker/runner.py::_fallback_provider).
+  const llm: LLMProvider = "deepseek";
   const [prompt, setPrompt] = useState("");
   const [start, setStart] = useState("09:00");
   const [end, setEnd] = useState("23:00");
@@ -312,10 +310,6 @@ export function NewCampaignScreen() {
           Кампания — это папка для группы аккаунтов с общим промптом. Каналы для
           мониторинга задаются на каждом аккаунте отдельно.
         </p>
-      </Section>
-
-      <Section title="Модель">
-        <SegmentedControl options={LLM_OPTIONS} value={llm} onChange={setLlm} />
       </Section>
 
       <Section title="Персона (необязательно)">

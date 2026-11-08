@@ -20,7 +20,9 @@ from worker.llm import (
     Message,
     OpenAICompatProvider,
     StyleRandomizer,
+    fallback_provider,
     get_provider,
+    other_provider_name,
     reset_cache,
 )
 from worker.llm import style as style_mod
@@ -186,6 +188,40 @@ def test_probability_distribution_matches_constants():
 
 
 # --- 6. formal persona → без опечаток ----------------------------------------
+
+
+# --- 7. fallback_provider (убран выбор модели из UI — это единственная
+#        «переключалка» на случай сбоя провайдера) ----------------------------
+
+
+def test_other_provider_name_swaps():
+    assert other_provider_name("deepseek") == "gemini"
+    assert other_provider_name("gemini") == "deepseek"
+
+
+def test_fallback_provider_none_when_no_other_key(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANYMODEL_API_KEY", raising=False)
+    get_settings.cache_clear()
+    assert fallback_provider("deepseek") is None
+
+
+def test_fallback_provider_uses_direct_other_key(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "real-gemini-key")
+    monkeypatch.delenv("ANYMODEL_API_KEY", raising=False)
+    get_settings.cache_clear()
+    provider = fallback_provider("deepseek")
+    assert isinstance(provider, GeminiProvider)
+
+
+def test_fallback_provider_available_via_anymodel_even_without_direct_key(monkeypatch):
+    """Раньше фолбэк молчал в AnyModel-режиме: ключ есть (под ANYMODEL_API_KEY),
+    но проверялся GEMINI_API_KEY/DEEPSEEK_API_KEY — несовпадение имени."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("ANYMODEL_API_KEY", "anymodel-key")
+    get_settings.cache_clear()
+    provider = fallback_provider("deepseek")
+    assert isinstance(provider, OpenAICompatProvider)
 
 
 def test_formal_persona_no_typos():
