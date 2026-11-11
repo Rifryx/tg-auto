@@ -1,5 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, Bookmark, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Bookmark,
+  ChevronDown,
+  Clock,
+  Palette,
+  Sparkles,
+  SlidersHorizontal,
+  Trash2,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { StickyActionBar } from "../../components/StickyActionBar";
@@ -132,6 +143,20 @@ export function NewCampaignScreen() {
   const [verifyDelaySec, setVerifyDelaySec] = useState(300);
   const [threadSimulationEnabled, setThreadSimulationEnabled] = useState(true);
 
+  // ── Нейрокомментинг: доп. режимы (как у конкурента) ──────────────────
+  // По умолчанию всё off — не меняем поведение стандартной кампании, если
+  // пользователь не раскрывал эту секцию.
+  const [tokenEconomyEnabled, setTokenEconomyEnabled] = useState(false);
+  const [scheduledStartAt, setScheduledStartAt] = useState<string | null>(null);
+  const [captchaSolvingEnabled, setCaptchaSolvingEnabled] = useState(false);
+  const [productMentionEnabled, setProductMentionEnabled] = useState(false);
+  const [productName, setProductName] = useState("");
+  const [productUrl, setProductUrl] = useState("");
+  const [productMentionChance, setProductMentionChance] = useState(20);
+  const [postbotForwardEnabled, setPostbotForwardEnabled] = useState(false);
+  const [postbotUsername, setPostbotUsername] = useState("");
+  const [postbotMessageIdsText, setPostbotMessageIdsText] = useState("");
+
   // Показываем аккаунты в ЛЮБОМ статусе — «не идеальные» помечаем. Для
   // «добавить всю группу» дальше берём только свободных (pool).
   const groups = useQuery({ queryKey: ["projects"], queryFn: projectsApi.list });
@@ -221,6 +246,22 @@ export function NewCampaignScreen() {
         verify_after_post: verifyAfterPost,
         verify_delay_sec: verifyDelaySec,
         thread_simulation_enabled: threadSimulationEnabled,
+        // Нейрокомментинг (все поля опциональны — бэкенд принимает null/false).
+        token_economy_enabled: tokenEconomyEnabled,
+        scheduled_start_at: scheduledStartAt,
+        captcha_solving_enabled: captchaSolvingEnabled,
+        product_mention_enabled: productMentionEnabled,
+        product_name: productMentionEnabled ? (productName.trim() || null) : null,
+        product_url: productMentionEnabled ? (productUrl.trim() || null) : null,
+        product_mention_chance_percent: productMentionChance,
+        postbot_forward_enabled: postbotForwardEnabled,
+        postbot_username: postbotForwardEnabled ? (postbotUsername.trim() || null) : null,
+        postbot_message_ids: postbotForwardEnabled
+          ? postbotMessageIdsText
+              .split(/[\s,]+/)
+              .map((s) => Number(s.trim()))
+              .filter((n) => Number.isFinite(n) && n > 0)
+          : [],
         enabled: true,
       });
       if (
@@ -340,7 +381,18 @@ export function NewCampaignScreen() {
         </p>
       </Section>
 
-      <Section title="Стиль комментариев">
+      <CollapsibleSection
+        title="Стиль комментариев"
+        icon={Palette}
+        summary={styleSummary({
+          useEmojis,
+          useStickers,
+          attachImage,
+          writeAsChannel,
+          verifyAfterPost,
+          threadSimulationEnabled,
+        })}
+      >
         <div className="flex flex-col gap-3">
           <ToggleRow
             label="Использовать эмодзи"
@@ -420,9 +472,143 @@ export function NewCampaignScreen() {
             onChange={setThreadSimulationEnabled}
           />
         </div>
-      </Section>
+      </CollapsibleSection>
 
-      <Section title="Режим комментирования">
+      {/* Новая секция — расширенные режимы нейрокомментинга (как у конкурента).
+         По умолчанию ВСЁ выключено; если пользователь ничего не раскроет,
+         поведение такое же, как у обычной кампании, которую создавали до
+         этой секции. */}
+      <CollapsibleSection
+        title="Нейрокомментинг"
+        icon={Sparkles}
+        accent="new"
+        summary={neuroSummary({
+          tokenEconomyEnabled,
+          scheduledStartAt,
+          captchaSolvingEnabled,
+          productMentionEnabled,
+          postbotForwardEnabled,
+        })}
+      >
+        <div className="flex flex-col gap-3">
+          <ToggleRow
+            label="Экономия токенов"
+            hint="Сначала короткая заглушка (напр. «4 1 7»); если её не удалил бот/фильтр канала — только тогда генерируется ИИ-коммент и заменяет её. Экономит токены на заблокированных/мёртвых каналах. Итог всегда текст (без стикера/картинки)."
+            checked={tokenEconomyEnabled}
+            onChange={setTokenEconomyEnabled}
+          />
+          <ToggleRow
+            label="Отложенный запуск"
+            hint="Кампания будет слушать канал сразу, но публиковать комментарии начнёт только после указанного времени."
+            checked={scheduledStartAt != null}
+            onChange={(v) =>
+              setScheduledStartAt(
+                v ? new Date(Date.now() + 60 * 60 * 1000).toISOString() : null,
+              )
+            }
+          />
+          {scheduledStartAt != null && (
+            <ScheduledStartInput
+              value={scheduledStartAt}
+              onChange={setScheduledStartAt}
+            />
+          )}
+          <ToggleRow
+            label="Решение капчи (BETA)"
+            hint="Если бот обсуждения требует капчу (арифметика, кнопки) — ИИ решит её, чтобы аккаунт мог комментировать. Картиночные капчи пока не поддержаны. Один пробник на группу, дальше из кэша."
+            checked={captchaSolvingEnabled}
+            onChange={setCaptchaSolvingEnabled}
+          />
+
+          <div className="my-1 border-t border-hairline" />
+
+          <ToggleRow
+            label="Упоминание продукта"
+            hint="С заданной вероятностью ИИ органично упомянет название продукта/бренда (и ссылку, если указана) в комментарии."
+            checked={productMentionEnabled}
+            onChange={setProductMentionEnabled}
+          />
+          {productMentionEnabled && (
+            <div className="rounded-chip border border-hairline bg-surface-1 p-3">
+              <Field label="Название продукта">
+                <TextInput
+                  value={productName}
+                  onChange={(e) => setProductName(e.target.value)}
+                  placeholder="Напр.: АкмеКрем"
+                />
+              </Field>
+              <Field label="Ссылка (опционально)">
+                <TextInput
+                  value={productUrl}
+                  onChange={(e) => setProductUrl(e.target.value)}
+                  placeholder="https://..."
+                />
+              </Field>
+              <RangeField
+                label="Вероятность упоминания"
+                value={productMentionChance}
+                min={0}
+                max={100}
+                unit="%"
+                onChange={setProductMentionChance}
+              />
+            </div>
+          )}
+
+          <div className="my-1 border-t border-hairline" />
+
+          <ToggleRow
+            label="Пересылка Postbot"
+            hint="Вместо ИИ-комментария аккаунт публикует готовый пост из внешнего @PostBot (по id сообщения в чате аккаунта с ботом). ИИ-токены не тратятся, промпт/фото кампании не используются."
+            checked={postbotForwardEnabled}
+            onChange={setPostbotForwardEnabled}
+          />
+          {postbotForwardEnabled && (
+            <div className="rounded-chip border border-hairline bg-surface-1 p-3">
+              <Field
+                label="Username бота"
+                hint={
+                  <span className="text-[11px] text-text-tertiary">
+                    по умолчанию PostBot
+                  </span>
+                }
+              >
+                <TextInput
+                  value={postbotUsername}
+                  onChange={(e) => setPostbotUsername(e.target.value)}
+                  placeholder="PostBot"
+                />
+              </Field>
+              <Field
+                label="Id сообщений для пересылки"
+                hint={
+                  <span className="text-[11px] text-text-tertiary">
+                    через запятую
+                  </span>
+                }
+              >
+                <TextArea
+                  value={postbotMessageIdsText}
+                  onChange={(e) => setPostbotMessageIdsText(e.target.value)}
+                  placeholder="101, 102, 115"
+                />
+              </Field>
+            </div>
+          )}
+        </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Поведение"
+        icon={SlidersHorizontal}
+        summary={behaviorSummary({
+          selectionMode,
+          postScope,
+          workMode,
+          maxComments,
+        })}
+      >
+        <FieldGroup label="Режим отбора постов">
         <SegmentedControl
           options={[
             { value: "all", label: "Все посты" },
@@ -466,9 +652,9 @@ export function NewCampaignScreen() {
             </p>
           </div>
         )}
-      </Section>
+        </FieldGroup>
 
-      <Section title="Какие посты комментировать">
+        <FieldGroup label="Какие посты комментировать">
         <SegmentedControl
           options={[
             { value: "new", label: "Новые" },
@@ -507,9 +693,9 @@ export function NewCampaignScreen() {
             </p>
           </>
         )}
-      </Section>
+        </FieldGroup>
 
-      <Section title="Режим работы">
+        <FieldGroup label="Лимиты и темп">
         <SegmentedControl
           options={[
             { value: "by_count", label: "По количеству" },
@@ -576,11 +762,17 @@ export function NewCampaignScreen() {
             ? "Аккаунты комментируют только пока не истекло окно после публикации поста и не чаще, чем раз в паузу. Короткие ответы ИИ перегенерирует (до 3 попыток)."
             : "Считаются только опубликованные комментарии. Короткие ответы ИИ перегенерирует (до 3 попыток), иначе коммент пропускается."}
         </p>
-      </Section>
+        </FieldGroup>
+      </CollapsibleSection>
 
       </div>
       <div className="min-w-0">
-      <Section title="Окно активности">
+      <CollapsibleSection
+        title="Расписание и темп"
+        icon={Clock}
+        summary={`${start}–${end} · ${tz.replace(/^.*\//, "")} · ${delayMin}–${delayMax}с`}
+      >
+        <FieldGroup label="Окно активности">
         <div className="flex gap-2">
           <Field label="С">
             <TimeField value={start} onChange={setStart} />
@@ -596,9 +788,9 @@ export function NewCampaignScreen() {
             options={TZ_OPTIONS.map((t) => ({ value: t, label: t }))}
           />
         </Field>
-      </Section>
+        </FieldGroup>
 
-      <Section title="Задержки постинга">
+        <FieldGroup label="Задержки постинга">
         <DelayPresetBar
           presets={delayPresets.data ?? []}
           onApply={(p) => {
@@ -624,7 +816,8 @@ export function NewCampaignScreen() {
           Пресет также задаёт задержки входа в канал ({joinMin}–{joinMax}s) и
           floodwait-паузу ({floodPause}s / карантин после {floodMax}).
         </p>
-      </Section>
+        </FieldGroup>
+      </CollapsibleSection>
 
       <Section title="Целевые каналы">
         <SegmentedControl
@@ -830,6 +1023,93 @@ export function NewCampaignScreen() {
   );
 }
 
+/* ── helpers: краткие саммари для свернутых секций ─────────────────────
+   Показываются серым под заголовком — чтобы пользователь с полвзгляда
+   понимал, что уже выбрано, и не нужно ли раскрывать секцию. Пустая строка
+   если ничего не настроено — секция сохраняет минимальную высоту. */
+
+function styleSummary(s: {
+  useEmojis: boolean;
+  useStickers: boolean;
+  attachImage: boolean;
+  writeAsChannel: boolean;
+  verifyAfterPost: boolean;
+  threadSimulationEnabled: boolean;
+}): string {
+  const parts: string[] = [];
+  if (!s.useEmojis) parts.push("без эмодзи");
+  if (s.useStickers) parts.push("стикеры");
+  if (s.attachImage) parts.push("фото");
+  if (s.writeAsChannel) parts.push("от канала");
+  if (s.verifyAfterPost) parts.push("контроль удаления");
+  if (!s.threadSimulationEnabled) parts.push("без треда");
+  return parts.length ? parts.join(" · ") : "по умолчанию";
+}
+
+function neuroSummary(s: {
+  tokenEconomyEnabled: boolean;
+  scheduledStartAt: string | null;
+  captchaSolvingEnabled: boolean;
+  productMentionEnabled: boolean;
+  postbotForwardEnabled: boolean;
+}): string {
+  const parts: string[] = [];
+  if (s.tokenEconomyEnabled) parts.push("экономия");
+  if (s.scheduledStartAt) parts.push("отложенный запуск");
+  if (s.captchaSolvingEnabled) parts.push("капча");
+  if (s.productMentionEnabled) parts.push("продукт");
+  if (s.postbotForwardEnabled) parts.push("postbot");
+  return parts.length ? parts.join(" · ") : "ничего не включено";
+}
+
+function behaviorSummary(s: {
+  selectionMode: PostSelectionMode;
+  postScope: PostScope;
+  workMode: WorkMode;
+  maxComments: string;
+}): string {
+  const selLabel = { all: "все посты", keywords: "по словам", probability: "по вероятности" }[
+    s.selectionMode
+  ];
+  const scopeLabel = { new: "новые", existing: "существующие", mixed: "сначала старые" }[
+    s.postScope
+  ];
+  const workLabel = s.workMode === "by_count"
+    ? (s.maxComments.trim() ? `до ${s.maxComments.trim()}` : "без лимита")
+    : "по окну";
+  return `${selLabel} · ${scopeLabel} · ${workLabel}`;
+}
+
+/* Поле выбора даты/времени для «Отложенного запуска» — <input type="datetime-local">
+   в локальном времени браузера, в state кладём ISO (UTC). Та же логика, что
+   и в CampaignDetailScreen, только без AutoSave обвязки (здесь form submit). */
+function ScheduledStartInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (iso: string) => void;
+}) {
+  const toLocalInput = (iso: string) => {
+    const d = new Date(iso);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  return (
+    <Field label="Запустить не раньше">
+      <input
+        type="datetime-local"
+        value={toLocalInput(value)}
+        onChange={(e) => {
+          const d = new Date(e.target.value);
+          if (!Number.isNaN(d.getTime())) onChange(d.toISOString());
+        }}
+        className="w-full rounded-chip border border-hairline bg-surface-1 px-4 py-3 text-[15px] text-text-primary outline-none focus:border-strong"
+      />
+    </Field>
+  );
+}
+
 /* Ряд с тумблером — label + подсказка слева, свитч справа. */
 function ToggleRow({
   label,
@@ -850,6 +1130,73 @@ function ToggleRow({
       </div>
       <Toggle checked={checked} onChange={onChange} label={label} />
     </div>
+  );
+}
+
+/* Сворачиваемая секция с иконкой-бейджем и коротким саммари справа — чтобы
+   не грузить пользователя всем вываленным сразу. По умолчанию закрыта.
+   Открытие — клик по всему заголовку. Внутри остаётся нативная разметка
+   секции (padding + разделитель от заголовка).
+
+   Акцент: для «новых/продвинутых» разделов можно передать accent="new" —
+   иконка подсветится цветом бренда вместо нейтральной surface-2. */
+function CollapsibleSection({
+  title,
+  icon: Icon,
+  summary,
+  defaultOpen = false,
+  accent,
+  children,
+}: {
+  title: string;
+  icon: LucideIcon;
+  summary?: React.ReactNode;
+  defaultOpen?: boolean;
+  accent?: "new";
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const iconWrap =
+    accent === "new"
+      ? "bg-accent/15 text-accent"
+      : "bg-surface-2 text-text-secondary";
+  return (
+    <section className="mb-4 overflow-hidden rounded-2xl border border-hairline bg-surface-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-4 py-3.5 text-left active:bg-surface-2/50"
+      >
+        <div
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${iconWrap}`}
+          aria-hidden
+        >
+          <Icon className="h-4 w-4" strokeWidth={2.2} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[15px] font-semibold text-text-primary">{title}</span>
+            {accent === "new" && (
+              <span className="rounded-pill bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent">
+                новое
+              </span>
+            )}
+          </div>
+          {summary && (
+            <p className="mt-0.5 truncate text-[12px] text-text-tertiary">
+              {summary}
+            </p>
+          )}
+        </div>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-text-tertiary transition-transform ${open ? "rotate-180" : ""}`}
+          strokeWidth={2}
+          aria-hidden
+        />
+      </button>
+      {open && <div className="border-t border-hairline p-4">{children}</div>}
+    </section>
   );
 }
 
