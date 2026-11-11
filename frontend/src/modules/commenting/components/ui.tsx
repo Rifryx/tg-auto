@@ -13,6 +13,8 @@ export function NumberStepper({
   max,
   suffix,
   ariaLabel,
+  allowEmpty = false,
+  emptyLabel,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -27,20 +29,45 @@ export function NumberStepper({
   max?: number;
   suffix?: string;
   ariaLabel?: string;
+  /** Разрешить пустое значение ("") — семантика «без лимита/не задано».
+   *  При value === "" input отображает ``emptyLabel`` placeholder'ом.
+   *  Клик + из пустого → min (или 1), клик − из min → "" (если allowEmpty). */
+  allowEmpty?: boolean;
+  /** Что показывать как placeholder, когда ``value === ""``. */
+  emptyLabel?: string;
 }) {
   const decimals = (String(step).split(".")[1] ?? "").length;
   const clamp = (n: number) =>
     Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n));
   const bump = (dir: 1 | -1) => {
+    // Из пустого состояния: клик + → min (или 1), клик − → ничего не делаем
+    // (всё равно остаёмся «без лимита»).
+    if (allowEmpty && value === "") {
+      if (dir < 0) return;
+      const start = clamp(min ?? 1).toFixed(decimals);
+      onChange(start);
+      onCommit?.(start);
+      return;
+    }
     const cur = Number(value);
     const base = Number.isFinite(cur) ? cur : (min ?? 0);
-    const next = clamp(base + dir * step).toFixed(decimals);
+    const nextNum = base + dir * step;
+    // Если разрешено пустое и мы уходим ниже min через -, становимся пустыми
+    // (пользователь выключил лимит). Без allowEmpty — clamp сверху и снизу.
+    if (allowEmpty && min != null && nextNum < min) {
+      onChange("");
+      onCommit?.("");
+      return;
+    }
+    const next = clamp(nextNum).toFixed(decimals);
     onChange(next);
     onCommit?.(next);
   };
   const n = Number(value);
-  const atMin = min != null && Number.isFinite(n) && n <= min;
-  const atMax = max != null && Number.isFinite(n) && n >= max;
+  const isEmpty = allowEmpty && value === "";
+  const atMin =
+    !isEmpty && min != null && Number.isFinite(n) && n <= min && !allowEmpty;
+  const atMax = !isEmpty && max != null && Number.isFinite(n) && n >= max;
   const btn =
     "flex h-full w-12 shrink-0 items-center justify-center text-text-secondary transition-colors hover:text-text-primary active:bg-surface-2 disabled:opacity-40 disabled:hover:text-text-secondary";
 
@@ -55,11 +82,24 @@ export function NumberStepper({
           inputMode="decimal"
           aria-label={ariaLabel}
           value={value}
-          onChange={(e) => onChange(e.target.value.replace(",", ".").replace(/[^0-9.]/g, ""))}
+          placeholder={isEmpty ? emptyLabel : undefined}
+          onChange={(e) => {
+            const cleaned = e.target.value.replace(",", ".").replace(/[^0-9.]/g, "");
+            // Пустой ввод сохраняем как "", только если явно разрешено —
+            // иначе интерпретируется как «не вводил» и state обнуляется в 0
+            // на commit.
+            if (cleaned === "" && allowEmpty) {
+              onChange("");
+              return;
+            }
+            onChange(cleaned);
+          }}
           onBlur={() => onCommit?.(value)}
-          className="nums w-full min-w-0 bg-transparent text-center text-[16px] font-semibold text-text-primary outline-none"
+          className="nums w-full min-w-0 bg-transparent text-center text-[16px] font-semibold text-text-primary outline-none placeholder:text-text-tertiary placeholder:font-normal"
         />
-        {suffix && <span className="shrink-0 pr-2 text-[13px] text-text-tertiary">{suffix}</span>}
+        {suffix && !isEmpty && (
+          <span className="shrink-0 pr-2 text-[13px] text-text-tertiary">{suffix}</span>
+        )}
       </div>
       <button type="button" aria-label="Увеличить" disabled={atMax} onClick={() => bump(1)} className={`${btn} border-l border-hairline`}>
         <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />

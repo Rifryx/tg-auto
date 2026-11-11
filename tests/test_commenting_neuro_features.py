@@ -80,9 +80,18 @@ def test_stub_text_is_short_and_deterministic_with_seeded_rng():
     s1 = delivery.stub_text(random.Random(1))
     s2 = delivery.stub_text(random.Random(1))
     assert s1 == s2
-    parts = s1.split(" ")
-    assert len(parts) == delivery._ECONOMY_STUB_DIGITS
-    assert all(p.isdigit() for p in parts)
+    # Заглушка — один эмодзи из пула. Раньше были цифры («4 1 7»), но они
+    # выглядели странно при редкой задержке replace'а и пользователь мог
+    # увидеть их до подмены на ИИ-текст.
+    assert s1 in delivery._ECONOMY_STUB_EMOJI
+
+
+def test_stub_text_picks_different_emoji_across_calls():
+    """RNG даёт разные значения — иначе одна и та же заглушка в чате
+    выглядела бы паттерном и легко ловилась анти-спам ботом."""
+    seen = {delivery.stub_text(random.Random(seed)) for seed in range(1, 50)}
+    # С 8 вариантами и 49 бросками шансы получить меньше 3 — исчезающе малы.
+    assert len(seen) >= 3
 
 
 # ── deliver_economy ──────────────────────────────────────────────────────────

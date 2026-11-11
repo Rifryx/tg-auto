@@ -59,6 +59,38 @@ def test_failed_shows_russian_reason_not_code():
     ) == "не удалось: ошибка"
 
 
+def test_failed_prefers_error_type_translation_over_category():
+    """При error_type ∈ _ERROR_TYPE_RU показываем перевод, а не общий
+    «неизвестная ошибка» из category. Это основной фикс для баг-репорта
+    «две строки "не удалось: неизвестная ошибка" без деталей»."""
+    assert warming_detail(
+        "read_history",
+        status="failed",
+        meta={"error_category": "unknown", "error_type": "TimeoutError"},
+    ) == "не удалось: таймаут сети"
+    assert warming_detail(
+        "subscribe_channel",
+        status="failed",
+        meta={"error_category": "target_broken", "error_type": "UserNotParticipantError"},
+    ) == "не удалось: аккаунт не состоит в этом канале"
+
+
+def test_failed_unknown_error_type_falls_back_to_russian_with_class_hint():
+    """Неизвестное имя класса — всё равно информативнее, чем «неизвестная
+    ошибка»: даём русскую фразу «сбой (ClassName)» с подсказкой для техподдержки."""
+    out = warming_detail(
+        "idle_online",
+        status="failed",
+        meta={"error_type": "SomeRareSdkError"},
+    )
+    assert out == "не удалось: сбой (SomeRareSdkError)"
+
+
+def test_failed_without_any_meta_still_readable():
+    """Если воркер не положил meta вообще — не падаем, пишем «ошибка»."""
+    assert warming_detail("idle_online", status="failed") == "не удалось: ошибка"
+
+
 def test_peer_wording_is_gone():
     out = warming_detail("interact_with_peer", target=None)
     assert "peer" not in out.lower()
