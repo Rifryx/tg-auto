@@ -43,7 +43,7 @@ from worker.profiles.dialogs import (
     sync_dialogs_impl,
     sync_project_channels_impl,
 )
-from worker.profiles.sync import sync_profile_impl
+from worker.profiles.sync import sync_profile_impl, upload_avatar_impl
 from worker.tasks.accounts import sweep_abandoned_logins_impl
 from worker.tasks.billing import reconcile_payments_impl
 from worker.tasks.bulk import dispatch_impl as bulk_dispatch_impl, item_impl as bulk_item_impl
@@ -343,6 +343,14 @@ TASK_FUNCTIONS = [
     func(
         task(TaskName.ACCOUNT_SYNC_PROFILE.value)(sync_profile_impl),
         name=TaskName.ACCOUNT_SYNC_PROFILE.value,
+        max_tries=2,
+    ),
+    # Выгрузка аватара аккаунта в Telegram — после PATCH /accounts/{id}
+    # с новым avatar_url в виде data:image/...;base64,... — чтобы смена
+    # аватара в UI реально доехала до Telegram.
+    func(
+        task(TaskName.ACCOUNT_UPLOAD_AVATAR.value)(upload_avatar_impl),
+        name=TaskName.ACCOUNT_UPLOAD_AVATAR.value,
         max_tries=2,
     ),
     # Диалоги аккаунта: снапшот каналов/групп + выход из них.

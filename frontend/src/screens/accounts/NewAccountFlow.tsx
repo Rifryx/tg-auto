@@ -84,6 +84,11 @@ export function NewAccountFlow() {
   const [sessionString, setSessionString] = useState("");
   const [sessionFile, setSessionFile] = useState<File | null>(null);
   const [tdataZip, setTdataZip] = useState<File | null>(null);
+  // Опциональный прогрев для импорта сессии/tdata (CREATED → WARMING через
+  // state-машину, как в login-flow). По умолчанию выкл: импортированные
+  // сессии чаще всего «готовы к бою» — пользователь сам решит, нужен ли
+  // прогрев перед использованием.
+  const [sendToWarming, setSendToWarming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [phoneExists, setPhoneExists] = useState(false);
   const accountIdRef = useRef<number | null>(null);
@@ -146,6 +151,7 @@ export function NewAccountFlow() {
         warming_profile: profile,
         session_string: sessionString.trim() || undefined,
         session_file: sessionFile ?? undefined,
+        send_to_warming: sendToWarming,
       }),
     onSuccess: (acc) => {
       accountIdRef.current = acc.id;
@@ -162,6 +168,7 @@ export function NewAccountFlow() {
         proxy_id: proxyId,
         warming_profile: profile,
         tdata_zip: tdataZip!,
+        send_to_warming: sendToWarming,
       }),
     onSuccess: (acc) => {
       accountIdRef.current = acc.id;
@@ -305,6 +312,10 @@ export function NewAccountFlow() {
           {method === "tdata" && (
             <TDataSourceCard tdataZip={tdataZip} setTdataZip={setTdataZip} />
           )}
+
+          {(method === "session" || method === "tdata") && (
+            <WarmingOptionRow checked={sendToWarming} onChange={setSendToWarming} />
+          )}
         </StepFrame>
       )}
 
@@ -365,7 +376,11 @@ export function NewAccountFlow() {
           </div>
           <p className="text-[17px] font-semibold text-text-primary">Аккаунт подключён</p>
           <p className="mt-1 text-[13px] text-text-secondary">
-            {method === "code" ? "Начался прогрев." : "Сессия импортирована, аккаунт в пуле."}
+            {method === "code"
+              ? "Начался прогрев."
+              : sendToWarming
+                ? "Сессия импортирована, начался прогрев."
+                : "Сессия импортирована, аккаунт в пуле."}
           </p>
         </div>
       )}
@@ -1087,10 +1102,42 @@ function TDataSourceCard({
         Запакуйте папку <b>tdata</b> из Telegram Desktop в ZIP или RAR. Конвертация
         в сессию происходит офлайн, 10–30 секунд (для архива в несколько десятков
         МБ — дольше). Номер телефона вводить не нужно — он будет взят из tdata.
-        Аккаунт сразу попадёт в пул. TData с локальным паролем (passcode) не
-        поддерживается.
+        TData с локальным паролем (passcode) не поддерживается.
       </InfoNote>
     </div>
+  );
+}
+
+/* Тумблер «Отправить на прогрев» — показывается только на импорте session/tdata.
+   По умолчанию выкл: пользователь сам решает, нужен ли прогрев. Включение
+   добавляет send_to_warming=true в form-data, бэкенд после импорта делает
+   WARMING_START переход через state-машину (как в login-flow по коду). */
+function WarmingOptionRow({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="mb-4 flex cursor-pointer items-start gap-3 rounded-card border border-hairline bg-surface-1 p-4">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--accent)]"
+      />
+      <span className="min-w-0 flex-1">
+        <span className="block text-[14px] font-semibold text-text-primary">
+          Отправить на прогрев
+        </span>
+        <span className="mt-0.5 block text-[12px] text-text-tertiary">
+          Аккаунт сначала несколько дней имитирует живое поведение (подписки,
+          просмотры, реакции), потом автоматически перейдёт в пул. Выключено —
+          аккаунт сразу готов к использованию.
+        </span>
+      </span>
+    </label>
   );
 }
 

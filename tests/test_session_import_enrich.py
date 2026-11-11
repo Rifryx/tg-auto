@@ -216,3 +216,98 @@ async def test_sync_profile_keeps_real_phone_entered_by_user(session):
     updated = session.query(Account).filter(Account.id == aid).first()
     assert updated.phone == "+70000000001"  # не изменился
     assert updated.first_name == "X"
+
+
+# ── upload_avatar_impl: data URL → upload_profile_photo ─────────────────────
+
+
+async def test_upload_avatar_decodes_data_url_and_uploads(session):
+    """Пользователь поменял аватар через AvatarPicker (шлёт data:image/jpeg;
+    base64,... в PATCH avatar_url). Таск должен распаковать base64 и
+    вызвать upload_avatar из apply.py с полученными bytes."""
+    import base64
+    from unittest.mock import AsyncMock
+
+    from worker.profiles import sync as sync_mod
+
+    _clean(session)
+    # Минимальный 1x1 JPEG blob (просто какие-то bytes — подмену upload_avatar
+    # мы мокаем, реальный Telethon-вызов не выполняется).
+    blob = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+    data_url = "data:image/jpeg;base64," + base64.b64encode(blob).decode()
+
+    acc = Account(
+        phone="+70000000002",
+        session_enc=b"enc",
+        status=AccountStatus.POOL.value,
+        avatar_url=data_url,
+        device_model="X", system_version="Y", app_version="Z",
+        lang_code="ru", system_lang_code="ru-RU",
+    )
+    session.add(acc)
+    session.commit()
+    aid = acc.id
+
+    fake_upload = AsyncMock(return_value={"ok": True})
+    with patch("worker.profiles.apply.upload_avatar", new=fake_upload):
+        ctx = {
+            "session_factory": _factory(session),
+            "client_pool": _FakePool(_FakeClient(me=None)),
+            "publisher": None,
+        }
+        out = await sync_mod.upload_avatar_impl(ctx, aid)
+
+    assert out["ok"] is True
+    fake_upload.assert_awaited_once()
+    # В upload_avatar были переданы правильные bytes.
+    kwargs = fake_upload.await_args.kwargs
+    assert kwargs["binary"] == blob
+
+
+async def test_upload_avatar_skips_non_data_url(session):
+    """Если avatar_url — http(s)-ссылка, задача не должна падать, просто
+    сигнализирует not_data_url и не дергает upload_avatar (его мы в этом
+    пути не вызываем сознательно: нет прокси аккаунта для скачивания)."""
+    from unittest.mock import AsyncMock
+
+    from worker.profiles import sync as sync_mod
+
+    _clean(session)
+    acc = Account(
+        phone="+70000000003",
+        session_enc=b"enc",
+        status=AccountStatus.POOL.value,
+        avatar_url="https://example.com/x.jpg",
+        device_model="X", system_version="Y", app_version="Z",
+        lang_code="ru", system_lang_code="ru-RU",
+    )
+    session.add(acc)
+    session.commit()
+
+    fake_upload = AsyncMock(return_value={"ok": True})
+    with patch("worker.profiles.apply.upload_avatar", new=fake_upload):
+        ctx = {"session_factory": _factory(session), "client_pool": _FakePool(None), "publisher": None}
+        out = await sync_mod.upload_avatar_impl(ctx, acc.id)
+
+    assert out["ok"] is False
+    assert out["error"] == "not_data_url"
+    fake_upload.assert_not_called()
+
+
+async def test_upload_avatar_missing_url_returns_no_avatar(session):
+    from worker.profiles import sync as sync_mod
+
+    _clean(session)
+    acc = Account(
+        phone="+70000000004",
+        session_enc=b"enc",
+        status=AccountStatus.POOL.value,
+        device_model="X", system_version="Y", app_version="Z",
+        lang_code="ru", system_lang_code="ru-RU",
+    )
+    session.add(acc)
+    session.commit()
+
+    ctx = {"session_factory": _factory(session), "client_pool": _FakePool(None), "publisher": None}
+    out = await sync_mod.upload_avatar_impl(ctx, acc.id)
+    assert out == {"account_id": acc.id, "ok": False, "error": "no_avatar"}

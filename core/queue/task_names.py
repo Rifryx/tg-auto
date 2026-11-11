@@ -36,6 +36,11 @@ class TaskName(str, Enum):
     ACCOUNT_ACKNOWLEDGE_BAN = "account.acknowledge_ban"
     # Синхронизация реального Telegram-профиля (имя/@username/bio/аватар + 2FA).
     ACCOUNT_SYNC_PROFILE = "account.sync_profile"
+    # Загрузка аватара аккаунта в Telegram (data URL из accounts.avatar_url
+    # → client.upload_profile_photo). Запускается после PATCH, когда
+    # пользователь сам поменял фото в UI — иначе смена оставалась только
+    # в нашей БД, а в Telegram собеседники видели старый аватар.
+    ACCOUNT_UPLOAD_AVATAR = "account.upload_avatar"
     # Снапшот диалогов (каналы/группы) аккаунта и выход из них.
     ACCOUNT_SYNC_DIALOGS = "account.sync_dialogs"
     ACCOUNT_LEAVE_DIALOGS = "account.leave_dialogs"
