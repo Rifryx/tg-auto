@@ -51,6 +51,7 @@ async def sync_profile_impl(ctx: dict, account_id: int) -> dict[str, Any]:
     has_avatar = False
     has_2fa: Optional[bool] = None
     is_premium: Optional[bool] = None
+    real_phone: Optional[str] = None
 
     client = await pool.get(account_id)
     try:
@@ -61,6 +62,15 @@ async def sync_profile_impl(ctx: dict, account_id: int) -> dict[str, Any]:
         username = getattr(me, "username", None)
         has_avatar = getattr(me, "photo", None) is not None
         is_premium = bool(getattr(me, "premium", False))
+        # Настоящий телефон (есть в User.phone после get_me). Нужен, чтобы
+        # заменить псевдо-номер (ses<hash>/tg<uid>), подставленный при
+        # импорте .session/tdata, на настоящий. Без этого UI показывал
+        # «ses1a2b3c4d…» вместо реального «+7900…».
+        raw_phone = getattr(me, "phone", None)
+        if raw_phone:
+            raw_phone = str(raw_phone).strip()
+            # Telegram отдаёт phone без «+», приводим к общему формату БД.
+            real_phone = raw_phone if raw_phone.startswith("+") else f"+{raw_phone}"
 
         # bio — из full-user (get_entity('me').about).
         try:
@@ -102,6 +112,19 @@ async def sync_profile_impl(ctx: dict, account_id: int) -> dict[str, Any]:
         # вручную поставленный аватар при неудачной загрузке.
         if avatar_url is not None:
             profile_kwargs["avatar_url"] = avatar_url
+        # Заменяем псевдо-номер (сгенерирован при импорте .session/tdata)
+        # на настоящий из get_me. Псевдо-номера имеют префиксы ses/tg и не
+        # начинаются на «+», настоящие — с «+». Не трогаем номера, которые
+        # пользователь ввёл сам при логине по коду.
+        if real_phone:
+            repo = AccountRepository(session)
+            current = repo.get(account_id)
+            if current is not None and current.phone and not current.phone.startswith("+"):
+                # Если такой настоящий уже есть у другого аккаунта — не
+                # трогаем, иначе упадёт unique-ограничение.
+                existing = repo.get_by_phone(real_phone)
+                if existing is None or existing.id == account_id:
+                    profile_kwargs["phone"] = real_phone
         AccountRepository(session).update(account_id, AccountUpdate(**profile_kwargs))
         AccountHealthRepository(session).update(
             account_id,
