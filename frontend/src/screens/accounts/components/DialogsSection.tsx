@@ -87,12 +87,17 @@ export function DialogsSection({ accountId }: { accountId: number }) {
       }
     >
       <div className="card p-4">
-        {!synced && !dialogs.isLoading && (
+        {/* Skeleton при живом fetch: раньше при клике «Обновить» пользователь
+            видел пустую область до нескольких секунд (воркер асинхронно
+            снимает getDialogs и 3 раза инвалидирует). Теперь — плейсхолдеры
+            строк с pulse-анимацией, чтобы было видно, что процесс идёт. */}
+        {sync.isPending && items.length === 0 && <DialogsSkeleton />}
+        {!synced && !dialogs.isLoading && !sync.isPending && (
           <p className="py-2 text-center text-[13px] text-text-tertiary">
             Нажмите «Обновить», чтобы загрузить список чатов и каналов аккаунта.
           </p>
         )}
-        {synced && items.length === 0 && (
+        {synced && items.length === 0 && !sync.isPending && (
           <p className="py-2 text-center text-[13px] text-text-tertiary">
             Аккаунт не состоит ни в одном канале/группе.
           </p>
@@ -213,5 +218,31 @@ export function DialogsSection({ accountId }: { accountId: number }) {
         )}
       </div>
     </Section>
+  );
+}
+
+/* Плейсхолдер списка чатов/каналов пока sync.isPending. Шесть строк —
+   достаточно, чтобы заполнить видимую область до реальных данных и дать
+   ощущение прогресса, вместо пустой карточки. Структура повторяет
+   реальный item: кружок-аватар, две строки текста, цифра справа. */
+function DialogsSkeleton() {
+  return (
+    <div className="flex flex-col gap-2" aria-busy="true" aria-label="Загружаем список чатов и каналов">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div
+          key={i}
+          className="flex animate-pulse items-center gap-3 rounded-chip px-2 py-2"
+          style={{ animationDelay: `${i * 80}ms` }}
+        >
+          <span className="h-5 w-5 shrink-0 rounded-md bg-surface-2" />
+          <span className="h-8 w-8 shrink-0 rounded-full bg-surface-2" />
+          <span className="min-w-0 flex-1">
+            <span className="block h-3 w-2/3 rounded bg-surface-2" />
+            <span className="mt-1.5 block h-2.5 w-1/3 rounded bg-surface-2" />
+          </span>
+          <span className="h-3 w-10 shrink-0 rounded bg-surface-2" />
+        </div>
+      ))}
+    </div>
   );
 }

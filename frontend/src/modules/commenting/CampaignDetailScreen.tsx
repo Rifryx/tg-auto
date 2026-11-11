@@ -420,7 +420,7 @@ export function CampaignDetailScreen() {
         <div className="card flex flex-col gap-3 p-4">
           <StyleToggle
             label="Экономия токенов"
-            hint="Сначала отправляем короткую заглушку (напр. «4 1 7»). Только если она прошла (не удалена ботом/фильтром канала) — генерируем ИИ-коммент и заменяем им заглушку. Экономит токены на заблокированных/мёртвых каналах. Итоговый коммент всегда текстовый (без стикера/картинки)."
+            hint="Сначала отправляем короткую заглушку-реакт (напр. 👍 или 🔥). Только если она прошла (не удалена ботом/фильтром канала) — генерируем ИИ-коммент и заменяем им заглушку. Экономит токены на заблокированных/мёртвых каналах. Итоговый коммент всегда текстовый (без стикера/картинки)."
             checked={c.token_economy_enabled}
             onChange={(v) => save.mutate({ token_economy_enabled: v })}
           />
@@ -638,29 +638,55 @@ function ScheduledStartField({
   value: string;
   onSave: (iso: string) => Promise<unknown>;
 }) {
-  const toLocalInput = (iso: string) => {
+  // Прежде был один <input type="datetime-local">: он посимвольно стрелял
+  // onChange → мгновенно пушил ISO в parent → parent re-render сбрасывал
+  // курсор, пользователь не мог редактировать (баг-репорт «нельзя поменять
+  // дату и время»). К тому же datetime-local местами плохо работает в
+  // Telegram Mini App webview. Разделил на два поля: date + time. Каждое
+  // редактируется независимо и коммитит на blur.
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const toDate = (iso: string) => {
     const d = new Date(iso);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   };
-  const [v, setV] = useState(toLocalInput(value));
-  useEffect(() => setV(toLocalInput(value)), [value]);
+  const toTime = (iso: string) => {
+    const d = new Date(iso);
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const [dateV, setDateV] = useState(toDate(value));
+  const [timeV, setTimeV] = useState(toTime(value));
+  useEffect(() => {
+    setDateV(toDate(value));
+    setTimeV(toTime(value));
+  }, [value]);
 
-  const commit = async () => {
-    const d = new Date(v);
-    if (Number.isNaN(d.getTime())) return;
-    await onSave(d.toISOString());
+  const commit = async (d: string, t: string) => {
+    if (!d || !t) return;
+    const parsed = new Date(`${d}T${t}`);
+    if (Number.isNaN(parsed.getTime())) return;
+    const iso = parsed.toISOString();
+    if (iso === value) return;
+    await onSave(iso);
   };
 
   return (
     <Field label="Запустить не раньше">
-      <input
-        type="datetime-local"
-        value={v}
-        onChange={(e) => setV(e.target.value)}
-        onBlur={commit}
-        className="w-full rounded-chip border border-hairline bg-surface-1 px-4 py-3 text-[15px] text-text-primary outline-none focus:border-strong"
-      />
+      <div className="grid grid-cols-2 gap-2">
+        <input
+          type="date"
+          value={dateV}
+          onChange={(e) => setDateV(e.target.value)}
+          onBlur={() => commit(dateV, timeV)}
+          className="w-full rounded-chip border border-hairline bg-surface-1 px-4 py-3 text-[15px] text-text-primary outline-none focus:border-strong"
+        />
+        <input
+          type="time"
+          value={timeV}
+          onChange={(e) => setTimeV(e.target.value)}
+          onBlur={() => commit(dateV, timeV)}
+          className="w-full rounded-chip border border-hairline bg-surface-1 px-4 py-3 text-[15px] text-text-primary outline-none focus:border-strong"
+        />
+      </div>
     </Field>
   );
 }

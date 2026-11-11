@@ -493,7 +493,7 @@ export function NewCampaignScreen() {
         <div className="flex flex-col gap-3">
           <ToggleRow
             label="Экономия токенов"
-            hint="Сначала короткая заглушка (напр. «4 1 7»); если её не удалил бот/фильтр канала — только тогда генерируется ИИ-коммент и заменяет её. Экономит токены на заблокированных/мёртвых каналах. Итог всегда текст (без стикера/картинки)."
+            hint="Сначала короткая заглушка-реакт (напр. 👍 или 🔥); если её не удалил бот/фильтр канала — только тогда генерируется ИИ-коммент и заменяет её. Экономит токены на заблокированных/мёртвых каналах. Итог всегда текст (без стикера/картинки)."
             checked={tokenEconomyEnabled}
             onChange={setTokenEconomyEnabled}
           />
@@ -723,15 +723,19 @@ export function NewCampaignScreen() {
               ariaLabel="Минимум слов"
             />
           </FieldGroup>
-          <Field label="Макс. слов в комменте">
-            <TextInput
-              inputMode="numeric"
+          <FieldGroup label="Макс. слов в комменте">
+            {/* Привёл к одному виду с «Мин. слов в комменте» — степпер с
+                +/-. Пустое значение = «Без лимита» (allowEmpty), клик + из
+                пустого стартует с 1. */}
+            <NumberStepper
               value={maxWords}
-              onChange={(e) => setMaxWords(e.target.value.replace(/\D/g, ""))}
-              placeholder="Без лимита"
-              className="nums text-center"
+              onChange={setMaxWords}
+              min={1}
+              allowEmpty
+              emptyLabel="Без лимита"
+              ariaLabel="Максимум слов"
             />
-          </Field>
+          </FieldGroup>
           {workMode === "by_time_window" && (
             <>
               <FieldGroup label="Окно после поста">
@@ -1090,22 +1094,55 @@ function ScheduledStartInput({
   value: string;
   onChange: (iso: string) => void;
 }) {
-  const toLocalInput = (iso: string) => {
+  // Раньше был один <input type="datetime-local"> с мгновенным onChange —
+  // parent-state обновлялся на каждом нажатии клавиши, re-render сбрасывал
+  // курсор, пользователь не мог нормально редактировать дату (баг-репорт
+  // «нельзя поменять дату и время»). Разделил на date + time, как в
+  // CampaignDetailScreen — каждое поле независимое.
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const toDate = (iso: string) => {
     const d = new Date(iso);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   };
+  const toTime = (iso: string) => {
+    const d = new Date(iso);
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const [dateV, setDateV] = useState(toDate(value));
+  const [timeV, setTimeV] = useState(toTime(value));
+  useEffect(() => {
+    setDateV(toDate(value));
+    setTimeV(toTime(value));
+  }, [value]);
+
+  const commit = (d: string, t: string) => {
+    if (!d || !t) return;
+    const parsed = new Date(`${d}T${t}`);
+    if (!Number.isNaN(parsed.getTime())) onChange(parsed.toISOString());
+  };
+
   return (
     <Field label="Запустить не раньше">
-      <input
-        type="datetime-local"
-        value={toLocalInput(value)}
-        onChange={(e) => {
-          const d = new Date(e.target.value);
-          if (!Number.isNaN(d.getTime())) onChange(d.toISOString());
-        }}
-        className="w-full rounded-chip border border-hairline bg-surface-1 px-4 py-3 text-[15px] text-text-primary outline-none focus:border-strong"
-      />
+      <div className="grid grid-cols-2 gap-2">
+        <input
+          type="date"
+          value={dateV}
+          onChange={(e) => {
+            setDateV(e.target.value);
+            commit(e.target.value, timeV);
+          }}
+          className="w-full rounded-chip border border-hairline bg-surface-1 px-4 py-3 text-[15px] text-text-primary outline-none focus:border-strong"
+        />
+        <input
+          type="time"
+          value={timeV}
+          onChange={(e) => {
+            setTimeV(e.target.value);
+            commit(dateV, e.target.value);
+          }}
+          className="w-full rounded-chip border border-hairline bg-surface-1 px-4 py-3 text-[15px] text-text-primary outline-none focus:border-strong"
+        />
+      </div>
     </Field>
   );
 }

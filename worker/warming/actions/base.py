@@ -164,10 +164,21 @@ def action(action_type: WarmingActionType) -> Callable[[_ActionBody], _ActionBod
                     error=repr(exc),
                     category=category,
                 )
+                # error_type — короткое имя класса исключения для ленты
+                # активности. Раньше писали только error_category ∈
+                # {target_broken, rate_limit, fatal, unknown} — для «unknown»
+                # в UI выходило просто «не удалось: неизвестная ошибка» без
+                # деталей. С именем класса пользователь увидит «не удалось:
+                # TimeoutError» (или перевод из _ERROR_TYPE_RU в warming_detail)
+                # и сразу понимает чуть больше.
                 return WarmingActionResult(
                     action_type,
                     WarmingActivityStatus.FAILED,
-                    meta={"error": repr(exc), "error_category": category},
+                    meta={
+                        "error": repr(exc),
+                        "error_category": category,
+                        "error_type": type(exc).__name__,
+                    },
                 )
 
         return execute
