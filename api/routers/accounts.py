@@ -17,8 +17,18 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
-from api.deps.db import get_session
+from api.deps.db import _session_factory, get_session
 from core.config import get_settings
+
+
+def _session_factory_for_ctx():
+    """Фабрика сессий для вызовов воркер-кода (sync_profile_impl) из API.
+
+    Тот же процесс-уровневый sessionmaker, что и у get_session, но без
+    FastAPI-зависимости — передаётся в ctx воркера как ``session_factory``.
+    Выделено в именованную функцию только ради читаемости call-site и
+    чтобы приватный ``_session_factory`` не светился по всему роутеру."""
+    return _session_factory()
 from api.deps.governor import get_health_governor
 from api.deps.limits import enforce_limit
 from api.deps.queue import get_publisher, get_task_queue
@@ -366,6 +376,20 @@ async def import_session_account(
                 "message": "Аккаунт с таким номером уже есть в системе.",
             },
         ) from exc
+    # Проверяем живость session и подтягиваем профиль (get_me + аватар +
+    # настоящий phone). Раньше этот шаг пропускался: после импорта у
+    # пользователя был пустой профиль и непонятно, действительно ли сессия
+    # подключилась (баг-репорт «написало что аккаунт подключен, но ни
+    # одно поле не заполнено»). Невалидная/забаненная сессия теперь
+    # сразу откатывается с 422, а не остаётся в БД пустой.
+    _ = account.id  # зафиксируем id до возможного отката (ORM-инстанс)
+    try:
+        await accounts_service.verify_and_enrich_session(
+            _session_factory_for_ctx(), account_id=account.id,
+        )
+    except accounts_service.SessionNotAuthorizedError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    session.refresh(account)
     return AccountRead.model_validate(account)
 
 
@@ -429,6 +453,14 @@ async def import_tdata_account(
                 "message": "Аккаунт с таким номером уже есть в системе.",
             },
         ) from exc
+    # Такая же живая проверка + enrichment профиля, как и в /import-session.
+    try:
+        await accounts_service.verify_and_enrich_session(
+            _session_factory_for_ctx(), account_id=account.id,
+        )
+    except accounts_service.SessionNotAuthorizedError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    session.refresh(account)
     return AccountRead.model_validate(account)
 
 

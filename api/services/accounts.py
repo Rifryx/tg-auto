@@ -370,3 +370,75 @@ def delete_account(session: Session, account_id: int) -> bool:
     if ok:
         session.commit()
     return ok
+
+
+class SessionNotAuthorizedError(Exception):
+    """Session оказалась нерабочей: сервер отверг auth_key, аккаунт
+    забанен/удалён, или прокси недоступен. Отличается от
+    SessionImportError (той ловим на этапе чтения файла — до записи в БД).
+    Специальный тип нужен чтобы в route вернуть понятную 422 вместо 500 и
+    чтобы вызывающий код знал, что аккаунт в БД уже создан, надо откатить."""
+
+
+# Имена Telethon-исключений, при которых сессия точно нерабочая и аккаунт
+# надо откатить (а не оставить в БД в ожидании ручной починки). Другие
+# ошибки (сеть, таймаут) — временные, их не трактуем как «невалидный
+# session» и ОСТАВЛЯЕМ аккаунт в БД, пометив как pool (следующий
+# sync_profile через UI-кнопку «Обновить» его дочитает).
+_SESSION_FATAL_ERRORS = {
+    "AuthKeyUnregisteredError",
+    "AuthKeyInvalidError",
+    "AuthKeyDuplicatedError",
+    "SessionRevokedError",
+    "SessionExpiredError",
+    "UserDeactivatedError",
+    "UserDeactivatedBanError",
+    "PhoneNumberBannedError",
+}
+
+
+async def verify_and_enrich_session(
+    session_factory,
+    *,
+    account_id: int,
+    publisher=None,
+) -> dict:
+    """Проверяет живость только что импортированной session + подтягивает
+    профиль (first_name/last_name/username/avatar/premium/2fa/bio).
+
+    Делает это тем же путём, что и UI-кнопка «Обновить» в карточке
+    аккаунта — вызывает ``sync_profile_impl`` из воркера. Без этого шага
+    после импорта у пользователя был пустой профиль (имя «?», нет
+    username, нет аватара, телефон = псевдо-хэш) и он не понимал,
+    действительно ли сессия подключилась (баг-репорт «написало что
+    аккаунт подключен, но ни одно поле не заполнено»).
+
+    Поведение по ошибкам:
+    * ``AuthKeyUnregisteredError`` / ``UserDeactivatedError`` и т.п. →
+      удаляем созданный аккаунт из БД и бросаем SessionNotAuthorizedError —
+      пользователь получает 422 вместо фантомной «успешной» записи.
+    * Прочие ошибки (сеть, таймаут, прокси) — ОСТАВЛЯЕМ аккаунт в БД,
+      только логируем. Пользователь увидит пустой профиль, но сможет
+      нажать «Обновить» позже; удалять аккаунт за временный сбой сети
+      жестоко."""
+    from worker.profiles.sync import sync_profile_impl
+
+    ctx = {"session_factory": session_factory, "publisher": publisher}
+    try:
+        await sync_profile_impl(ctx, account_id)
+    except Exception as exc:  # noqa: BLE001 — разбираем ниже
+        name = type(exc).__name__
+        if name in _SESSION_FATAL_ERRORS:
+            # Сессия точно нерабочая → откатываем аккаунт.
+            with session_factory() as s:
+                AccountRepository(s).delete(account_id)
+                s.commit()
+            raise SessionNotAuthorizedError(
+                f"сессия не авторизована ({name}): аккаунт мог быть забанен, "
+                "удалён или сессия отозвана. Проверьте, что .session-файл свежий."
+            ) from exc
+        # Временная ошибка — пусть аккаунт остаётся в БД, поле профиля
+        # заполнятся при следующем «Обновить». Сигнализируем вызывающему,
+        # чтобы он мог показать мягкое предупреждение, но не удалять.
+        return {"verified": False, "error": repr(exc)}
+    return {"verified": True}
