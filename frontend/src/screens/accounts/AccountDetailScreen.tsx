@@ -243,8 +243,31 @@ export function AccountDetailScreen() {
           <AvatarPicker
             avatarUrl={acc.avatar_url}
             fallback={acc.first_name || acc.username}
-            onPick={(dataUrl) => patchProfile.mutateAsync({ avatar_url: dataUrl })}
-            onClear={() => patchProfile.mutateAsync({ avatar_url: null })}
+            onPick={async (dataUrl) => {
+              await patchProfile.mutateAsync({ avatar_url: dataUrl });
+              // Серверный воркер делает upload → sync_profile → перезаписывает
+              // avatar_url реальным превью из Telegram. Несколько поздних
+              // инвалидаций, чтобы UI подхватил актуальное значение (в т.ч.
+              // если собеседники увидят другой кроп/сжатие от Telegram —
+              // пользователю показываем ТОЧНО то же самое, что в TG).
+              [3000, 7000, 12000].forEach((ms) =>
+                window.setTimeout(
+                  () => qc.invalidateQueries({ queryKey: ["account", accountId] }),
+                  ms,
+                ),
+              );
+            }}
+            onClear={async () => {
+              await patchProfile.mutateAsync({ avatar_url: null });
+              // Удаление тоже асинхронно (DeletePhotos через воркер) — ждём
+              // и обновляем на случай, если sync вернёт что-то неожиданное.
+              [3000, 7000, 12000].forEach((ms) =>
+                window.setTimeout(
+                  () => qc.invalidateQueries({ queryKey: ["account", accountId] }),
+                  ms,
+                ),
+              );
+            }}
           />
         </div>
 
@@ -705,6 +728,23 @@ function AvatarPicker({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  // «Применяем в Telegram…» — показываем 15с после действия. В это время
+  // воркер делает upload/delete (1-10с) и sync_profile. Без подписи
+  // пользователь мог увидеть рассинхронизацию — у нас в UI уже новое фото,
+  // а в Telegram ещё старое (баг-репорт «в апке одна ава, а по факту
+  // другая»). С подписью понятно, что процесс идёт.
+  const [syncingUntil, setSyncingUntil] = useState<number | null>(null);
+  const syncing = syncingUntil != null && syncingUntil > Date.now();
+  useEffect(() => {
+    if (syncingUntil == null) return;
+    const left = syncingUntil - Date.now();
+    if (left <= 0) {
+      setSyncingUntil(null);
+      return;
+    }
+    const t = window.setTimeout(() => setSyncingUntil(null), left);
+    return () => window.clearTimeout(t);
+  }, [syncingUntil]);
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -713,6 +753,17 @@ function AvatarPicker({
     setBusy(true);
     try {
       await onPick(await fileToAvatarDataUrl(file));
+      setSyncingUntil(Date.now() + 15_000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onDelete = async () => {
+    setBusy(true);
+    try {
+      await onClear();
+      setSyncingUntil(Date.now() + 15_000);
     } finally {
       setBusy(false);
     }
@@ -746,13 +797,19 @@ function AvatarPicker({
       />
       {avatarUrl && (
         <button
-          onClick={() => onClear()}
-          className="text-[13px] text-status-critical active:opacity-70"
+          onClick={onDelete}
+          disabled={busy}
+          className="text-[13px] text-status-critical active:opacity-70 disabled:opacity-50"
         >
           Удалить фото
         </button>
       )}
       {busy && <p className="text-[12px] text-text-tertiary">Загрузка…</p>}
+      {!busy && syncing && (
+        <p className="text-[12px] text-text-tertiary">
+          Применяем в Telegram…
+        </p>
+      )}
     </div>
   );
 }

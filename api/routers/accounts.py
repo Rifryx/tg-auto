@@ -563,17 +563,25 @@ async def patch_account(
     )
     if account is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"account {account_id} not found")
-    # Если пользователь поставил новый аватар через AvatarPicker (шлёт
-    # data:image/*;base64,... в avatar_url) — ставим задачу выгрузить фото
-    # в реальный Telegram через Telethon. Иначе смена оставалась только в
-    # нашей БД, а в Telegram собеседники видели старый аватар (баг-репорт
-    # «аватарка не меняется»). «avatar_url: null» (удаление) и
-    # http(s)-ссылки на внешние ресурсы тут не трогаем — для них отдельное
-    # поведение (удаление фото в Telegram через DeletePhotos) вне скоупа
-    # этого фикса.
-    sent_avatar = body.model_fields_set and "avatar_url" in body.model_fields_set
-    if sent_avatar and body.avatar_url and body.avatar_url.startswith("data:"):
-        await task_queue.enqueue(TaskName.ACCOUNT_UPLOAD_AVATAR, account_id)
+    # Синхронизация аватара с Telegram. Раньше PATCH менял avatar_url
+    # только в НАШЕЙ БД:
+    # * новый data URL — собеседники в TG видели старый аватар
+    #   (баг «аватарка не меняется»);
+    # * avatar_url=null — фото удалялось только у нас, в TG оставалось
+    #   (баг «в боте удаляешь аватарку то в тг она не пропадает»).
+    # Ставим задачу воркера для обоих сценариев: при null — delete=True,
+    # при data: — обычная загрузка через upload_profile_photo.
+    # http(s)-ссылки не трогаем — для них скачивание через сервер
+    # (без прокси аккаунта) выходит за рамки фикса.
+    sent_avatar = "avatar_url" in body.model_fields_set
+    if sent_avatar:
+        if body.avatar_url is None:
+            # Удаление: явный флаг delete=True через kwarg задачи.
+            await task_queue.enqueue(
+                TaskName.ACCOUNT_UPLOAD_AVATAR, account_id, delete=True,
+            )
+        elif body.avatar_url.startswith("data:"):
+            await task_queue.enqueue(TaskName.ACCOUNT_UPLOAD_AVATAR, account_id)
     return AccountRead.model_validate(account)
 
 
