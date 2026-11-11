@@ -1,10 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hash, LogOut, Megaphone, RefreshCw, Users } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { accountsApi } from "../../../shared/accounts";
 import type { AccountDialog } from "../../../shared/types";
 import { hapticSelection } from "../../../shared/tg";
 import { Section } from "./ui";
+
+// Максимальное ожидание свежего snapshot после клика «Обновить». Воркер
+// обычно управляется за ~2-8 секунд (три повторных invalidate: 1.5/4/8с),
+// но если он упал/перегружен — не держим индикатор прогресса бесконечно.
+const REFRESH_TIMEOUT_MS = 15_000;
 
 /* #5: все каналы/группы аккаунта + выход/очистка. Снапшот живёт в Redis на
    сервере, обновляется по кнопке (воркер тянет get_dialogs). Работает вместе с
@@ -26,13 +31,57 @@ export function DialogsSection({ accountId }: { accountId: number }) {
       window.setTimeout(() => qc.invalidateQueries({ queryKey: key }), ms),
     );
 
+  // Индикатор обновления «от клика до прихода свежего snapshot». sync.isPending
+  // живёт только пока HTTP-запрос висит (сервер быстро возвращает — только
+  // ставит задачу в очередь воркеру), поэтому skeleton/прогресс на нём
+  // «мигал» — пользователь видел резкое раскрытие и моментальное закрытие
+  // (баг-репорт «оно резко раскрывается и сразу закрывается»). Храним
+  // synced_at на момент клика; тушим индикатор когда snapshot реально
+  // обновился (synced_at изменился) или по таймауту.
+  const [refreshStartedSyncedAt, setRefreshStartedSyncedAt] = useState<string | null | undefined>(
+    undefined,
+  );
+  const refreshTimerRef = useRef<number | null>(null);
+
   const sync = useMutation({
     mutationFn: () => accountsApi.syncDialogs(accountId),
     onSuccess: () => {
       hapticSelection();
+      // Фиксируем «точку отсчёта» для сравнения snapshot'ов.
+      setRefreshStartedSyncedAt(dialogs.data?.synced_at ?? null);
+      // Запас на случай, если воркер не ответит.
+      if (refreshTimerRef.current != null) window.clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = window.setTimeout(() => {
+        setRefreshStartedSyncedAt(undefined);
+        refreshTimerRef.current = null;
+      }, REFRESH_TIMEOUT_MS);
       refetchSoon();
     },
   });
+
+  // Как только snapshot реально обновился (synced_at другой, чем был на
+  // момент клика) — тушим индикатор. Если воркер не отвечает — его
+  // тушит setTimeout выше.
+  useEffect(() => {
+    if (refreshStartedSyncedAt === undefined) return;
+    const now = dialogs.data?.synced_at ?? null;
+    if (now !== refreshStartedSyncedAt) {
+      setRefreshStartedSyncedAt(undefined);
+      if (refreshTimerRef.current != null) {
+        window.clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+    }
+  }, [dialogs.data?.synced_at, refreshStartedSyncedAt]);
+
+  useEffect(
+    () => () => {
+      if (refreshTimerRef.current != null) window.clearTimeout(refreshTimerRef.current);
+    },
+    [],
+  );
+
+  const refreshing = sync.isPending || refreshStartedSyncedAt !== undefined;
   const leave = useMutation({
     mutationFn: (body: { dialog_ids?: number[]; all?: boolean }) =>
       accountsApi.leaveDialogs(accountId, body),
@@ -58,7 +107,7 @@ export function DialogsSection({ accountId }: { accountId: number }) {
 
   const items: AccountDialog[] = dialogs.data?.items ?? [];
   const synced = dialogs.data?.synced ?? false;
-  const busy = sync.isPending || leave.isPending;
+  const busy = refreshing || leave.isPending;
 
   const toggle = (id: number) =>
     setSelected((s) => {
@@ -78,7 +127,7 @@ export function DialogsSection({ accountId }: { accountId: number }) {
           className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface-1 px-3 py-1.5 text-[12px] font-semibold text-text-secondary active:bg-surface-2 disabled:opacity-50"
         >
           <RefreshCw
-            className={`h-3.5 w-3.5 ${sync.isPending ? "animate-spin" : ""}`}
+            className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
             strokeWidth={2}
             aria-hidden
           />
@@ -87,21 +136,21 @@ export function DialogsSection({ accountId }: { accountId: number }) {
       }
     >
       <div className="card p-4">
-        {/* Skeleton при живом fetch: раньше при клике «Обновить» пользователь
-            видел пустую область до нескольких секунд (воркер асинхронно
-            снимает getDialogs и 3 раза инвалидирует). Теперь — плейсхолдеры
-            строк с pulse-анимацией, чтобы было видно, что процесс идёт. */}
-        {sync.isPending && items.length === 0 && <DialogsSkeleton />}
-        {!synced && !dialogs.isLoading && !sync.isPending && (
+        {/* Skeleton — только когда реального списка ещё нет. При наличии
+            items показываем inline-прогресс-строку сверху (см. ниже) чтобы
+            не подменять уже знакомый пользователю список placeholder'ами. */}
+        {refreshing && items.length === 0 && <DialogsSkeleton />}
+        {!synced && !dialogs.isLoading && !refreshing && (
           <p className="py-2 text-center text-[13px] text-text-tertiary">
             Нажмите «Обновить», чтобы загрузить список чатов и каналов аккаунта.
           </p>
         )}
-        {synced && items.length === 0 && !sync.isPending && (
+        {synced && items.length === 0 && !refreshing && (
           <p className="py-2 text-center text-[13px] text-text-tertiary">
             Аккаунт не состоит ни в одном канале/группе.
           </p>
         )}
+        {refreshing && items.length > 0 && <RefreshingBanner />}
 
         {items.length > 0 && (
           <div className="mb-2 flex items-center justify-between gap-2 border-b border-hairline pb-2">
@@ -221,9 +270,36 @@ export function DialogsSection({ accountId }: { accountId: number }) {
   );
 }
 
-/* Плейсхолдер списка чатов/каналов пока sync.isPending. Шесть строк —
-   достаточно, чтобы заполнить видимую область до реальных данных и дать
-   ощущение прогресса, вместо пустой карточки. Структура повторяет
+/* Inline-строка, когда список уже есть, но мы ждём свежий snapshot. Не
+   подменяет данные skeleton'ом (это раздражает) — просто рисует сверху
+   узкую строку с индикатором и подписью, и ещё тонкую анимированную
+   прогресс-полоску внизу карточки, чтобы движение было явно видно. */
+function RefreshingBanner() {
+  return (
+    <div className="mb-2 flex items-center gap-2 rounded-chip border border-hairline bg-surface-1 px-3 py-2 text-[12px] text-text-secondary">
+      <RefreshCw className="h-3.5 w-3.5 animate-spin" strokeWidth={2} aria-hidden />
+      <span>Обновляем список — воркер снимает свежий снимок…</span>
+      <span className="ml-auto block h-1 w-16 overflow-hidden rounded-pill bg-surface-2">
+        <span className="dialogs-refresh-bar block h-full rounded-pill bg-accent/70" />
+      </span>
+      <style>{`
+        @keyframes dialogs-refresh-sweep {
+          0%   { transform: translateX(-100%); }
+          50%  { transform: translateX(0%); }
+          100% { transform: translateX(100%); }
+        }
+        .dialogs-refresh-bar {
+          width: 60%;
+          animation: dialogs-refresh-sweep 1.2s ease-in-out infinite;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+/* Плейсхолдер списка чатов/каналов пока refreshing && items пустые. Шесть
+   строк — достаточно, чтобы заполнить видимую область до реальных данных
+   и дать ощущение прогресса, вместо пустой карточки. Структура повторяет
    реальный item: кружок-аватар, две строки текста, цифра справа. */
 function DialogsSkeleton() {
   return (
