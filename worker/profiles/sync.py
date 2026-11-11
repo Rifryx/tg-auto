@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import logging
 from typing import Any, Optional
 
@@ -144,3 +145,90 @@ async def sync_profile_impl(ctx: dict, account_id: int) -> dict[str, Any]:
         account_id, bool(username), has_avatar, has_2fa,
     )
     return {"account_id": account_id, "has_2fa": has_2fa, "username": username}
+
+
+UPLOAD_AVATAR_CHANNEL = "account_avatar_uploaded"
+
+
+def _decode_avatar_data_url(data_url: str) -> Optional[bytes]:
+    """data:image/<ext>;base64,<base64> → bytes. Возвращает None если это
+    не data URL или не декодируется. Обычные HTTP(S)-ссылки не обрабатываем
+    здесь — для них вызывающий код должен передать url=... в upload_avatar."""
+    if not data_url or not data_url.startswith("data:"):
+        return None
+    try:
+        header, _, b64 = data_url.partition(",")
+        if ";base64" not in header:
+            return None
+        return base64.b64decode(b64)
+    except (ValueError, binascii.Error):
+        return None
+
+
+async def upload_avatar_impl(ctx: dict, account_id: int) -> dict[str, Any]:
+    """Загружает ``accounts.avatar_url`` аккаунта как настоящий аватар в
+    Telegram. Раньше PATCH /accounts/{id} с avatar_url менял картинку
+    только в НАШЕЙ БД — в Telegram собеседники видели старый аватар.
+    Баг-репорт: «аватарка не меняется».
+
+    Поддерживается только data:image/*;base64,... — то, что отдаёт
+    AvatarPicker во фронте. Обычные http(s)-ссылки читать здесь не будем:
+    у нас нет прокси аккаунта для скачивания и это выходит за задачу.
+
+    При любой ошибке — не роняем, пишем warning и возвращаем ok=False.
+    Так UI остаётся в согласованном состоянии (локально аватар обновлён),
+    а пользователь может повторить попытку."""
+    session_factory = ctx["session_factory"]
+    publisher = ctx.get("publisher")
+
+    with session_factory() as session:
+        account = AccountRepository(session).get(account_id)
+        if account is None or not account.avatar_url:
+            return {"account_id": account_id, "ok": False, "error": "no_avatar"}
+        data_url = account.avatar_url
+
+    blob = _decode_avatar_data_url(data_url)
+    if blob is None:
+        # Нечего отправлять (не data URL, или битый base64) — тихо выходим.
+        logger.info("upload_avatar.skip acc=%s reason=not_data_url", account_id)
+        return {"account_id": account_id, "ok": False, "error": "not_data_url"}
+
+    from worker.profiles.apply import upload_avatar  # ленивый — нет циклов
+
+    pool = _pool(ctx)
+    client = await pool.get(account_id)
+    try:
+        result = await upload_avatar(
+            client,
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+            binary=blob,
+        )
+    finally:
+        await pool.release(account_id)
+
+    if not result.get("ok"):
+        logger.warning(
+            "upload_avatar.failed acc=%s err=%s",
+            account_id, result.get("error"),
+        )
+        return {"account_id": account_id, "ok": False, "error": result.get("error")}
+
+    # Отметим в health, что аватар реально есть (sync_profile_impl ставит
+    # has_avatar по me.photo, но здесь мы его только что загрузили — flag
+    # обновим сразу, не ждя следующего sync).
+    with session_factory() as session:
+        AccountHealthRepository(session).update(
+            account_id, AccountHealthUpdate(has_avatar=True),
+        )
+        session.commit()
+
+    if publisher is not None:
+        try:
+            publisher.publish(UPLOAD_AVATAR_CHANNEL, {"account_id": account_id})
+        except Exception as exc:  # noqa: BLE001
+            logger.info("upload_avatar.publish_failed acc=%s err=%r", account_id, exc)
+
+    logger.info("upload_avatar.done acc=%s", account_id)
+    return {"account_id": account_id, "ok": True}

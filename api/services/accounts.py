@@ -313,11 +313,15 @@ def import_account_from_session(
     persona_id: Optional[int],
     warming_profile: WarmingProfile,
     session_string: str,
+    send_to_warming: bool = False,
 ) -> Account:
     """Создаёт аккаунт из готовой (авторизованной) StringSession.
 
-    Сессия шифруется (``session_enc``); аккаунт сразу попадает в пул — логин по
-    коду не нужен. Валидность сессии проверит воркер при первом использовании.
+    Сессия шифруется (``session_enc``); аккаунт либо сразу попадает в пул
+    (``send_to_warming=False``, дефолт — как раньше), либо создаётся со
+    статусом ``CREATED`` для последующего перехода в WARMING через
+    state machine (``send_to_warming=True``). Логин по коду не нужен в
+    обоих случаях — сессия уже авторизована.
 
     ``proxy_id`` можно опустить только при ``ALLOW_NO_PROXY=true`` (режим тестов
     без прокси) — как и при обычной регистрации по коду."""
@@ -351,8 +355,17 @@ def import_account_from_session(
                 system_lang_code=fingerprint.system_lang_code,
             )
         )
-        # Импортированная сессия уже авторизована → начальный статус «в пуле».
-        account.status = AccountStatus.POOL.value
+        # Начальный статус зависит от send_to_warming:
+        # * False (как раньше): импортированная сессия уже авторизована и
+        #   «готова к бою» — сразу POOL;
+        # * True: пользователь хочет сначала «обкатать» аккаунт нашим
+        #   прогревом — оставляем CREATED, вызывающий код после enrichment
+        #   сделает `WARMING_START` транзишн через state machine (как это
+        #   делает обычный login-flow по коду, см. worker/login/flow.py).
+        if send_to_warming:
+            account.status = AccountStatus.CREATED.value
+        else:
+            account.status = AccountStatus.POOL.value
         session.commit()
     except IntegrityError as exc:
         session.rollback()

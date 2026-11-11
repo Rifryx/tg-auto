@@ -326,15 +326,22 @@ async def import_session_account(
     proxy_id: Optional[int] = Form(None),
     persona_id: Optional[int] = Form(None),
     warming_profile: WarmingProfile = Form(WarmingProfile.MEDIUM),
+    # send_to_warming=True — отправить аккаунт в прогрев (CREATED → WARMING
+    # через state machine + enqueue warming.initial_start), как делает
+    # обычный login-flow по коду. False (дефолт) — сразу в пул, как раньше.
+    send_to_warming: bool = Form(False),
     session_string: Optional[str] = Form(None),
     session_file: Optional[UploadFile] = File(None),
     session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+    publisher: Optional[Publisher] = Depends(get_publisher),
     _limit: None = Depends(enforce_limit("accounts_max")),
 ) -> AccountRead:
     """Импорт аккаунта из готовой сессии: StringSession-строкой или .session-файлом.
 
     Сессия конвертируется (файл → строка, офлайн) и шифруется перед записью в БД
-    (``session_enc``). Аккаунт сразу попадает в пул — код не требуется."""
+    (``session_enc``). По умолчанию аккаунт сразу попадает в пул — код не
+    требуется. С ``send_to_warming=true`` сначала идёт в прогрев."""
     string = (session_string or "").strip()
     if not string and session_file is not None:
         try:
@@ -364,6 +371,7 @@ async def import_session_account(
             persona_id=persona_id,
             warming_profile=warming_profile,
             session_string=string,
+            send_to_warming=send_to_warming,
         )
     except accounts_service.ProxyNotFoundError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
@@ -382,15 +390,49 @@ async def import_session_account(
     # подключилась (баг-репорт «написало что аккаунт подключен, но ни
     # одно поле не заполнено»). Невалидная/забаненная сессия теперь
     # сразу откатывается с 422, а не остаётся в БД пустой.
-    _ = account.id  # зафиксируем id до возможного отката (ORM-инстанс)
     try:
         await accounts_service.verify_and_enrich_session(
             _session_factory_for_ctx(), account_id=account.id,
         )
     except accounts_service.SessionNotAuthorizedError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    # Запускаем прогрев, если пользователь попросил. Делается ПОСЛЕ enrich,
+    # чтобы в state-машину уходил аккаунт с проверенной сессией и живым
+    # профилем. Transition идёт через state_machine (единственный разрешённый
+    # способ менять статус — см. docstring роутера); очередь прогрева — та
+    # же, что у login/flow.py.
+    if send_to_warming:
+        await _start_warming(session, publisher, task_queue, account.id)
     session.refresh(account)
     return AccountRead.model_validate(account)
+
+
+async def _start_warming(
+    session: Session,
+    publisher: Optional[Publisher],
+    task_queue: TaskQueue,
+    account_id: int,
+) -> None:
+    """Перевод в WARMING + enqueue warming.initial_start. Ровно то же, что
+    делает worker/login/flow.py после успешного code-login — вынесено сюда,
+    чтобы импорт сессии с прогревом использовал один и тот же код-путь,
+    а не дублировал логику."""
+    try:
+        AccountStateMachine(session, publisher).transition(
+            account_id, AccountEvent.WARMING_START, Initiator.USER,
+        )
+        session.commit()
+    except TransitionError as exc:
+        # Крайне маловероятно (аккаунт только что создан в CREATED), но на
+        # всякий случай не роняем импорт — аккаунт уже есть, пользователь
+        # сможет запустить прогрев вручную.
+        session.rollback()
+        import structlog
+        structlog.get_logger().warning(
+            "import.warming_transition_failed", account_id=account_id, error=repr(exc),
+        )
+        return
+    await task_queue.enqueue(TaskName.WARMING_INITIAL_START, account_id)
 
 
 @router.post(
@@ -407,12 +449,18 @@ async def import_tdata_account(
     proxy_id: Optional[int] = Form(None),
     persona_id: Optional[int] = Form(None),
     warming_profile: WarmingProfile = Form(WarmingProfile.MEDIUM),
+    # send_to_warming=True — отправить аккаунт в прогрев (CREATED → WARMING),
+    # как в /import-session. False (дефолт) — сразу в пул.
+    send_to_warming: bool = Form(False),
     tdata_zip: UploadFile = File(..., description="ZIP или RAR с папкой tdata"),
     session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
+    publisher: Optional[Publisher] = Depends(get_publisher),
     _limit: None = Depends(enforce_limit("accounts_max")),
 ) -> AccountRead:
     """Импорт аккаунта из TData (Telegram Desktop): ZIP/RAR конвертируется офлайн
-    в StringSession, шифруется и сохраняется. Аккаунт сразу попадает в пул.
+    в StringSession, шифруется и сохраняется. По умолчанию аккаунт сразу в
+    пул; с ``send_to_warming=true`` сначала идёт в прогрев.
 
     Телефон можно не передавать — он не хранится в tdata; подставим
     ``tg{user_id}`` как уникальный идентификатор аккаунта в системе.
@@ -441,6 +489,7 @@ async def import_tdata_account(
             persona_id=persona_id,
             warming_profile=warming_profile,
             session_string=string,
+            send_to_warming=send_to_warming,
         )
     except accounts_service.ProxyNotFoundError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
@@ -460,6 +509,8 @@ async def import_tdata_account(
         )
     except accounts_service.SessionNotAuthorizedError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    if send_to_warming:
+        await _start_warming(session, publisher, task_queue, account.id)
     session.refresh(account)
     return AccountRead.model_validate(account)
 
@@ -499,10 +550,11 @@ def delete_account(
 
 
 @router.patch("/{account_id}", response_model=AccountRead)
-def patch_account(
+async def patch_account(
     account_id: int,
     body: AccountPatchRequest,
     session: Session = Depends(get_session),
+    task_queue: TaskQueue = Depends(get_task_queue),
 ) -> AccountRead:
     account = accounts_service.update_account(
         session,
@@ -511,6 +563,17 @@ def patch_account(
     )
     if account is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"account {account_id} not found")
+    # Если пользователь поставил новый аватар через AvatarPicker (шлёт
+    # data:image/*;base64,... в avatar_url) — ставим задачу выгрузить фото
+    # в реальный Telegram через Telethon. Иначе смена оставалась только в
+    # нашей БД, а в Telegram собеседники видели старый аватар (баг-репорт
+    # «аватарка не меняется»). «avatar_url: null» (удаление) и
+    # http(s)-ссылки на внешние ресурсы тут не трогаем — для них отдельное
+    # поведение (удаление фото в Telegram через DeletePhotos) вне скоупа
+    # этого фикса.
+    sent_avatar = body.model_fields_set and "avatar_url" in body.model_fields_set
+    if sent_avatar and body.avatar_url and body.avatar_url.startswith("data:"):
+        await task_queue.enqueue(TaskName.ACCOUNT_UPLOAD_AVATAR, account_id)
     return AccountRead.model_validate(account)
 
 

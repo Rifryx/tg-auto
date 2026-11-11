@@ -72,6 +72,9 @@ export const accountsApi = {
     warming_profile: WarmingProfile;
     session_string?: string;
     session_file?: File;
+    // true — сначала прогрев (CREATED → WARMING через state_machine),
+    // false (дефолт) — сразу в пул. См. docstring бэкенд-роута.
+    send_to_warming?: boolean;
   }) => {
     const fd = new FormData();
     if (body.phone && body.phone.trim()) fd.append("phone", body.phone.trim());
@@ -80,6 +83,7 @@ export const accountsApi = {
     fd.append("warming_profile", body.warming_profile);
     if (body.session_string) fd.append("session_string", body.session_string);
     if (body.session_file) fd.append("session_file", body.session_file);
+    if (body.send_to_warming) fd.append("send_to_warming", "true");
     return api.postForm<Account>("/accounts/import-session", fd);
   },
   importTData: (body: {
@@ -90,6 +94,7 @@ export const accountsApi = {
     warming_profile: WarmingProfile;
     persona_id?: number | null;
     tdata_zip: File;
+    send_to_warming?: boolean;
   }) => {
     const fd = new FormData();
     if (body.phone && body.phone.trim()) fd.append("phone", body.phone.trim());
@@ -97,6 +102,7 @@ export const accountsApi = {
     fd.append("warming_profile", body.warming_profile);
     if (body.persona_id != null) fd.append("persona_id", String(body.persona_id));
     fd.append("tdata_zip", body.tdata_zip);
+    if (body.send_to_warming) fd.append("send_to_warming", "true");
     return api.postForm<Account>("/accounts/import-tdata", fd);
   },
   bulkImport: (archive: File, mapping: File) => {
