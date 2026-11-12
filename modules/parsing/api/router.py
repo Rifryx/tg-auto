@@ -86,6 +86,7 @@ _COMMUNITY_FILTER_KEYS = (
     "username_regex",
     "title_exclude_regex",
     "language",
+    "languages",
     "allow_noforwards",
     "min_slowmode_seconds",
     "max_slowmode_seconds",

@@ -71,11 +71,12 @@ export function CommunitiesScreen() {
   const [requireLinked, setRequireLinked] = useState(false);
   const [lastPostMaxDays, setLastPostMaxDays] = useState("");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
-  const [excludeScamFake, setExcludeScamFake] = useState(true);
+  const [excludeScamFake, setExcludeScamFake] = useState(false);
   const [titleRegex, setTitleRegex] = useState("");
   const [usernameRegex, setUsernameRegex] = useState("");
-  // Расширенные фильтры (язык, noforwards, slowmode, exclude-regex).
-  const [language, setLanguage] = useState<"" | "ru" | "en" | "ru_or_en">("");
+  // Расширенные фильтры: мульти-выбор языков вместо старого single-select
+  // «Русский / Английский / RU или EN». Пустой массив = любой язык.
+  const [languages, setLanguages] = useState<import("./types").CommunityLanguage[]>([]);
   const [allowNoforwards, setAllowNoforwards] = useState(true);
   const [titleExcludeRegex, setTitleExcludeRegex] = useState("");
   const [minSlowmode, setMinSlowmode] = useState("");
@@ -105,7 +106,7 @@ export function CommunitiesScreen() {
     title_regex: titleRegex.trim() || null,
     username_regex: usernameRegex.trim() || null,
     title_exclude_regex: titleExcludeRegex.trim() || null,
-    language: language || null,
+    languages: languages.length > 0 ? languages : null,
     allow_noforwards: allowNoforwards,
     min_slowmode_seconds: minSlowmode ? Number(minSlowmode) : null,
     max_slowmode_seconds: maxSlowmode ? Number(maxSlowmode) : null,
@@ -416,29 +417,56 @@ export function CommunitiesScreen() {
             </span>
           </label>
 
-          {/* Язык — простая эвристика по title+about (кириллица vs латиница).
-              Для азиатских/арабских каналов выбор «любой», иначе их отсеет. */}
-          <div className="mt-4 text-[13px] font-medium text-text-secondary">Язык канала</div>
-          <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {([
-              ["", "Любой"],
-              ["ru", "Русский"],
-              ["en", "Английский"],
-              ["ru_or_en", "RU или EN"],
-            ] as const).map(([v, lbl]) => (
-              <button
-                key={v || "any"} type="button" onClick={() => setLanguage(v)}
-                className={[
-                  "rounded-pill border px-3 py-1.5 text-[13px] font-medium",
-                  language === v ? "border-strong bg-surface-2 text-text-primary" : "border-hairline bg-surface-1 text-text-secondary",
-                ].join(" ")}
-              >
-                {lbl}
-              </button>
-            ))}
+          {/* Языки канала — мульти-выбор. Пустой набор = любой язык.
+              Детекция — эвристика по алфавиту и уникальным буквам (title+about).
+              Для «неизвестного» (мало текста) всегда пропускаем. */}
+          <div className="mt-4 text-[13px] font-medium text-text-secondary">
+            Языки канала
+            <span className="ml-1 text-[11px] font-normal text-text-tertiary">
+              {languages.length === 0 ? "любой" : `${languages.length} выбрано`}
+            </span>
+          </div>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {(
+              [
+                ["ru", "🇷🇺 Русский"],
+                ["en", "🇬🇧 Английский"],
+                ["uk", "🇺🇦 Украинский"],
+                ["pl", "🇵🇱 Польский"],
+                ["be", "🇧🇾 Белорусский"],
+                ["kk", "🇰🇿 Казахский"],
+                ["de", "🇩🇪 Немецкий"],
+                ["es", "🇪🇸 Испанский"],
+                ["fr", "🇫🇷 Французский"],
+                ["it", "🇮🇹 Итальянский"],
+              ] as const
+            ).map(([v, lbl]) => {
+              const active = languages.includes(v);
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() =>
+                    setLanguages((cur) =>
+                      cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v],
+                    )
+                  }
+                  className={[
+                    "rounded-pill border px-3 py-1.5 text-[13px] font-medium",
+                    active
+                      ? "border-strong bg-surface-2 text-text-primary"
+                      : "border-hairline bg-surface-1 text-text-secondary",
+                  ].join(" ")}
+                >
+                  {lbl}
+                </button>
+              );
+            })}
           </div>
           <p className="mt-1 text-[11px] text-text-tertiary">
-            Эвристика по названию и описанию. «Неизвестный» (слишком мало текста) пропускается всегда.
+            Эвристика по названию и описанию. Ничего не выбрано — любой язык.
+            Каналы с «неизвестным» языком (слишком мало текста) пропускаются
+            всегда.
           </p>
 
           <div className="mt-3">

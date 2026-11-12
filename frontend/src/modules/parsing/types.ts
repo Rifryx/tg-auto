@@ -139,11 +139,26 @@ export interface CommunityItem {
   created_at: string;
 }
 
+/** Коды языков для community-фильтра. Эвристика по title+about. */
+export type CommunityLanguage =
+  | "ru"
+  | "en"
+  | "uk"
+  | "pl"
+  | "be"
+  | "kk"
+  | "de"
+  | "es"
+  | "fr"
+  | "it";
+
 /** Расширенные фильтры каналов/чатов (общие для enrich и discover). */
 export interface CommunityExtraFilters {
   title_exclude_regex?: string | null;
-  /** "ru" / "en" / "ru_or_en" / null. Язык определяется по title+about. */
+  /** Legacy single-select язык — оставлен для обратной совместимости. */
   language?: "ru" | "en" | "ru_or_en" | null;
+  /** Мульти-выбор языков. Пустой/null = любой язык. */
+  languages?: CommunityLanguage[] | null;
   /** false → отсеивать каналы c noforwards (запрет пересылки). */
   allow_noforwards?: boolean;
   min_slowmode_seconds?: number | null;

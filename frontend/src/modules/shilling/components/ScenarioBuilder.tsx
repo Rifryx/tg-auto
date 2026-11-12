@@ -298,6 +298,11 @@ function ScenarioEditor({
       shillingApi.updateStep(scenarioId, p.id, { text: p.text }),
     onSuccess: invalidateSteps,
   });
+  const editReaction = useMutation({
+    mutationFn: (p: { id: number; emoji: string }) =>
+      shillingApi.updateStep(scenarioId, p.id, { reaction_emoji: p.emoji }),
+    onSuccess: invalidateSteps,
+  });
   const changeStepRole = useMutation({
     mutationFn: (p: { id: number; roleId: number }) =>
       shillingApi.updateStep(scenarioId, p.id, { role_id: p.roleId }),
@@ -479,6 +484,7 @@ function ScenarioEditor({
                   onHoverStart={() => onHover(step.id)}
                   onHoverEnd={() => onHover(null)}
                   onEditText={(text) => editStep.mutate({ id: step.id, text })}
+                  onEditReaction={(emoji) => editReaction.mutate({ id: step.id, emoji })}
                   onChangeRole={(roleId) => changeStepRole.mutate({ id: step.id, roleId })}
                   onDelete={() => deleteStep.mutate(step.id)}
                   dragging={dragId === step.id}
