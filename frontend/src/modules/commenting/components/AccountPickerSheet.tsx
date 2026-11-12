@@ -1,26 +1,37 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, UserPlus } from "lucide-react";
+import { AlertTriangle, UserPlus, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { accountsApi } from "../../../shared/accounts";
+import { accountDisplay } from "../../../shared/format";
+import { AccountAvatar } from "../../../shared/AccountAvatar";
 import { accountWorkWarning, sortForWork } from "../../../shared/status";
 import { CapsuleButton } from "./ui";
 import { AccountPickRow } from "./AccountPickRow";
 
 /* Bottom-sheet выбора аккаунтов из pool (§ треб.): выезжает снизу на
    bg-elevated, закрывается свайпом вниз или тапом вне — не модалка по центру.
-   excludeIds — уже привязанные, чтобы не показывать. */
+   excludeIds — строго скрыть из списка (например, «предварительно отобрано
+   на другом шаге»).
+   attachedIds — уже в кампании; показываем их отдельной группой сверху как
+   неинтерактивные строки «Уже в кампании» и даём кнопку «Убрать», если
+   передан onDetach. Так пользователь видит реальное состояние кампании
+   прямо в пикере и не ловит невнятную ошибку «already attached». */
 export function AccountPickerSheet({
   open,
-  excludeIds,
+  excludeIds = [],
+  attachedIds = [],
   onClose,
   onAdd,
+  onDetach,
   busy,
 }: {
   open: boolean;
-  excludeIds: number[];
+  excludeIds?: number[];
+  attachedIds?: number[];
   onClose: () => void;
   onAdd: (accountIds: number[]) => void;
+  onDetach?: (accountId: number) => void;
   busy?: boolean;
 }) {
   const navigate = useNavigate();
@@ -38,8 +49,14 @@ export function AccountPickerSheet({
 
   if (!open) return null;
 
+  const excludeSet = new Set(excludeIds);
+  const attachedSet = new Set(attachedIds);
+  const all = pool.data ?? [];
+  const attached = sortForWork(
+    all.filter((a) => attachedSet.has(a.id) && !excludeSet.has(a.id)),
+  );
   const available = sortForWork(
-    (pool.data ?? []).filter((a) => !excludeIds.includes(a.id)),
+    all.filter((a) => !attachedSet.has(a.id) && !excludeSet.has(a.id)),
   );
   const warnSelected = available.some(
     (a) => selected.has(a.id) && accountWorkWarning(a.status) != null,
@@ -81,7 +98,7 @@ export function AccountPickerSheet({
         <h3 className="px-5 pb-3 text-[17px] font-semibold text-text-primary">Добавить аккаунты</h3>
 
         <div className="flex-1 overflow-y-auto px-5">
-          {available.length === 0 ? (
+          {attached.length === 0 && available.length === 0 ? (
             <div className="flex flex-col items-center gap-4 py-8">
               <p className="text-center text-[13px] text-text-tertiary">
                 Нет доступных аккаунтов.
@@ -94,16 +111,62 @@ export function AccountPickerSheet({
               </CapsuleButton>
             </div>
           ) : (
-            <div className="flex flex-col gap-2 pb-2">
-              {available.map((a) => (
-                <AccountPickRow
-                  key={a.id}
-                  account={a}
-                  selected={selected.has(a.id)}
-                  onToggle={() => toggle(a.id)}
-                  note={accountWorkWarning(a.status) ?? undefined}
-                />
-              ))}
+            <div className="flex flex-col gap-3 pb-2">
+              {attached.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <p className="text-[12px] font-semibold uppercase tracking-wide text-text-tertiary">
+                    Уже в кампании · {attached.length}
+                  </p>
+                  {attached.map((a) => (
+                    <div
+                      key={a.id}
+                      className="card flex min-h-[56px] w-full items-center gap-3 px-4 py-3 opacity-70"
+                    >
+                      <AccountAvatar
+                        avatarUrl={a.avatar_url}
+                        fallback={a.first_name ?? a.username}
+                        size={32}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[15px] font-semibold text-text-primary">
+                          {accountDisplay(a)}
+                        </p>
+                        <p className="truncate text-[12px] text-text-tertiary">
+                          Уже прикреплён
+                        </p>
+                      </div>
+                      {onDetach ? (
+                        <button
+                          type="button"
+                          onClick={() => onDetach(a.id)}
+                          className="inline-flex h-7 items-center gap-1 rounded-pill border border-hairline px-2.5 text-[12px] text-status-critical active:opacity-70"
+                        >
+                          <X className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+                          Убрать
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {available.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  {attached.length > 0 && (
+                    <p className="text-[12px] font-semibold uppercase tracking-wide text-text-tertiary">
+                      Можно добавить · {available.length}
+                    </p>
+                  )}
+                  {available.map((a) => (
+                    <AccountPickRow
+                      key={a.id}
+                      account={a}
+                      selected={selected.has(a.id)}
+                      onToggle={() => toggle(a.id)}
+                      note={accountWorkWarning(a.status) ?? undefined}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

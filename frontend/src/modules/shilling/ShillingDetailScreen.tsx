@@ -12,21 +12,20 @@ import { DryRunSimulator } from "./components/DryRunSimulator";
 import { HistoryTab } from "./components/HistoryTab";
 import { LaunchTab } from "./components/LaunchTab";
 import { ScenarioBuilder } from "./components/ScenarioBuilder";
-import { TargetsTab } from "./components/TargetsTab";
 import type { CampaignReadiness, CampaignStatus, ExecutionStatus } from "./types";
 
-type Tab = "launch" | "overview" | "scenario" | "accounts" | "targets" | "history" | "blacklist";
+type Tab = "launch" | "overview" | "scenario" | "accounts" | "history" | "blacklist";
 
 /* «Запуск» — первая вкладка и точка входа: там собрано всё, что нужно перед
-   стартом (сценарий, цели, аккаунты с ролями, параметры, темп). Остальные
-   вкладки остаются для детальной работы: сценарий построчно, цели списком,
-   резерв аккаунтов, история и ЧС. */
+   стартом (сценарий, цели, аккаунты с ролями, параметры, темп).
+   Отдельный таб «Цели» убран (дублировал меню целей на главном экране
+   кампании). Сценарий / аккаунты / история / ЧС — остаются для детальной
+   работы. */
 const TABS: { key: Tab; label: string }[] = [
   { key: "launch", label: "Запуск" },
   { key: "overview", label: "Обзор" },
   { key: "scenario", label: "Сценарий" },
   { key: "accounts", label: "Аккаунты" },
-  { key: "targets", label: "Цели" },
   { key: "history", label: "История" },
   { key: "blacklist", label: "ЧС" },
 ];
@@ -153,7 +152,6 @@ export function ShillingDetailScreen() {
       {tab === "overview" && <OverviewTab campaignId={campaignId} />}
       {tab === "scenario" && <ScenarioBuilder campaignId={campaignId} />}
       {tab === "accounts" && <AccountsTab campaignId={campaignId} />}
-      {tab === "targets" && <TargetsTab campaignId={campaignId} />}
       {tab === "history" && <HistoryTab campaignId={campaignId} />}
       {tab === "blacklist" && <BlacklistTab campaignId={campaignId} />}
 

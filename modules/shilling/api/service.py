@@ -34,10 +34,15 @@ from modules.shilling.schemas import (
     ReadinessCheck,
 )
 
-# Аккаунт годен для шиллинга, если он прогрет и операционен. Шиллинг
-# non-exclusive (аккаунт может быть в нескольких кампаниях), поэтому статус
-# аккаунта НЕ меняется через state machine — только записывается связка.
-_USABLE_ACCOUNT_STATUSES = {AccountStatus.POOL.value, AccountStatus.ASSIGNED.value}
+# Нельзя добавить только явно нерабочие — забанен, выведен. Прогрев,
+# cooldown, created — допустимы: пользователь явно попросил, чтобы аккаунт
+# на прогреве тоже можно было поставить в работу (ограничение по BAN
+# остаётся). Шиллинг non-exclusive (аккаунт может быть в нескольких
+# кампаниях), статус аккаунта не меняется через state machine.
+_NON_ATTACHABLE_STATUSES = {
+    AccountStatus.BANNED.value,
+    AccountStatus.RETIRED.value,
+}
 
 
 class ShillingNotFound(Exception):
@@ -274,10 +279,10 @@ def attach_account(
     account = AccountRepository(session).get(account_id)
     if account is None:
         raise ShillingNotFound(f"Аккаунт {account_id} не найден")
-    if account.status not in _USABLE_ACCOUNT_STATUSES:
+    if account.status in _NON_ATTACHABLE_STATUSES:
         raise ShillingValidation(
-            f"account {account_id} is '{account.status}', must be "
-            f"'pool' or 'assigned' to join a shilling campaign"
+            f"Аккаунт #{account_id} в статусе «{account.status}», нельзя "
+            f"прикрепить к кампании."
         )
 
     if role_id is not None:
@@ -286,7 +291,7 @@ def attach_account(
     link_repo = CampaignAccountRepository(session)
     if link_repo.get_link(campaign_id, account_id) is not None:
         raise ShillingConflict(
-            f"account {account_id} is already attached to campaign {campaign_id}"
+            f"Аккаунт #{account_id} уже прикреплён к этой кампании."
         )
 
     return link_repo.attach(

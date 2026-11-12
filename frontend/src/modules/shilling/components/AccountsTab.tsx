@@ -185,7 +185,8 @@ export function AccountsTab({ campaignId }: { campaignId: number }) {
 
       <AccountPickerSheet
         open={sheetOpen}
-        excludeIds={attachedIds}
+        attachedIds={attachedIds}
+        onDetach={(id) => detach.mutate(id)}
         busy={attach.isPending}
         onClose={() => setSheetOpen(false)}
         onAdd={(ids) => attach.mutate(ids)}
