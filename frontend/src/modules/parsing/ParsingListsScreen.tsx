@@ -145,23 +145,12 @@ export function ParsingListsScreen() {
       {data && data.length > 0 && (
         <div className="card overflow-hidden p-0">
           {data.map((l, i) => {
-            // community_enrich → экран сообществ; все остальные user-парсеры и
-            // list_op → экран пользователей. manual_list/upload_csv — тоже
-            // наборы юзеров, UserListScreen умеет их рендерить.
-            const target: "communities" | "users" | null =
-              l.source_kind === "community_enrich"
-                ? "communities"
-                : [
-                    "chat_messages",
-                    "chat_members",
-                    "channel_commenters",
-                    "post_reactors",
-                    "list_op",
-                    "manual_list",
-                    "upload_csv",
-                  ].includes(l.source_kind)
-                  ? "users"
-                  : null;
+            // Роутим по entity_kind (вычисляется на бэке по содержимому), а не
+            // по source_kind: list_op может быть и списком каналов, и списком
+            // пользователей — раньше он всегда вёл на экран пользователей и для
+            // списка каналов показывал пусто.
+            const target: "communities" | "users" =
+              l.entity_kind === "community" ? "communities" : "users";
             const href = target
               ? `/modules/parsing/lists/${l.id}/${target}`
               : undefined;
@@ -183,9 +172,21 @@ export function ParsingListsScreen() {
                     <h3 className="truncate text-[15px] font-semibold leading-tight text-text-primary">
                       {l.name}
                     </h3>
-                    <p className="mt-0.5 truncate text-[13px] text-text-tertiary">
-                      {SOURCE_LABEL[l.source_kind]}
-                      {l.chat_ref ? ` · ${l.chat_ref}` : ""}
+                    <p className="mt-0.5 flex items-center gap-1.5 truncate text-[13px] text-text-tertiary">
+                      <span
+                        className={[
+                          "inline-flex shrink-0 items-center rounded-pill px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                          l.entity_kind === "community"
+                            ? "bg-accent/15 text-accent"
+                            : "bg-surface-2 text-text-secondary",
+                        ].join(" ")}
+                      >
+                        {l.entity_kind === "community" ? "Каналы/чаты" : "Пользователи"}
+                      </span>
+                      <span className="truncate">
+                        {SOURCE_LABEL[l.source_kind]}
+                        {l.chat_ref ? ` · ${l.chat_ref}` : ""}
+                      </span>
                     </p>
                     <p className="mt-0.5 text-[12px] text-text-tertiary">
                       {timeAgo(l.parsed_at ?? l.created_at)}
@@ -196,7 +197,7 @@ export function ParsingListsScreen() {
                       {l.after_filters_count}
                     </div>
                     <div className="text-[11px] uppercase tracking-wider text-text-tertiary">
-                      {l.source_kind === "community_enrich" ? "сообществ" : "целей"}
+                      {l.entity_kind === "community" ? "сообществ" : "целей"}
                     </div>
                   </div>
                   {href && (

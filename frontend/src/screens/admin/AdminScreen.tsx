@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ExternalLink, Shield } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   adminApi,
@@ -266,21 +266,29 @@ function ChartCard({
 function PricingSection() {
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ["admin", "pricing"], queryFn: adminApi.getPricing });
+  // Контролируемые строки. Нельзя делать `usdt || String(data…)` — тогда при
+  // полном стирании поля (usdt === "") оно возвращалось к серверному значению,
+  // и число нельзя было удалить (жалоба «цена не удаляется полностью»).
+  // Префилл делаем один раз через useEffect, дальше поле чисто управляемое.
   const [usdt, setUsdt] = useState("");
   const [stars, setStars] = useState("");
   const [days, setDays] = useState("");
-
-  // Префилл при первой загрузке.
-  const usdtVal = usdt || (data ? String(data.price_usdt) : "");
-  const starsVal = stars || (data ? String(data.price_stars) : "");
-  const daysVal = days || (data ? String(data.period_days) : "");
+  const [seeded, setSeeded] = useState(false);
+  useEffect(() => {
+    if (data && !seeded) {
+      setUsdt(String(data.price_usdt));
+      setStars(String(data.price_stars));
+      setDays(String(data.period_days));
+      setSeeded(true);
+    }
+  }, [data, seeded]);
 
   const mut = useMutation({
     mutationFn: () =>
       adminApi.setPricing({
-        price_usdt: usdtVal,
-        price_stars: Number(starsVal),
-        period_days: Number(daysVal),
+        price_usdt: usdt,
+        price_stars: Number(stars),
+        period_days: Number(days),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin", "pricing"] });
@@ -292,9 +300,9 @@ function PricingSection() {
     <section className="mb-7">
       <h2 className="mb-4 text-[17px] font-bold text-text-primary">Цена подписки</h2>
       <div className="card flex flex-col gap-3 p-4">
-        <Field label="Цена в USDT" value={usdtVal} onChange={setUsdt} mode="decimal" />
-        <Field label="Цена в Stars ⭐" value={starsVal} onChange={setStars} mode="numeric" />
-        <Field label="Период, дней" value={daysVal} onChange={setDays} mode="numeric" />
+        <Field label="Цена в USDT" value={usdt} onChange={setUsdt} mode="decimal" />
+        <Field label="Цена в Stars ⭐" value={stars} onChange={setStars} mode="numeric" />
+        <Field label="Период, дней" value={days} onChange={setDays} mode="numeric" />
         {data?.effective.has_promo && (
           <p className="text-[12px] text-accent">
             Сейчас действует акция: эффективная цена ${data.effective.price_usdt} /{" "}

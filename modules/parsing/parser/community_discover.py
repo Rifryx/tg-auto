@@ -142,14 +142,27 @@ async def discover_communities(
     # candidates: channel_id -> entity (сущности из поиска/рекомендаций уже
     # пригодны для снапшота, повторный resolve не нужен).
     candidates: dict[int, Any] = {}
+    # Источник для каждого кандидата: seed | search | recommendation | forward |
+    # mention. Нужен для флага «не фильтровать похожие по ключевикам» — чтобы
+    # «похожие каналы» от Telegram проходили даже без совпадения с темой.
+    # Приоритет источников (чем раньше в цепочке, тем «надёжнее»):
+    # seed > search > recommendation > forward > mention. Если кандидат уже
+    # есть с более приоритетным источником, перезаписывать не надо.
+    _SOURCE_RANK = {"seed": 0, "search": 1, "recommendation": 2, "forward": 3, "mention": 4}
+    candidate_source: dict[int, str] = {}
 
-    def _add(entity: Any) -> bool:
+    def _add(entity: Any, source: str = "search") -> bool:
         if getattr(entity, "title", None) is None:  # не канал/чат (напр. user)
             return False
         cid = getattr(entity, "id", None)
-        if cid is None or cid in candidates:
+        if cid is None:
             return False
-        candidates[int(cid)] = entity
+        cur = candidate_source.get(int(cid))
+        if cur is None:
+            candidates[int(cid)] = entity
+            candidate_source[int(cid)] = source
+        elif _SOURCE_RANK.get(source, 99) < _SOURCE_RANK.get(cur, 99):
+            candidate_source[int(cid)] = source
         return len(candidates) < max_results
 
     try:
@@ -158,7 +171,7 @@ async def discover_communities(
             try:
                 ent = await client.get_entity(public_ref(raw))
                 seed_entities.append(ent)
-                _add(ent)
+                _add(ent, "seed")
             except Exception:  # noqa: BLE001
                 _drop("seed_resolve_failed")
         if seeds:
@@ -182,7 +195,7 @@ async def discover_communities(
                 try:
                     res = await client(ContactsSearch(q=kw, limit=min(max_results, 100)))
                     for ch in getattr(res, "chats", None) or []:
-                        if not _add(ch):
+                        if not _add(ch, "search"):
                             break
                 except Exception as exc:  # noqa: BLE001
                     log.info("parsing.discover.search_failed", term=kw, error=repr(exc))
@@ -198,7 +211,7 @@ async def discover_communities(
                 try:
                     res = await client(ContactsSearch(q=derived_term, limit=min(max_results, 100)))
                     for ch in getattr(res, "chats", None) or []:
-                        if not _add(ch):
+                        if not _add(ch, "search"):
                             break
                     progress.log(f"Поиск: +{len(candidates) - before} кандидатов.")
                 except Exception as exc:  # noqa: BLE001
@@ -230,7 +243,7 @@ async def discover_communities(
                         continue
                     for ch in getattr(rec, "chats", None) or []:
                         was_new = int(getattr(ch, "id", -1)) not in candidates
-                        if not _add(ch):
+                        if not _add(ch, "recommendation"):
                             break
                         if was_new and not getattr(ch, "megagroup", False):
                             next_frontier.append(ch)
@@ -268,7 +281,7 @@ async def discover_communities(
                                 if len(candidates) >= max_results:
                                     break
                                 try:
-                                    _add(await client.get_entity(uname))
+                                    _add(await client.get_entity(uname), "mention")
                                 except Exception:  # noqa: BLE001
                                     _drop("mention_resolve_failed")
                 except Exception:  # noqa: BLE001
@@ -280,17 +293,24 @@ async def discover_communities(
             # этого «похожие каналы» (см. выше) проходили бы без всякой связи
             # с темой. Проверяем title/about/username кандидата.
             options.keywords = explicit_terms
-            progress.log(
-                f"Отфильтрую кандидатов по словам: {', '.join(explicit_terms)} "
-                "(название/описание/username)."
-            )
+            if options.skip_keyword_check_for_sources:
+                progress.log(
+                    f"Отфильтрую кандидатов по словам: {', '.join(explicit_terms)} "
+                    "(название/описание/username). Похожие каналы от Telegram "
+                    "пропускаю мимо фильтра — они по теме, даже без совпадения слов."
+                )
+            else:
+                progress.log(
+                    f"Отфильтрую кандидатов по словам: {', '.join(explicit_terms)} "
+                    "(название/описание/username)."
+                )
         new_candidates = max(len(candidates) - len(seed_entities), 0)
         progress.log(
             f"Кандидатов всего: {len(candidates)} "
             f"(новых сверх сидов: {new_candidates}). Обогащаю и фильтрую…"
         )
         rows: list[dict] = []
-        for ent in list(candidates.values()):
+        for cid, ent in list(candidates.items()):
             uname = getattr(ent, "username", None)
             input_ref = f"@{uname}" if uname else str(getattr(ent, "id", ""))
             try:
@@ -301,7 +321,9 @@ async def discover_communities(
             if snap is None:
                 _drop("enrich_failed")
                 continue
-            reason = first_community_drop_reason(snap, options)
+            reason = first_community_drop_reason(
+                snap, options, source=candidate_source.get(cid),
+            )
             if reason is not None:
                 _drop(reason)
                 continue
@@ -358,6 +380,6 @@ async def discover_communities(
 async def _try_add_by_peer(client, peer: PeerChannel, add, drop) -> None:
     try:
         ent = await client.get_entity(peer)
-        add(ent)
+        add(ent, "forward")
     except Exception:  # noqa: BLE001
         drop("forward_resolve_failed")

@@ -33,11 +33,16 @@ export type LastSeenBucket =
   | "long_ago"
   | "unknown";
 
+/** Вид содержимого списка: пользователи или каналы/чаты. */
+export type ListEntityKind = "user" | "community";
+
 export interface ParsedList {
   id: number;
   owner_user_id: number;
   name: string;
   source_kind: ParserSourceKind;
+  /** "user" (пользователи) или "community" (каналы/чаты). */
+  entity_kind: ListEntityKind;
   chat_ref: string | null;
   days_window: number | null;
   min_messages: number | null;
@@ -178,6 +183,7 @@ export interface RunDiscoverBody extends CommunityExtraFilters {
   use_mentions?: boolean;
   depth?: number;
   max_results?: number;
+  keep_recommendations_without_keywords?: boolean;
   kind?: "channel" | "chat" | null;
   min_participants?: number | null;
   max_participants?: number | null;

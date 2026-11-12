@@ -50,6 +50,25 @@ REASON_LAST_SEEN_OLD = "last_seen_too_old"
 REASON_PHONE_COUNTRY = "phone_country"
 
 
+# Русские подписи причин отсева — для лога прогона в UI.
+REASON_LABELS_RU: dict[str, str] = {
+    REASON_NO_USERNAME: "Нет @username",
+    REASON_NOT_PREMIUM: "Не Premium-аккаунт",
+    REASON_BOT: "Бот",
+    REASON_DELETED: "Удалённый аккаунт",
+    REASON_ADMIN: "Админ чата",
+    REASON_BLACKLISTED: "В чёрном списке",
+    REASON_NO_PHOTO: "Нет фото профиля",
+    REASON_NOT_VERIFIED: "Не verified",
+    REASON_SCAM_FAKE: "Отмечен в Telegram как scam/fake",
+    REASON_NO_PHONE: "Телефон скрыт",
+    REASON_USERNAME_REGEX: "@username не совпал с регуляркой",
+    REASON_NAME_SCRIPT: "Имя не того алфавита",
+    REASON_LAST_SEEN_OLD: "Давно не был онлайн",
+    REASON_PHONE_COUNTRY: "Не та страна телефона",
+}
+
+
 _CYRILLIC = re.compile(r"[Ѐ-ӿ]")
 _LATIN = re.compile(r"[A-Za-z]")
 
