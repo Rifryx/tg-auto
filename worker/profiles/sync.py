@@ -148,6 +148,7 @@ async def sync_profile_impl(ctx: dict, account_id: int) -> dict[str, Any]:
 
 
 UPLOAD_AVATAR_CHANNEL = "account_avatar_uploaded"
+AVATAR_SYNC_FAILED_CHANNEL = "account_avatar_sync_failed"
 
 
 def _decode_avatar_data_url(data_url: str) -> Optional[bytes]:
@@ -165,70 +166,167 @@ def _decode_avatar_data_url(data_url: str) -> Optional[bytes]:
         return None
 
 
-async def upload_avatar_impl(ctx: dict, account_id: int) -> dict[str, Any]:
-    """Загружает ``accounts.avatar_url`` аккаунта как настоящий аватар в
-    Telegram. Раньше PATCH /accounts/{id} с avatar_url менял картинку
-    только в НАШЕЙ БД — в Telegram собеседники видели старый аватар.
-    Баг-репорт: «аватарка не меняется».
+async def _delete_all_profile_photos(client, account_id: int, session_factory, publisher) -> dict[str, Any]:
+    """Удаляет ВСЕ аватарки аккаунта в Telegram. Пользователь жмёт
+    «Удалить фото» в UI → это должно убрать картинку и у собеседников,
+    а не только обнулить поле в нашей БД (баг-репорт «в боте удаляешь
+    аватарку то в тг она не пропадает»).
 
-    Поддерживается только data:image/*;base64,... — то, что отдаёт
-    AvatarPicker во фронте. Обычные http(s)-ссылки читать здесь не будем:
-    у нас нет прокси аккаунта для скачивания и это выходит за задачу.
+    GetUserPhotosRequest отдаёт все фото профиля, DeletePhotosRequest
+    принимает их InputPhoto-id'ы. Делаем одной транзакцией. При пустой
+    выдаче (у аккаунта и так нет аватаров) — считаем ok=True."""
+    from telethon.tl.functions.photos import DeletePhotosRequest, GetUserPhotosRequest
+    from telethon.tl.types import InputPeerSelf, InputPhoto
+    from worker.health import around_telethon_call
 
-    При любой ошибке — не роняем, пишем warning и возвращаем ok=False.
-    Так UI остаётся в согласованном состоянии (локально аватар обновлён),
-    а пользователь может повторить попытку."""
+    try:
+        photos = await around_telethon_call(
+            lambda: client(GetUserPhotosRequest(
+                user_id=InputPeerSelf(), offset=0, max_id=0, limit=100,
+            )),
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"get_photos_failed: {exc!r}"}
+
+    photo_list = list(getattr(photos, "photos", None) or [])
+    if not photo_list:
+        return {"ok": True, "deleted": 0}
+
+    inputs = [
+        InputPhoto(id=p.id, access_hash=p.access_hash, file_reference=p.file_reference)
+        for p in photo_list
+        if getattr(p, "id", None) is not None and getattr(p, "access_hash", None) is not None
+    ]
+    if not inputs:
+        return {"ok": True, "deleted": 0}
+
+    try:
+        await around_telethon_call(
+            lambda: client(DeletePhotosRequest(id=inputs)),
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"delete_failed: {exc!r}"}
+    return {"ok": True, "deleted": len(inputs)}
+
+
+async def upload_avatar_impl(
+    ctx: dict,
+    account_id: int,
+    *,
+    delete: bool = False,
+) -> dict[str, Any]:
+    """Синхронизирует состояние аватара аккаунта с Telegram.
+
+    * ``delete=False`` (дефолт) — читает ``accounts.avatar_url`` (должен быть
+      ``data:image/*;base64,...``, как шлёт AvatarPicker), декодирует в
+      bytes и загружает как профильное фото. При успехе дёргает
+      ``sync_profile_impl``, чтобы в БД попал РЕАЛЬНЫЙ ``avatar_url``
+      (data-URL из Telegram-превью), а не тот огромный, что пришёл с
+      устройства — так собеседники видят ровно ту же картинку, что мы
+      показываем в UI (баг «в апке одна ава, а по факту другая»).
+    * ``delete=True`` — удаляет ВСЕ фото профиля в Telegram
+      (DeletePhotosRequest по полному списку из GetUserPhotos). Без
+      этого шага «Удалить фото» в UI только обнуляло поле в нашей БД, а
+      собеседники в TG продолжали видеть старое фото.
+
+    При любой ошибке Telethon — не роняем, пишем warning, публикуем
+    ``account_avatar_sync_failed`` и возвращаем ``ok=False``. Фронт
+    инвалидирует кэш аккаунта и покажет текущее реальное состояние
+    (sync_profile).
+    """
     session_factory = ctx["session_factory"]
     publisher = ctx.get("publisher")
 
     with session_factory() as session:
         account = AccountRepository(session).get(account_id)
-        if account is None or not account.avatar_url:
-            return {"account_id": account_id, "ok": False, "error": "no_avatar"}
-        data_url = account.avatar_url
-
-    blob = _decode_avatar_data_url(data_url)
-    if blob is None:
-        # Нечего отправлять (не data URL, или битый base64) — тихо выходим.
-        logger.info("upload_avatar.skip acc=%s reason=not_data_url", account_id)
-        return {"account_id": account_id, "ok": False, "error": "not_data_url"}
-
-    from worker.profiles.apply import upload_avatar  # ленивый — нет циклов
+        if account is None:
+            return {"account_id": account_id, "ok": False, "error": "no_account"}
+        data_url: Optional[str] = account.avatar_url
 
     pool = _pool(ctx)
     client = await pool.get(account_id)
+    result: dict[str, Any]
     try:
-        result = await upload_avatar(
-            client,
-            account_id=account_id,
-            session_factory=session_factory,
-            publisher=publisher,
-            binary=blob,
-        )
+        if delete:
+            result = await _delete_all_profile_photos(
+                client, account_id, session_factory, publisher,
+            )
+        else:
+            if not data_url:
+                return {"account_id": account_id, "ok": False, "error": "no_avatar"}
+            blob = _decode_avatar_data_url(data_url)
+            if blob is None:
+                logger.info("upload_avatar.skip acc=%s reason=not_data_url", account_id)
+                return {"account_id": account_id, "ok": False, "error": "not_data_url"}
+
+            from worker.profiles.apply import upload_avatar  # ленивый — циклы
+
+            result = await upload_avatar(
+                client,
+                account_id=account_id,
+                session_factory=session_factory,
+                publisher=publisher,
+                binary=blob,
+            )
     finally:
         await pool.release(account_id)
 
     if not result.get("ok"):
         logger.warning(
-            "upload_avatar.failed acc=%s err=%s",
-            account_id, result.get("error"),
+            "upload_avatar.failed acc=%s delete=%s err=%s",
+            account_id, delete, result.get("error"),
         )
+        if publisher is not None:
+            try:
+                publisher.publish(
+                    AVATAR_SYNC_FAILED_CHANNEL,
+                    {
+                        "account_id": account_id,
+                        "action": "delete" if delete else "upload",
+                        "error": str(result.get("error")),
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.info("upload_avatar.publish_failed acc=%s err=%r", account_id, exc)
         return {"account_id": account_id, "ok": False, "error": result.get("error")}
 
-    # Отметим в health, что аватар реально есть (sync_profile_impl ставит
-    # has_avatar по me.photo, но здесь мы его только что загрузили — flag
-    # обновим сразу, не ждя следующего sync).
-    with session_factory() as session:
-        AccountHealthRepository(session).update(
-            account_id, AccountHealthUpdate(has_avatar=True),
-        )
-        session.commit()
+    # Обновляем БД под факт:
+    # - при delete — avatar_url=null и has_avatar=False сразу (+ sync не
+    #   нужен: уже знаем точное состояние);
+    # - при upload — дёргаем sync_profile_impl. Он перезаписывает
+    #   avatar_url data-URL'ом Telegram-превью + has_avatar=True из me.photo.
+    if delete:
+        with session_factory() as session:
+            AccountRepository(session).update(
+                account_id, AccountUpdate(avatar_url=None),
+            )
+            AccountHealthRepository(session).update(
+                account_id, AccountHealthUpdate(has_avatar=False),
+            )
+            session.commit()
+    else:
+        try:
+            await sync_profile_impl(ctx, account_id)
+        except Exception as exc:  # noqa: BLE001 — sync может упасть на 2FA/network,
+            # upload сам по себе уже успешен; в худшем случае avatar_url в
+            # БД останется большой data URL от AvatarPicker, UI рендерит
+            # его, собеседники видят тот же файл. Логируем и идём дальше.
+            logger.info("upload_avatar.sync_after_upload_failed acc=%s err=%r", account_id, exc)
 
     if publisher is not None:
         try:
-            publisher.publish(UPLOAD_AVATAR_CHANNEL, {"account_id": account_id})
+            publisher.publish(UPLOAD_AVATAR_CHANNEL, {
+                "account_id": account_id,
+                "action": "delete" if delete else "upload",
+            })
         except Exception as exc:  # noqa: BLE001
             logger.info("upload_avatar.publish_failed acc=%s err=%r", account_id, exc)
 
-    logger.info("upload_avatar.done acc=%s", account_id)
-    return {"account_id": account_id, "ok": True}
+    logger.info("upload_avatar.done acc=%s delete=%s", account_id, delete)
+    return {"account_id": account_id, "ok": True, "action": "delete" if delete else "upload"}
