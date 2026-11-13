@@ -444,6 +444,44 @@ async def test_channel_registry_shares_client_across_channels(session):
     assert ctx["client_pool"].released == [account_id]
 
 
+async def test_channel_registry_dedup_shared_discussion_group(session):
+    """Два monitored-канала одного аккаунта с ОДНОЙ группой обсуждений →
+    один telethon-handler (посты не обрабатываются дважды), одно событие.
+    Регрессия «по два раза подключается слушатель каналов»."""
+    _clean(session)
+    campaign_id = _make_campaign(session)
+    account_id = _make_account(session, status="assigned", campaign_id=campaign_id)
+    repo = MonitoredChannelRepository(session)
+    ids = []
+    # Разные каналы (@a/@b, разные channel_tg_id), но ОДНА discussion_group_id.
+    for ref, tg in (("@a", 111), ("@b", 222)):
+        ch = repo.create(account_id, ref, is_folder=False)
+        repo.mark_working(
+            ch.id, channel_ref=ref.lstrip("@"), channel_tg_id=tg, title="X",
+            discussion_group_id=999,
+        )
+        ids.append(ch.id)
+    session.commit()
+
+    client = _ChannelListenerClient()
+    ctx = _ctx(session, client=client, task_queue=_SpyTaskQueue())
+    reg = registry.ChannelListenerRegistry()
+    await reg.load_all(ctx)
+
+    # Оба канала «активны» (учтены), но handler на группе — ОДИН.
+    assert sorted(reg.active()) == sorted(ids)
+    assert len(client.added) == 1
+
+    # detach первого не снимает handler (второй ещё держит группу).
+    await reg.detach(ids[0])
+    assert len(client.added) == 1
+    assert ctx["client_pool"].released == []
+    # detach второго — группа опустела, handler снят, клиент отпущен.
+    await reg.detach(ids[1])
+    assert client.added == []
+    assert ctx["client_pool"].released == [account_id]
+
+
 # --- _ensure_joined_discussion: членство в группе обсуждений ------------------
 # Регрессия «ничего не ловится»: Telethon отдаёт NewMessage(chats=discussion
 # group) только участникам группы. resolve подписывает лишь на канал, поэтому
