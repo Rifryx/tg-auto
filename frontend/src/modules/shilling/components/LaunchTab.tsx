@@ -678,7 +678,8 @@ function AccountsSection({
 
       <AccountPickerSheet
         open={pickerOpen}
-        excludeIds={linkList.map((l) => l.account_id)}
+        attachedIds={linkList.map((l) => l.account_id)}
+        onDetach={(id) => detach.mutate(id)}
         busy={attach.isPending}
         onClose={() => setPickerOpen(false)}
         onAdd={(ids) => attach.mutate(ids)}

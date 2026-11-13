@@ -557,7 +557,8 @@ export function CampaignDetailScreen() {
 
       <AccountPickerSheet
         open={sheetOpen}
-        excludeIds={attachedIds}
+        attachedIds={attachedIds}
+        onDetach={(id) => detach.mutate(id)}
         busy={attach.isPending}
         onClose={() => setSheetOpen(false)}
         onAdd={(ids) => attach.mutate(ids)}

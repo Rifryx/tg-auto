@@ -172,15 +172,37 @@ export function AccountDetailScreen() {
     : false;
   const applyTgProfile = () => {
     const username = pForm.username.trim().replace(/^@/, "");
-    const names = {
-      first_name: pForm.first_name.trim() || null,
-      last_name: pForm.last_name.trim() || null,
-      bio: pForm.bio.trim() || null,
+    // Telegram API (UpdateProfileRequest): None = «не менять», "" = очистить.
+    // Раньше мы в local и в bulk слали null — Telegram видел его как
+    // «пропустить поле», и очистка фамилии/био не применялась. Для изменённых
+    // полей шлём trimmed-строку (пустую при очистке), для неизменённых — null.
+    const prev = {
+      first_name: acc?.first_name ?? "",
+      last_name: acc?.last_name ?? "",
+      bio: acc?.bio ?? "",
+    };
+    const next = {
+      first_name: pForm.first_name.trim(),
+      last_name: pForm.last_name.trim(),
+      bio: pForm.bio.trim(),
+    };
+    const payloadForApply = {
+      // first_name в Telegram не может быть пустым → при очистке всё равно
+      // шлём null, пользователь предупреждён placeholder'ом.
+      first_name:
+        next.first_name && next.first_name !== prev.first_name ? next.first_name : null,
+      last_name: next.last_name !== prev.last_name ? next.last_name : null,
+      bio: next.bio !== prev.bio ? next.bio : null,
     };
     // Локальную витрину обновляем сразу, затем применяем в Telegram.
-    patchProfile.mutate({ ...names, username: username || null });
+    patchProfile.mutate({
+      first_name: next.first_name || null,
+      last_name: next.last_name || null,
+      bio: next.bio || null,
+      username: username || null,
+    });
     applyProfile.run("apply_profile", [accountId], {
-      ...names,
+      ...payloadForApply,
       username_candidates: username ? [username] : [],
     });
   };
