@@ -4,13 +4,17 @@
 N+1) и кэширует результат в Redis на 5 секунд по ключу пользователя.
 
 Реестра модулей ещё нет (отложен), поэтому список модулей захардкожен: сейчас
-это ``commenting`` и ``shilling``.
+это ``commenting``, ``shilling`` и ``priming``.
+
+Помимо посекундных сводок по модулям дашборд отдаёт верхние KPI-плитки
+(``kpis``: действия/ошибки за сегодня, активные и приостановленные кампании,
+аккаунты в работе) и 7-дневный ряд действий (``trend_7d``) для спарклайна.
 """
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import redis
@@ -210,6 +214,116 @@ def _shilling_summary(session: Session) -> dict[str, Any]:
     }
 
 
+def _priming_summary(session: Session) -> dict[str, Any]:
+    from core.models import PrimingCampaign, PrimingExecutionLog
+
+    today_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    instances = session.execute(
+        select(func.count()).select_from(PrimingCampaign)
+    ).scalar_one()
+    active_now = session.execute(
+        select(func.count())
+        .select_from(PrimingCampaign)
+        .where(PrimingCampaign.status == "running")
+    ).scalar_one()
+    today_actions = session.execute(
+        select(func.count())
+        .select_from(PrimingExecutionLog)
+        .where(PrimingExecutionLog.started_at >= today_start)
+    ).scalar_one()
+    return {
+        "module": "priming",
+        "instances": instances,
+        "active_now": active_now,
+        "today_actions": today_actions,
+    }
+
+
+def _today_start() -> datetime:
+    return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _kpis(session: Session, modules: list[dict[str, Any]]) -> dict[str, int]:
+    """Сводные числа для верхних плиток: действия сегодня, ошибки сегодня,
+    активных кампаний, аккаунтов в работе."""
+    from core.models import PrimingCampaign
+
+    today = _today_start()
+    actions_today = sum(int(m.get("today_actions", 0)) for m in modules)
+    active_campaigns = sum(int(m.get("active_now", 0)) for m in modules)
+
+    errors_today = 0
+    errors_today += session.execute(
+        select(func.count())
+        .select_from(CommentLog)
+        .where(CommentLog.created_at >= today, CommentLog.status == "failed")
+    ).scalar_one()
+    errors_today += session.execute(
+        select(func.count())
+        .select_from(ShillingExecutionLog)
+        .where(
+            ShillingExecutionLog.created_at >= today,
+            ShillingExecutionLog.status == "failed",
+        )
+    ).scalar_one()
+
+    accounts_working = session.execute(
+        select(func.count())
+        .select_from(Account)
+        .where(Account.status.in_(("assigned", "warming")))
+    ).scalar_one()
+
+    # Кампании «на паузе» всех модулей — чтобы было видно, что требует внимания.
+    paused_campaigns = session.execute(
+        select(func.count())
+        .select_from(ShillingCampaign)
+        .where(ShillingCampaign.status == "paused")
+    ).scalar_one()
+    paused_campaigns += session.execute(
+        select(func.count())
+        .select_from(PrimingCampaign)
+        .where(PrimingCampaign.status == "paused")
+    ).scalar_one()
+
+    return {
+        "actions_today": int(actions_today),
+        "errors_today": int(errors_today),
+        "active_campaigns": int(active_campaigns),
+        "paused_campaigns": int(paused_campaigns),
+        "accounts_working": int(accounts_working),
+    }
+
+
+def _trend_7d(session: Session) -> list[dict[str, Any]]:
+    """Действия по дням за последние 7 суток (UTC). Склеиваем три источника —
+    комментарии, шиллинг и прайминг — в один дневной ряд для спарклайна."""
+    from core.models import PrimingExecutionLog
+
+    start = _today_start() - timedelta(days=6)
+    counts: dict[str, int] = {}
+
+    def _bucket(col) -> None:
+        rows = session.execute(
+            select(func.date(col), func.count())
+            .where(col >= start)
+            .group_by(func.date(col))
+        ).all()
+        for day, cnt in rows:
+            counts[str(day)] = counts.get(str(day), 0) + int(cnt)
+
+    _bucket(CommentLog.created_at)
+    _bucket(ShillingExecutionLog.created_at)
+    _bucket(PrimingExecutionLog.started_at)
+
+    out: list[dict[str, Any]] = []
+    for i in range(7):
+        day = (start + timedelta(days=i)).date()
+        out.append({"date": day.isoformat(), "actions": counts.get(day.isoformat(), 0)})
+    return out
+
+
 def _recent_activity(session: Session) -> list[dict[str, Any]]:
     from core.warming_detail import warming_detail
 
@@ -347,10 +461,17 @@ def _recent_activity(session: Session) -> list[dict[str, Any]]:
 
 def build_dashboard(session: Session, severity: Optional[str] = None) -> dict[str, Any]:
     """Полный дашборд из БД (без кэша). JSON-safe (timestamps → ISO-строки)."""
+    modules = [
+        _commenting_summary(session),
+        _shilling_summary(session),
+        _priming_summary(session),
+    ]
     return {
         "alerts": _alerts(session, severity),
         "accounts_summary": _accounts_summary(session),
-        "modules_summary": [_commenting_summary(session), _shilling_summary(session)],
+        "modules_summary": modules,
+        "kpis": _kpis(session, modules),
+        "trend_7d": _trend_7d(session),
         "recent_activity": _recent_activity(session),
     }
 

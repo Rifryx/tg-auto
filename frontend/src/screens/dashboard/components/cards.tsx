@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Ban,
   ChevronRight,
+  Flame,
   KeyRound,
   MailX,
   Megaphone,
@@ -16,7 +17,7 @@ import { Link } from "react-router-dom";
 import { maskPhone } from "../../../shared/format";
 import { STATUS_LABEL, statusDotClass } from "../../../shared/status";
 import type { AccountStatus } from "../../../shared/types";
-import type { Alert, ActivityItem, ModuleSummary } from "../api";
+import type { Alert, ActivityItem, ModuleSummary, TrendPoint } from "../api";
 
 const EVENT_ICON: Record<string, LucideIcon> = {
   flood_wait: Timer,
@@ -117,41 +118,156 @@ export function StageCard({ status, count }: { status: AccountStatus; count: num
 }
 
 const MODULE_META: Record<string, { label: string; icon: LucideIcon; to: string }> = {
-  commenting: { label: "Комментирование", icon: MessagesSquare, to: "/tasks" },
-  shilling: { label: "НейроШиллинг", icon: Megaphone, to: "/modules/shilling" },
+  commenting: { label: "Нейрокомментинг", icon: MessagesSquare, to: "/modules/commenting" },
+  shilling: { label: "Нейрошиллинг", icon: Megaphone, to: "/modules/shilling" },
+  priming: { label: "Прайминг", icon: Flame, to: "/modules/priming" },
 };
 
+// Плоская карточка модуля (без градиентов — пользователь просил убрать
+// «нейрослоп»): иконка-чип, название, активная/пауза-метка и три метрики с
+// hairline-разделителями. Сидит в адаптивной сетке (1 кол. на телефоне, 3 на ПК).
 export function ModuleCard({ module }: { module: ModuleSummary }) {
   const meta = MODULE_META[module.module];
   const Icon = meta?.icon ?? MessagesSquare;
+  const live = module.active_now > 0;
   return (
     <Link
       to={meta?.to ?? "/tasks"}
-      className="card-hero flex items-center gap-4 p-5 active:opacity-90"
+      className="card flex flex-col p-4 transition-colors active:bg-surface-2"
     >
-      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-primary">
-        <Icon className="h-6 w-6" strokeWidth={1.5} aria-hidden />
-      </span>
-      <div className="min-w-0 flex-1">
-        <span className="text-[16px] font-bold text-text-primary">
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-chip bg-surface-2 text-text-primary">
+          <Icon className="h-[18px] w-[18px]" strokeWidth={1.7} aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-text-primary">
           {meta?.label ?? module.module}
         </span>
-        <div className="mt-2 flex gap-5">
-          <Metric label="Кампаний" value={module.instances} />
-          <Metric label="В работе" value={module.active_now} />
-          <Metric label="Сегодня" value={module.today_actions} />
-        </div>
+        {live ? (
+          <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-status-active">
+            <span className="h-1.5 w-1.5 rounded-full bg-status-active" aria-hidden />
+            В работе
+          </span>
+        ) : (
+          <ChevronRight className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
+        )}
       </div>
-      <ChevronRight className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
+      <div className="mt-4 grid grid-cols-3 divide-x divide-hairline">
+        <Metric label="Кампаний" value={module.instances} />
+        <Metric label="В работе" value={module.active_now} align="center" />
+        <Metric label="Сегодня" value={module.today_actions} align="right" />
+      </div>
     </Link>
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function Metric({
+  label,
+  value,
+  align = "left",
+}: {
+  label: string;
+  value: number;
+  align?: "left" | "center" | "right";
+}) {
+  const box =
+    align === "center" ? "items-center px-2" : align === "right" ? "items-end pl-2" : "items-start pr-2";
   return (
-    <div>
-      <p className="nums text-[20px] font-bold leading-tight text-text-primary">{value}</p>
+    <div className={`flex flex-col ${box}`}>
+      <p className="nums text-[19px] font-bold leading-tight text-text-primary">{value}</p>
       <p className="mt-0.5 text-[11px] text-text-tertiary">{label}</p>
+    </div>
+  );
+}
+
+// --- KPI-плитка -------------------------------------------------------------
+// Плоская карточка с крупным числом и подписью. tone подсвечивает число, когда
+// значение требует внимания (ошибки/пауза), иначе — нейтральный основной цвет.
+export function KpiTile({
+  label,
+  value,
+  tone = "neutral",
+  to,
+}: {
+  label: string;
+  value: number;
+  tone?: "neutral" | "warning" | "critical" | "active";
+  to?: string;
+}) {
+  const active = value > 0;
+  const toneClass =
+    !active || tone === "neutral"
+      ? "text-text-primary"
+      : tone === "critical"
+        ? "text-status-critical"
+        : tone === "warning"
+          ? "text-status-warning"
+          : "text-status-active";
+  const inner = (
+    <>
+      <p className={`nums text-[26px] font-bold leading-none ${toneClass}`}>{value}</p>
+      <p className="mt-1.5 text-[11.5px] leading-tight text-text-tertiary">{label}</p>
+    </>
+  );
+  const cls = "card flex flex-col justify-between gap-2 p-3.5";
+  if (to) {
+    return (
+      <Link to={to} className={`${cls} transition-colors active:bg-surface-2`}>
+        {inner}
+      </Link>
+    );
+  }
+  return <div className={cls}>{inner}</div>;
+}
+
+// --- 7-дневный тренд действий ----------------------------------------------
+// Минималистичный бар-чарт: один нейтральный ряд, последний день (сегодня)
+// акцентирован. Числа — tabular-nums. Без библиотек, только токены темы.
+const WEEKDAY_RU = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+
+export function TrendChart({ points }: { points: TrendPoint[] }) {
+  const total = points.reduce((a, p) => a + p.actions, 0);
+  const max = Math.max(1, ...points.map((p) => p.actions));
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  return (
+    <div className="card p-5">
+      <div className="mb-4 flex items-end justify-between">
+        <div>
+          <p className="nums text-[26px] font-bold leading-none text-text-primary">{total}</p>
+          <p className="mt-1 text-[12px] text-text-tertiary">действий за 7 дней</p>
+        </div>
+        <span className="text-[11px] text-text-tertiary">по дням, UTC</span>
+      </div>
+      {total === 0 ? (
+        <div className="flex h-[88px] items-center justify-center text-[13px] text-text-tertiary">
+          Пока нет действий за неделю
+        </div>
+      ) : (
+        <div className="flex h-[88px] items-end gap-1.5">
+          {points.map((p) => {
+            const isToday = p.date === todayIso;
+            const h = Math.round((p.actions / max) * 100);
+            const d = new Date(`${p.date}T00:00:00Z`);
+            const wd = WEEKDAY_RU[d.getUTCDay()];
+            return (
+              <div key={p.date} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
+                <div className="flex w-full flex-1 items-end" title={`${p.actions} действий`}>
+                  <div
+                    className={`w-full rounded-[4px] ${isToday ? "bg-text-primary" : "bg-surface-2"}`}
+                    style={{ height: `${Math.max(h, p.actions > 0 ? 6 : 2)}%` }}
+                    aria-hidden
+                  />
+                </div>
+                <span
+                  className={`text-[10px] leading-none ${isToday ? "font-semibold text-text-secondary" : "text-text-tertiary"}`}
+                >
+                  {wd}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

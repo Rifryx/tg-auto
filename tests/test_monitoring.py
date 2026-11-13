@@ -131,7 +131,19 @@ def test_dashboard_empty_db(session):
     assert body["modules_summary"] == [
         {"module": "commenting", "instances": 0, "active_now": 0, "today_actions": 0},
         {"module": "shilling", "instances": 0, "active_now": 0, "today_actions": 0},
+        {"module": "priming", "instances": 0, "active_now": 0, "today_actions": 0},
     ]
+    assert body["kpis"] == {
+        "actions_today": 0,
+        "errors_today": 0,
+        "active_campaigns": 0,
+        "paused_campaigns": 0,
+        "accounts_working": 0,
+    }
+    # 7-дневный ряд: ровно 7 точек, все нули на пустой БД.
+    assert len(body["trend_7d"]) == 7
+    assert all(p["actions"] == 0 for p in body["trend_7d"])
+    assert [p["date"] for p in body["trend_7d"]] == sorted(p["date"] for p in body["trend_7d"])
     assert body["recent_activity"] == []
 
 
