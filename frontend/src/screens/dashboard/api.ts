@@ -39,10 +39,25 @@ export interface ActivityItem {
   timestamp: string | null;
 }
 
+export interface Kpis {
+  actions_today: number;
+  errors_today: number;
+  active_campaigns: number;
+  paused_campaigns: number;
+  accounts_working: number;
+}
+
+export interface TrendPoint {
+  date: string; // ISO date (YYYY-MM-DD), UTC
+  actions: number;
+}
+
 export interface Dashboard {
   alerts: Alert[];
   accounts_summary: AccountsSummary;
   modules_summary: ModuleSummary[];
+  kpis: Kpis;
+  trend_7d: TrendPoint[];
   recent_activity: ActivityItem[];
 }
 

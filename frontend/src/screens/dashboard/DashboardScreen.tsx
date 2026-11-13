@@ -6,7 +6,14 @@ import type { AccountStatus } from "../../shared/types";
 import { useAppContent } from "../more/AboutScreen";
 import { dashboardApi } from "./api";
 import type { Dashboard } from "./api";
-import { ActivityRow, AlertCard, ModuleCard, StageCard } from "./components/cards";
+import {
+  ActivityRow,
+  AlertCard,
+  KpiTile,
+  ModuleCard,
+  StageCard,
+  TrendChart,
+} from "./components/cards";
 
 const STAGES: AccountStatus[] = [
   "pool",
@@ -34,7 +41,7 @@ export function DashboardScreen() {
   return (
     <div className="min-h-full">
       <TopBar />
-      <h1 className="screen-title mb-8 mt-1">Обзор</h1>
+      <h1 className="screen-title mb-6 mt-1">Обзор</h1>
 
       {isLoading && <DashboardSkeleton />}
 
@@ -62,54 +69,63 @@ export function DashboardScreen() {
 
 function DashboardContent({ data }: { data: Dashboard }) {
   const tz = useAppContent().data?.activity?.timezone;
-  const total = Object.values(data.accounts_summary).reduce((a, b) => a + b, 0);
-  const activeModules = data.modules_summary.filter((m) => m.active_now > 0).length;
+  const k = data.kpis;
+
+  // Сравнение «сегодня против вчера» по дневному ряду — чтобы число действий
+  // не висело без контекста (сколько это, много или мало).
+  const trend = data.trend_7d;
+  const actionsDelta =
+    trend.length >= 2 ? trend[trend.length - 1].actions - trend[trend.length - 2].actions : null;
+  const actionsSub =
+    actionsDelta === null
+      ? null
+      : actionsDelta === 0
+        ? "как вчера"
+        : `${actionsDelta > 0 ? "+" : "−"}${Math.abs(actionsDelta)} к вчера`;
+
+  // Алерты сворачиваем по (аккаунт + тип), чтобы повторы одной проблемы не
+  // раздували ленту — показываем последнее событие и счётчик повторов.
+  const groupedAlerts = (() => {
+    const byKey = new Map<string, { alert: (typeof data.alerts)[number]; count: number }>();
+    for (const a of data.alerts) {
+      const key = `${a.account_id}:${a.event_type}`;
+      const prev = byKey.get(key);
+      if (!prev) byKey.set(key, { alert: a, count: 1 });
+      else {
+        prev.count += 1;
+        if ((a.created_at ?? "") > (prev.alert.created_at ?? "")) prev.alert = a;
+      }
+    }
+    return [...byKey.values()];
+  })();
 
   return (
-    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start lg:gap-8">
-      {/* Hero stats card */}
-      <section className="mb-8 lg:col-span-2">
-        <div className="card-hero flex items-center gap-6 p-6">
-          <HeroStat value={total} label="Аккаунтов" />
-          <div className="h-10 w-px border-l border-hairline" />
-          <HeroStat value={activeModules} label="Модулей активно" />
-          <div className="h-10 w-px border-l border-hairline" />
-          <HeroStat
-            value={data.modules_summary.reduce((a, m) => a + m.today_actions, 0)}
-            label="Действий сегодня"
+    <div className="flex flex-col gap-8">
+      {/* KPI-плитки: сводка за сегодня одним взглядом. Ровно 4 плитки (2×2 на
+          телефоне, 4 в ряд на ПК) — без «сиротливой» пятой; паузы показываем
+          подписью внутри плитки активных кампаний. */}
+      <section>
+        <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+          <KpiTile label="Действий сегодня" value={k.actions_today} sub={actionsSub} />
+          <KpiTile
+            label="Активных кампаний"
+            value={k.active_campaigns}
+            tone="active"
+            sub={k.paused_campaigns > 0 ? `${k.paused_campaigns} на паузе` : null}
           />
+          <KpiTile label="Аккаунтов в работе" value={k.accounts_working} />
+          <KpiTile label="Ошибок сегодня" value={k.errors_today} tone="critical" />
         </div>
       </section>
 
-      {/* Alerts */}
-      {(() => {
-        const byKey = new Map<string, { alert: (typeof data.alerts)[number]; count: number }>();
-        for (const a of data.alerts) {
-          const key = `${a.account_id}:${a.event_type}`;
-          const prev = byKey.get(key);
-          if (!prev) byKey.set(key, { alert: a, count: 1 });
-          else {
-            prev.count += 1;
-            if ((a.created_at ?? "") > (prev.alert.created_at ?? "")) prev.alert = a;
-          }
-        }
-        const grouped = [...byKey.values()];
-        return grouped.length > 0 ? (
-          <section className="mb-8 lg:col-span-2">
-            <SectionTitle>Алерты</SectionTitle>
-            <div className="flex flex-col gap-2">
-              {grouped.map(({ alert, count }) => (
-                <AlertCard key={`${alert.account_id}:${alert.event_type}`} alert={alert} count={count} />
-              ))}
-            </div>
-          </section>
-        ) : null;
-      })()}
+      {/* 7-дневный тренд действий. */}
+      <section>
+        <SectionTitle>Тенденция</SectionTitle>
+        <TrendChart points={data.trend_7d} />
+      </section>
 
-      {/* Accounts by stage — авто-сетка: показываем ВСЕ статусы сразу, без
-          горизонтального скролла; число колонок подстраивается под ширину
-          (3–5 на телефоне, все 7 в ряд на ПК). */}
-      <section className="mb-10 lg:col-span-2">
+      {/* Аккаунты по статусам — авто-сетка без горизонтального скролла. */}
+      <section>
         <SectionTitle>Аккаунты</SectionTitle>
         <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(98px,1fr))] lg:grid-cols-7">
           {STAGES.map((s) => (
@@ -118,11 +134,11 @@ function DashboardContent({ data }: { data: Dashboard }) {
         </div>
       </section>
 
-      {/* Modules */}
+      {/* Модули — все сразу, плоские карточки в адаптивной сетке. */}
       {data.modules_summary.length > 0 && (
-        <section className="mb-10 lg:mb-0">
+        <section>
           <SectionTitle>Модули</SectionTitle>
-          <div className="flex flex-col gap-3">
+          <div className="grid gap-3 lg:grid-cols-3">
             {data.modules_summary.map((m) => (
               <ModuleCard key={m.module} module={m} />
             ))}
@@ -130,31 +146,38 @@ function DashboardContent({ data }: { data: Dashboard }) {
         </section>
       )}
 
-      {/* Activity feed — отдельный блок с прокруткой: без неё лента (до 20
-          строк) растягивала весь экран обзора в длинную простыню. */}
-      <section className="mb-4 lg:mb-0">
-        <SectionTitle>Активность</SectionTitle>
-        {data.recent_activity.length > 0 ? (
-          <div className="card max-h-[60vh] overflow-y-auto overflow-x-hidden p-0 [scrollbar-width:thin]">
-            {data.recent_activity.slice(0, 20).map((item, i) => (
-              <div key={i} className={i > 0 ? "border-t border-hairline" : ""}>
-                <ActivityRow item={item} tz={tz} />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="px-1 text-[13px] text-text-tertiary">Пока тихо.</p>
+      {/* Алерты и Активность — рядом на ПК, друг под другом на телефоне. */}
+      <div className="grid gap-8 lg:grid-cols-2 lg:items-start">
+        {groupedAlerts.length > 0 && (
+          <section>
+            <SectionTitle>Требует внимания</SectionTitle>
+            <div className="flex flex-col gap-2">
+              {groupedAlerts.map(({ alert, count }) => (
+                <AlertCard
+                  key={`${alert.account_id}:${alert.event_type}`}
+                  alert={alert}
+                  count={count}
+                />
+              ))}
+            </div>
+          </section>
         )}
-      </section>
-    </div>
-  );
-}
 
-function HeroStat({ value, label }: { value: number; label: string }) {
-  return (
-    <div className="min-w-0 flex-1 text-center">
-      <p className="nums text-[28px] font-bold leading-none text-text-primary">{value}</p>
-      <p className="mt-1.5 truncate text-[12px] text-text-tertiary">{label}</p>
+        <section className={groupedAlerts.length > 0 ? "" : "lg:col-span-2"}>
+          <SectionTitle>Активность</SectionTitle>
+          {data.recent_activity.length > 0 ? (
+            <div className="card max-h-[60vh] overflow-y-auto overflow-x-hidden p-0 [scrollbar-width:thin]">
+              {data.recent_activity.slice(0, 20).map((item, i) => (
+                <div key={i} className={i > 0 ? "border-t border-hairline" : ""}>
+                  <ActivityRow item={item} tz={tz} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="px-1 text-[13px] text-text-tertiary">Пока тихо.</p>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
@@ -162,7 +185,7 @@ function HeroStat({ value, label }: { value: number; label: string }) {
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
     <h2
-      className="mb-4 text-[22px] font-bold leading-tight text-text-primary"
+      className="mb-4 text-[17px] font-semibold leading-tight text-text-primary"
       style={{ letterSpacing: "-0.01em" }}
     >
       {children}
@@ -173,16 +196,17 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 function DashboardSkeleton() {
   return (
     <div className="flex flex-col gap-8">
-      <div className="card-hero flex items-center gap-6 p-6">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="flex-1 text-center">
-            <div className="mx-auto h-8 w-12 animate-pulse rounded-chip bg-surface-2" />
-            <div className="mx-auto mt-2 h-3 w-16 animate-pulse rounded bg-surface-2" />
-          </div>
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="card h-[86px] animate-pulse" />
         ))}
       </div>
       <div>
-        <div className="mb-4 h-7 w-32 animate-pulse rounded-chip bg-surface-2" />
+        <div className="mb-4 h-5 w-28 animate-pulse rounded-chip bg-surface-2" />
+        <div className="card h-40 animate-pulse" />
+      </div>
+      <div>
+        <div className="mb-4 h-5 w-24 animate-pulse rounded-chip bg-surface-2" />
         <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(98px,1fr))] lg:grid-cols-7">
           {Array.from({ length: 7 }).map((_, i) => (
             <div key={i} className="card h-[92px] w-full animate-pulse" />
@@ -190,8 +214,12 @@ function DashboardSkeleton() {
         </div>
       </div>
       <div>
-        <div className="mb-4 h-7 w-24 animate-pulse rounded-chip bg-surface-2" />
-        <div className="card h-32 animate-pulse" />
+        <div className="mb-4 h-5 w-20 animate-pulse rounded-chip bg-surface-2" />
+        <div className="grid gap-3 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="card h-28 animate-pulse" />
+          ))}
+        </div>
       </div>
     </div>
   );
