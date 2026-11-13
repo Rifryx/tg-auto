@@ -86,10 +86,17 @@ class ProfileGenerator:
         self,
         provider: LLMProvider,
         *,
+        fallback: Optional[LLMProvider] = None,
         max_tokens: int = 400,
         temperature: float = 0.85,
     ) -> None:
         self._provider = provider
+        # Запасной провайдер: если основной упал (пустой/битый ключ, таймаут,
+        # квота) или выдал неразбираемый ответ — пробуем вторую модель. Без
+        # этого генерация просто падала с «Не удалось сгенерировать», хотя
+        # вторая модель доступна. Пользователь модель не выбирает — только
+        # фолбэк позволяет «переключиться», когда что-то пошло не так.
+        self._fallback = fallback
         self._max_tokens = max_tokens
         self._temperature = temperature
 
@@ -112,7 +119,26 @@ class ProfileGenerator:
         return await self._run(user_prompt)
 
     async def _run(self, user_prompt: str) -> GeneratedProfile:
-        raw = await self._provider.generate(
+        # Основной провайдер, затем фолбэк. Любая ошибка (сеть/квота/битый
+        # ключ) или неразбираемый ответ основного — повод попробовать вторую
+        # модель, а не падать сразу.
+        try:
+            return await self._run_once(self._provider, user_prompt)
+        except Exception as primary_exc:  # noqa: BLE001
+            if self._fallback is None:
+                raise
+            try:
+                return await self._run_once(self._fallback, user_prompt)
+            except Exception as fb_exc:  # noqa: BLE001
+                raise ProfileGenerationError(
+                    f"обе модели не ответили: основная — {primary_exc}; "
+                    f"запасная — {fb_exc}"
+                ) from fb_exc
+
+    async def _run_once(
+        self, provider: LLMProvider, user_prompt: str
+    ) -> GeneratedProfile:
+        raw = await provider.generate(
             system=SYSTEM_PROMPT,
             messages=[Message(role="user", content=user_prompt)],
             max_tokens=self._max_tokens,
@@ -259,6 +285,9 @@ def _clean_username(value: str) -> str:
 # Единая точка получения генератора по имени провайдера. Импорт лениво, чтобы
 # ``modules.profiles`` не тянул сеть при простом импорте пакета.
 def default_generator(provider_name: str = "deepseek") -> ProfileGenerator:
-    from worker.llm.factory import get_provider
+    from worker.llm.factory import fallback_provider, get_provider
 
-    return ProfileGenerator(get_provider(provider_name))
+    return ProfileGenerator(
+        get_provider(provider_name),
+        fallback=fallback_provider(provider_name),
+    )
