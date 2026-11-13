@@ -271,6 +271,86 @@ def test_recent_activity_shows_channel_for_comment(session):
     assert "тест бота" in comment["detail"]
 
 
+def test_recent_activity_uses_comment_log_channel_ref(session):
+    """Канал берётся из CommentLog.channel_ref (реальный канал поста), а не
+    из «первого канала аккаунта». Аккаунт мониторит ДВА канала — подпись
+    должна быть именно того, куда ушёл коммент."""
+    from api.services.monitoring import _recent_activity
+
+    _clean(session)
+    acc = _make_account(session, 11, "assigned")
+    # Два канала у аккаунта. «Первый по id» — Alliance, но коммент ушёл в тест бота.
+    session.add_all([
+        MonitoredChannel(
+            account_id=acc.id, input_ref="@alliance",
+            channel_ref="alliance", title="Alliance Order's", status="working",
+        ),
+        MonitoredChannel(
+            account_id=acc.id, input_ref="@testbot",
+            channel_ref="testbot", title="тест бота", status="working",
+        ),
+    ])
+    campaign = Campaign(
+        name="c1", target_channel="@ch", base_system_prompt="p",
+        llm_provider="deepseek", active_hours_start=datetime(2020, 1, 1, 9).time(),
+        active_hours_end=datetime(2020, 1, 1, 23).time(), active_hours_tz="UTC",
+        posting_delay_min_sec=1, posting_delay_max_sec=5,
+    )
+    session.add(campaign)
+    session.flush()
+    session.add(
+        CommentLog(
+            campaign_id=campaign.id, account_id=acc.id,
+            post_channel_msg_id=77, comment_text="hi", status="posted",
+            channel_ref="тест бота",
+        )
+    )
+    session.commit()
+
+    events = _recent_activity(session)
+    comment = next(e for e in events if e["type"] == "comment")
+    assert comment["channel"] == "тест бота"
+    assert "Alliance" not in (comment["detail"] or "")
+
+
+def test_recent_activity_no_channel_when_ambiguous_legacy(session):
+    """Старый лог без channel_ref и аккаунт с НЕСКОЛЬКИМИ каналами → канал не
+    угадываем (лучше без подписи, чем неверная)."""
+    from api.services.monitoring import _recent_activity
+
+    _clean(session)
+    acc = _make_account(session, 12, "assigned")
+    session.add_all([
+        MonitoredChannel(
+            account_id=acc.id, input_ref="@a", channel_ref="a",
+            title="A", status="working",
+        ),
+        MonitoredChannel(
+            account_id=acc.id, input_ref="@b", channel_ref="b",
+            title="B", status="working",
+        ),
+    ])
+    campaign = Campaign(
+        name="c1", target_channel="@ch", base_system_prompt="p",
+        llm_provider="deepseek", active_hours_start=datetime(2020, 1, 1, 9).time(),
+        active_hours_end=datetime(2020, 1, 1, 23).time(), active_hours_tz="UTC",
+        posting_delay_min_sec=1, posting_delay_max_sec=5,
+    )
+    session.add(campaign)
+    session.flush()
+    session.add(
+        CommentLog(
+            campaign_id=campaign.id, account_id=acc.id,
+            post_channel_msg_id=5, comment_text="hi", status="posted",
+        )
+    )
+    session.commit()
+
+    events = _recent_activity(session)
+    comment = next(e for e in events if e["type"] == "comment")
+    assert comment["channel"] is None
+
+
 def test_dashboard_cached_second_call_skips_db(session):
     _clean(session)
     counting = _CountingSession(session)

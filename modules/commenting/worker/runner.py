@@ -826,6 +826,7 @@ async def post_comment(
                 posted_message_id=posted_message_id,
                 in_reply_to_message_id=in_reply_to_message_id,
                 is_economy_stub=is_economy,
+                channel_ref=target_channel,
             )
         )
         session.commit()
@@ -1280,6 +1281,7 @@ async def post_channel_comment(
                     in_reply_to_message_id=in_reply_to_message_id,
                     error="economy_probe_failed",
                     is_economy_stub=True,
+                    channel_ref=mon_name,
                 )
             )
             session.commit()
@@ -1305,6 +1307,7 @@ async def post_channel_comment(
                 posted_message_id=posted_message_id,
                 in_reply_to_message_id=in_reply_to_message_id,
                 is_economy_stub=is_economy,
+                channel_ref=mon_name,
             )
         )
         session.commit()
