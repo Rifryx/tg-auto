@@ -67,6 +67,10 @@ class ShillingCampaign(Base, TimestampMixin):
             "pickup_replies_hours >= 1 AND pickup_replies_hours <= 72",
             name="pickup_replies_hours_valid",
         ),
+        CheckConstraint(
+            "insert_link_chance_percent BETWEEN 0 AND 100",
+            name="campaign_insert_link_chance_percent_valid",
+        ),
         {"schema": SHILLING_SCHEMA},
     )
 
@@ -197,6 +201,18 @@ class ShillingCampaign(Base, TimestampMixin):
     # UI конкурента: «повільний режим: чекати до 5 хв».
     slow_mode_wait_max_sec: Mapped[int] = mapped_column(
         Integer, nullable=False, default=300, server_default="300"
+    )
+
+    # ── Вставка ссылки в диалог ─────────────────────────────────────────
+    # С вероятностью insert_link_chance_percent к message-шагу дописывается
+    # ссылка кампании (brand_link). Многие чаты банят за ссылки — такой бан
+    # отслеживается: цель уходит в ЧС с отдельной причиной и пользователь
+    # получает предупреждение. По умолчанию выключено.
+    insert_link_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    insert_link_chance_percent: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=15, server_default="15"
     )
 
     # ── Лимиты на аккаунт ───────────────────────────────────────────────

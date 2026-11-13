@@ -48,6 +48,9 @@ export interface Campaign {
   reserve_enabled: boolean;
   inter_account_reactions_enabled: boolean;
   captcha_solver_enabled: boolean;
+  /** Иногда дописывать brand_link к реплике. */
+  insert_link_enabled: boolean;
+  insert_link_chance_percent: number;
   slow_mode_wait_max_sec: number;
   msg_limit_per_hour: number | null;
   msg_limit_total: number | null;
@@ -83,6 +86,8 @@ export interface CampaignCreateBody {
   reserve_enabled?: boolean;
   inter_account_reactions_enabled?: boolean;
   captcha_solver_enabled?: boolean;
+  insert_link_enabled?: boolean;
+  insert_link_chance_percent?: number;
   slow_mode_wait_max_sec?: number;
   msg_limit_per_hour?: number | null;
   msg_limit_total?: number | null;

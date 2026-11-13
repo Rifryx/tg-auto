@@ -35,6 +35,7 @@ _ACCOUNT_STATUS_CHANNEL = "account_status"
 _BAN_RISK_CHANNEL = "health.ban_risk_updated"
 _AUTOPILOT_CHANNEL = "autopilot.events"
 _COMMENTING_ALERTS_CHANNEL = "commenting.alerts"
+_SHILLING_ALERTS_CHANNEL = "shilling.alerts"
 _SUPPORT_NEW_MESSAGE_CHANNEL = "support.new_message"
 
 
@@ -203,11 +204,31 @@ def _fmt_commenting_alert(payload: dict[str, Any]) -> Optional[str]:
     return "\n".join(lines)
 
 
+def _fmt_shilling_alert(payload: dict[str, Any]) -> Optional[str]:
+    """Алерт нейрошиллинга. Пока один вид — link_ban (бан за ссылку)."""
+    if (payload.get("kind") or "") != "link_ban":
+        return None
+    lines = [
+        "🔗 <b>Бан за ссылку в нейрошиллинге</b>",
+        "Чат заблокировал сообщение со ссылкой — цель перенесена в чёрный "
+        "список кампании. Вернуть её в работу можно вручную на вкладке «ЧС».",
+    ]
+    chat = payload.get("chat")
+    if chat:
+        lines.append(f"Чат: <code>{html.escape(str(chat))}</code>")
+    if payload.get("campaign_id") is not None:
+        lines.append(f"Кампания: <code>#{payload['campaign_id']}</code>")
+    if payload.get("account_id") is not None:
+        lines.append(f"Аккаунт: <code>#{payload['account_id']}</code>")
+    return "\n".join(lines)
+
+
 _HANDLERS = {
     _ACCOUNT_STATUS_CHANNEL: _fmt_account_status,
     _BAN_RISK_CHANNEL: _fmt_ban_risk,
     _AUTOPILOT_CHANNEL: _fmt_autopilot,
     _COMMENTING_ALERTS_CHANNEL: _fmt_commenting_alert,
+    _SHILLING_ALERTS_CHANNEL: _fmt_shilling_alert,
 }
 
 

@@ -251,6 +251,44 @@ export function LaunchTab({
             />
 
             <ParamToggle
+              label="Вставлять ссылку"
+              hint="Иногда дописывает ссылку кампании (из поля «Ссылка/бренд») к реплике. ВНИМАНИЕ: многие чаты банят за ссылки — если бот словит бан на сообщении со ссылкой, чат автоматически уходит в ЧС, а вам придёт предупреждение. Вернуть чат в работу можно вручную на вкладке «ЧС»."
+              checked={c.insert_link_enabled}
+              disabled={patch.isPending}
+              onChange={(v) => patch.mutate({ insert_link_enabled: v })}
+            >
+              {c.insert_link_enabled && (
+                <div className="mt-2 flex flex-col gap-1.5">
+                  {!c.brand_link && (
+                    <p className="text-[11px] leading-snug text-status-warning">
+                      Ссылка кампании не задана — заполните поле «Ссылка/бренд»,
+                      иначе вставлять нечего.
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px] text-text-tertiary">
+                      Вероятность вставки
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={c.insert_link_chance_percent}
+                      disabled={patch.isPending}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        if (v >= 0 && v <= 100)
+                          patch.mutate({ insert_link_chance_percent: v });
+                      }}
+                      className="nums h-8 w-16 rounded-chip border border-hairline bg-surface-1 px-2 text-[13px] text-text-primary"
+                    />
+                    <span className="text-[12px] text-text-tertiary">%</span>
+                  </div>
+                </div>
+              )}
+            </ParamToggle>
+
+            <ParamToggle
               label="Реакции между аккаунтами"
               hint="Боты ставят эмодзи-реакции на реплики друг друга — живой разговор редко идёт совсем без реакций."
               checked={c.inter_account_reactions_enabled}
