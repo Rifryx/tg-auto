@@ -89,14 +89,20 @@ function DashboardContent({ data }: { data: Dashboard }) {
 
   return (
     <div className="flex flex-col gap-8">
-      {/* KPI-плитки: сводка за сегодня одним взглядом. */}
+      {/* KPI-плитки: сводка за сегодня одним взглядом. Ровно 4 плитки (2×2 на
+          телефоне, 4 в ряд на ПК) — без «сиротливой» пятой; паузы показываем
+          подписью внутри плитки активных кампаний. */}
       <section>
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
           <KpiTile label="Действий сегодня" value={k.actions_today} />
-          <KpiTile label="Активных кампаний" value={k.active_campaigns} tone="active" />
+          <KpiTile
+            label="Активных кампаний"
+            value={k.active_campaigns}
+            tone="active"
+            sub={k.paused_campaigns > 0 ? `${k.paused_campaigns} на паузе` : null}
+          />
           <KpiTile label="Аккаунтов в работе" value={k.accounts_working} />
           <KpiTile label="Ошибок сегодня" value={k.errors_today} tone="critical" />
-          <KpiTile label="Кампаний на паузе" value={k.paused_campaigns} tone="warning" />
         </div>
       </section>
 
@@ -178,9 +184,9 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 function DashboardSkeleton() {
   return (
     <div className="flex flex-col gap-8">
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="card h-[74px] animate-pulse" />
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="card h-[86px] animate-pulse" />
         ))}
       </div>
       <div>

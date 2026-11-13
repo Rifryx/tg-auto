@@ -186,29 +186,34 @@ export function KpiTile({
   label,
   value,
   tone = "neutral",
+  sub,
   to,
 }: {
   label: string;
   value: number;
   tone?: "neutral" | "warning" | "critical" | "active";
+  sub?: string | null;
   to?: string;
 }) {
-  const active = value > 0;
+  // Тон числа подсвечивает только то, что требует внимания (ошибки) и только
+  // когда значение > 0; «active» держим нейтральным, чтобы не было зелёного
+  // декора ради декора (бриф: цвет — лишь для статусов).
   const toneClass =
-    !active || tone === "neutral"
-      ? "text-text-primary"
-      : tone === "critical"
-        ? "text-status-critical"
-        : tone === "warning"
-          ? "text-status-warning"
-          : "text-status-active";
+    value > 0 && tone === "critical"
+      ? "text-status-critical"
+      : value > 0 && tone === "warning"
+        ? "text-status-warning"
+        : "text-text-primary";
   const inner = (
     <>
-      <p className={`nums text-[26px] font-bold leading-none ${toneClass}`}>{value}</p>
-      <p className="mt-1.5 text-[11.5px] leading-tight text-text-tertiary">{label}</p>
+      <p className={`nums text-[27px] font-bold leading-none ${toneClass}`}>{value}</p>
+      <div className="mt-2">
+        <p className="text-[12px] leading-tight text-text-secondary">{label}</p>
+        {sub ? <p className="mt-0.5 text-[11px] leading-tight text-text-tertiary">{sub}</p> : null}
+      </div>
     </>
   );
-  const cls = "card flex flex-col justify-between gap-2 p-3.5";
+  const cls = "card flex min-h-[86px] flex-col justify-between gap-2 p-4";
   if (to) {
     return (
       <Link to={to} className={`${cls} transition-colors active:bg-surface-2`}>
@@ -224,49 +229,76 @@ export function KpiTile({
 // акцентирован. Числа — tabular-nums. Без библиотек, только токены темы.
 const WEEKDAY_RU = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
 
+const TREND_TRACK_PX = 96;
+
 export function TrendChart({ points }: { points: TrendPoint[] }) {
   const total = points.reduce((a, p) => a + p.actions, 0);
   const max = Math.max(1, ...points.map((p) => p.actions));
+  const peak = Math.max(...points.map((p) => p.actions));
   const todayIso = new Date().toISOString().slice(0, 10);
+  const avg = Math.round(total / Math.max(1, points.length));
 
   return (
     <div className="card p-5">
-      <div className="mb-4 flex items-end justify-between">
+      <div className="mb-5 flex items-end justify-between">
         <div>
-          <p className="nums text-[26px] font-bold leading-none text-text-primary">{total}</p>
-          <p className="mt-1 text-[12px] text-text-tertiary">действий за 7 дней</p>
+          <p className="nums text-[27px] font-bold leading-none text-text-primary">{total}</p>
+          <p className="mt-1.5 text-[12px] text-text-tertiary">действий за 7 дней</p>
         </div>
-        <span className="text-[11px] text-text-tertiary">по дням, UTC</span>
+        <span className="nums text-[12px] text-text-tertiary">≈ {avg}/день</span>
       </div>
+
       {total === 0 ? (
-        <div className="flex h-[88px] items-center justify-center text-[13px] text-text-tertiary">
+        <div className="flex items-center justify-center text-[13px] text-text-tertiary" style={{ height: TREND_TRACK_PX }}>
           Пока нет действий за неделю
         </div>
       ) : (
-        <div className="flex h-[88px] items-end gap-1.5">
-          {points.map((p) => {
-            const isToday = p.date === todayIso;
-            const h = Math.round((p.actions / max) * 100);
-            const d = new Date(`${p.date}T00:00:00Z`);
-            const wd = WEEKDAY_RU[d.getUTCDay()];
-            return (
-              <div key={p.date} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
-                <div className="flex w-full flex-1 items-end" title={`${p.actions} действий`}>
+        <>
+          {/* Столбцы на общей базовой линии: высота в пикселях от фикс. трека
+              (проценты внутри вложенного flex не резолвятся — был пустой чарт).
+              Сегодня — сплошной акцент, остальные дни — приглушённый, но хорошо
+              читаемый тон (не surface-2, иначе сливается с карточкой). */}
+          <div className="flex items-end gap-2" style={{ height: TREND_TRACK_PX }}>
+            {points.map((p) => {
+              const isToday = p.date === todayIso;
+              const isPeak = p.actions === peak && !isToday;
+              const h = Math.max(Math.round((p.actions / max) * TREND_TRACK_PX), p.actions > 0 ? 4 : 2);
+              return (
+                <div
+                  key={p.date}
+                  className="flex flex-1 items-end justify-center"
+                  style={{ height: TREND_TRACK_PX }}
+                  title={`${p.actions} действий`}
+                >
                   <div
-                    className={`w-full rounded-[4px] ${isToday ? "bg-text-primary" : "bg-surface-2"}`}
-                    style={{ height: `${Math.max(h, p.actions > 0 ? 6 : 2)}%` }}
+                    className={`w-full rounded-t-[5px] ${
+                      isToday ? "bg-text-primary" : isPeak ? "bg-text-secondary" : "bg-text-tertiary"
+                    }`}
+                    style={{ height: h }}
                     aria-hidden
                   />
                 </div>
+              );
+            })}
+          </div>
+          {/* Подписи дней — отдельной строкой, чтобы столбцы стояли ровно. */}
+          <div className="mt-2 flex gap-2">
+            {points.map((p) => {
+              const isToday = p.date === todayIso;
+              const wd = WEEKDAY_RU[new Date(`${p.date}T00:00:00Z`).getUTCDay()];
+              return (
                 <span
-                  className={`text-[10px] leading-none ${isToday ? "font-semibold text-text-secondary" : "text-text-tertiary"}`}
+                  key={p.date}
+                  className={`flex-1 text-center text-[10.5px] leading-none ${
+                    isToday ? "font-semibold text-text-secondary" : "text-text-tertiary"
+                  }`}
                 >
-                  {wd}
+                  {isToday ? "сег." : wd}
                 </span>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );
