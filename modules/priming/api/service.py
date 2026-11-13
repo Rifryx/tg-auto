@@ -76,6 +76,7 @@ _EDITABLE_STATUSES = {
 
 _DELETABLE_STATUSES = {
     PrimingCampaignStatus.DRAFT.value,
+    PrimingCampaignStatus.STOPPED.value,
     PrimingCampaignStatus.FINISHED.value,
     PrimingCampaignStatus.FAILED.value,
 }
