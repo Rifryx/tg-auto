@@ -21,6 +21,7 @@ from core.queue import TaskQueue
 from core.queue.task_names import TaskName
 from core.repositories.account import AccountRepository
 from modules.shilling.repositories import (
+    BlacklistRepository,
     CampaignAccountRepository,
     CampaignRepository,
     CampaignTargetRepository,
@@ -28,7 +29,11 @@ from modules.shilling.repositories import (
     ScenarioRoleRepository,
     ScenarioStepRepository,
 )
-from modules.shilling.schemas import ExecutionLogCreate
+from modules.shilling.schemas import BlacklistCreate, ExecutionLogCreate
+
+# Канал Redis для алертов шиллинга (бан за ссылку и т.п.). Бот-нотифаер
+# подписан на него и шлёт пуш пользователю.
+SHILLING_ALERTS_CHANNEL = "shilling.alerts"
 from worker.client_pool import ClientPool
 from worker.health import Governor, around_telethon_call
 
@@ -153,6 +158,12 @@ async def execute_step(
         provider_name = campaign.llm_provider
         role_name = role.name if role else ""
         role_character = role.character if role else None
+        # Вставка ссылки в диалог (brand_link) с заданной вероятностью.
+        insert_link_enabled = bool(getattr(campaign, "insert_link_enabled", False))
+        insert_link_chance = max(
+            0, min(100, int(getattr(campaign, "insert_link_chance_percent", 0) or 0))
+        )
+        brand_link = (campaign.brand_link or "").strip()
 
         # Реплай-чейнинг. По умолчанию отвечаем на thread_msg_id (корень
         # обсуждения для комментариев, None для прямого чата). Если у шага задан
@@ -201,6 +212,20 @@ async def execute_step(
             role_character=role_character,
             brand_name=brand,
         )
+
+    # Вставка ссылки в диалог. С вероятностью insert_link_chance дописываем
+    # brand_link к message-шагу. had_link — нужен, чтобы при бане отличить
+    # «бан за ссылку» от обычного бана и изолировать такой чат.
+    had_link = False
+    if (
+        step_type == "message"
+        and insert_link_enabled
+        and brand_link
+        and text
+        and _rng(ctx).randint(1, 100) <= insert_link_chance
+    ):
+        text = f"{text}\n{brand_link}"
+        had_link = True
 
     pool = _pool(ctx)
     client = await pool.get(account_id)
@@ -265,6 +290,22 @@ async def execute_step(
             posted_message_id=None, status="failed", error=type(exc).__name__,
         )
         if _is_ban_like(exc):
+            # Бан на сообщении со ссылкой: с большой вероятностью чат банит
+            # именно за ссылки. Изолируем цель (ЧС, auto=True, отдельная
+            # причина) и предупреждаем пользователя — пусть сам решит, вернуть
+            # чат в работу или оставить в ЧС. Не гоняем failover: другой
+            # аккаунт получит тот же бан за ту же ссылку.
+            if had_link:
+                _handle_link_ban(
+                    session_factory, publisher, campaign_id, target_id,
+                    account_id, error=type(exc).__name__,
+                )
+                log.warning(
+                    "shilling.execute_step.link_ban",
+                    account_id=account_id, target_id=target_id,
+                    error=type(exc).__name__,
+                )
+                return None
             log.warning(
                 "shilling.execute_step.ban_like",
                 account_id=account_id, error=type(exc).__name__,
@@ -437,3 +478,52 @@ def _log_result(
             )
         )
         session.commit()
+
+
+def _handle_link_ban(
+    session_factory,
+    publisher,
+    campaign_id: int,
+    target_id: int,
+    account_id: int,
+    *,
+    error: str,
+) -> None:
+    """Реакция на бан сообщения со ссылкой: цель в ЧС (auto) + алерт юзеру.
+
+    Идемпотентно по ЧС. Публикует событие в Redis — бот-нотифаер шлёт пуш,
+    чтобы пользователь узнал, что чат блокирует ссылки, и сам решил, вернуть
+    ли цель в работу.
+    """
+    reason = "Подозрение на бан за ссылку — чат блокирует сообщения со ссылками"
+    chat_ident = None
+    with session_factory() as session:
+        target = CampaignTargetRepository(session).get(target_id)
+        if target is None:
+            return
+        chat_id = target.resolved_chat_id
+        username = target.raw_input if target.kind == "username" else None
+        chat_ident = username or (str(chat_id) if chat_id is not None else None)
+        if chat_id is None and not username:
+            return
+        bl_repo = BlacklistRepository(session)
+        if not bl_repo.is_blacklisted(campaign_id, chat_id=chat_id, username=username):
+            bl_repo.create(
+                campaign_id,
+                BlacklistCreate(chat_id=chat_id, username=username, reason=reason),
+                auto=True,
+            )
+            session.commit()
+    if publisher is not None:
+        publisher.publish(
+            SHILLING_ALERTS_CHANNEL,
+            {
+                "kind": "link_ban",
+                "campaign_id": campaign_id,
+                "target_id": target_id,
+                "account_id": account_id,
+                "chat": chat_ident,
+                "error": error,
+                "reason": reason,
+            },
+        )
