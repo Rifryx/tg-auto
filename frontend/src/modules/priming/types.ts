@@ -143,6 +143,12 @@ export interface PrimingCampaignCreateBody {
   quiet_hours_tz?: string | null;
   quiet_hours_start?: number;
   quiet_hours_end?: number;
+  // Фильтры аудитории (бэкенд принимает их и в create, и в update).
+  require_username?: boolean;
+  premium_only?: boolean;
+  exclude_bots?: boolean;
+  exclude_deleted?: boolean;
+  exclude_admins?: boolean;
   ab_split_enabled?: boolean;
   ab_split_ratio?: number;
 }
