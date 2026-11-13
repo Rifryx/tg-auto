@@ -93,6 +93,11 @@ _STUB_TASKS = [
     # priming: все реальные хендлеры уже смонтированы (execute_prime,
     # orchestrator_tick, humanizer_beat, parser_run). Profile-apply
     # ушёл в общий блок «Аккаунты» через bulk-actions.
+    # mass_reactions: ядро логики (репозитории, раскладчик, executor) готово и
+    # покрыто тестами; arq-обвязка хендлеров (Telethon-клиент + reschedule) —
+    # финальный интеграционный шаг, пока стабы.
+    TaskName.MASS_REACTIONS_PLACE_REACTION,
+    TaskName.MASS_REACTIONS_ORCHESTRATOR_TICK,
 ]
 
 
