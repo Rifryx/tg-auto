@@ -1,4 +1,12 @@
-import { BellRing, ChevronRight, Filter, LayoutGrid, MessagesSquare } from "lucide-react";
+import {
+  Bot,
+  BellRing,
+  ChevronRight,
+  Filter,
+  LayoutGrid,
+  MessagesSquare,
+  ScrollText,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
@@ -9,24 +17,18 @@ interface Service {
   icon: LucideIcon;
   label: string;
   hint: string;
-  // Показывать зацикленную анимацию под названием, пока задача выполняется
-  // фоном (сейчас только «Парсинг» — см. useActiveParsingJobs).
+  /** Тихая метка справа от названия (например, «Новое»). */
+  tag?: string;
+  /** Зацикленный индикатор, пока фоновая задача идёт (сейчас — парсинг). */
   runningIndicator?: boolean;
 }
 
-const CAMPAIGNS: Service[] = [
-  {
-    to: "/tasks",
-    icon: LayoutGrid,
-    label: "Нейрокомментинг",
-    hint: "Кампании и комментарии",
-  },
-  {
-    to: "/modules/shilling",
-    icon: MessagesSquare,
-    label: "НейроШиллинг",
-    hint: "Сценарии посевов",
-  },
+// Модули продвижения — все в одной группе и одинаковыми строками, чтобы ни один
+// не «висел» отдельным баннером без причины (прайминг раньше был hero-карточкой).
+const PROMOTION: Service[] = [
+  { to: "/tasks", icon: LayoutGrid, label: "Нейрокомментинг", hint: "Кампании и комментарии под постами" },
+  { to: "/modules/shilling", icon: MessagesSquare, label: "НейроШиллинг", hint: "Сценарии посевов в чатах" },
+  { to: "/modules/priming", icon: BellRing, label: "Прайминг", hint: "Касания через системные события, без сообщений", tag: "Новое" },
 ];
 
 const DATA: Service[] = [
@@ -34,9 +36,14 @@ const DATA: Service[] = [
     to: "/modules/parsing",
     icon: Filter,
     label: "Парсинг",
-    hint: "Готовые списки целей для прайминга и шиллинга",
+    hint: "Списки целей для прайминга и шиллинга",
     runningIndicator: true,
   },
+];
+
+const AUTOMATION: Service[] = [
+  { to: "/more/autopilot", icon: Bot, label: "Автопилот", hint: "Прогрев, ротация и мониторинг на автомате" },
+  { to: "/more/audit", icon: ScrollText, label: "Аудит активности", hint: "История операций по аккаунтам" },
 ];
 
 export function ServicesScreen() {
@@ -44,76 +51,47 @@ export function ServicesScreen() {
     <>
       <ScreenHeader title="Сервисы" />
 
-      <PrimingHero />
+      <ServiceGroup title="Продвижение" items={PROMOTION} />
+      <ServiceGroup title="Данные" items={DATA} />
+      <ServiceGroup title="Автоматизация" items={AUTOMATION} />
+    </>
+  );
+}
 
-      <SectionTitle>Кампании</SectionTitle>
-      <div className="card mb-8 overflow-hidden p-0">
-        {CAMPAIGNS.map((s, i) => (
+function ServiceGroup({ title, items }: { title: string; items: Service[] }) {
+  return (
+    <section className="mb-8">
+      <h2 className="section-title mb-3">{title}</h2>
+      <div className="card overflow-hidden p-0">
+        {items.map((s, i) => (
           <div key={s.to} className={i > 0 ? "border-t border-hairline" : ""}>
             <ServiceRow {...s} />
           </div>
         ))}
       </div>
-
-      <SectionTitle>Данные</SectionTitle>
-      <div className="card mb-8 overflow-hidden p-0">
-        {DATA.map((s) => (
-          <ServiceRow key={s.to} {...s} />
-        ))}
-      </div>
-
-      <div className="card overflow-hidden p-0">
-        <QuickLink to="/more/audit" label="Аудит активности" />
-        <div className="border-t border-hairline" />
-        <QuickLink to="/more/autopilot" label="Автопилот" />
-      </div>
-    </>
+    </section>
   );
 }
 
-function PrimingHero() {
-  return (
-    <Link
-      to="/modules/priming"
-      className="card-hero mb-8 flex items-start gap-5 p-6 transition-colors active:bg-surface-2"
-    >
-      <div className="min-w-0 flex-1">
-        <div className="mb-2 flex flex-wrap items-center gap-2.5">
-          <span className="text-[19px] font-semibold leading-tight text-text-primary">
-            Прайминг
-          </span>
-          {/* Тихая текстовая метка вместо «✨ НОВОЕ» (unslop: бейджи-блёстки
-              убираем, остаётся спокойный текст). */}
-          <span className="rounded-pill border border-hairline px-2 py-0.5 text-[11px] font-medium text-text-tertiary">
-            Новое
-          </span>
-        </div>
-        <p className="text-[14px] leading-relaxed text-text-secondary">
-          Push через системные события — без сообщений в чате
-        </p>
-        <span className="btn btn-primary btn-md mt-5">Попробовать</span>
-      </div>
-      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-secondary">
-        <BellRing className="h-7 w-7" strokeWidth={1.5} aria-hidden />
-      </span>
-    </Link>
-  );
-}
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h2 className="section-title mb-3">{children}</h2>;
-}
-
-function ServiceRow({ to, icon: Icon, label, hint, runningIndicator }: Service) {
+function ServiceRow({ to, icon: Icon, label, hint, tag, runningIndicator }: Service) {
   const parsingActive = useActiveParsingJobs();
   const showBar = runningIndicator && parsingActive;
   return (
-    <Link to={to} className="flex items-center gap-4 px-4 py-4 active:bg-surface-2">
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-primary">
+    <Link to={to} className="flex items-center gap-4 px-4 py-4 transition-colors active:bg-surface-2">
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-secondary">
         <Icon className="h-5 w-5" strokeWidth={1.7} aria-hidden />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="text-[15px] font-semibold leading-tight text-text-primary">{label}</div>
+        <div className="flex items-center gap-2">
+          <span className="truncate text-[15px] font-semibold leading-tight text-text-primary">
+            {label}
+          </span>
+          {tag && (
+            <span className="shrink-0 rounded-pill border border-hairline px-2 py-0.5 text-[11px] font-medium text-text-tertiary">
+              {tag}
+            </span>
+          )}
+        </div>
         <div className="mt-0.5 truncate text-[13px] text-text-tertiary">
           {showBar ? "Парсинг выполняется…" : hint}
         </div>
@@ -124,15 +102,6 @@ function ServiceRow({ to, icon: Icon, label, hint, runningIndicator }: Service) 
         )}
       </div>
       <ChevronRight className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
-    </Link>
-  );
-}
-
-function QuickLink({ to, label }: { to: string; label: string }) {
-  return (
-    <Link to={to} className="flex items-center gap-3 px-4 py-3.5 active:bg-surface-2">
-      <span className="flex-1 text-[15px] text-text-primary">{label}</span>
-      <ChevronRight className="h-4 w-4 text-text-tertiary" strokeWidth={1.8} aria-hidden />
     </Link>
   );
 }
