@@ -175,7 +175,7 @@ function Tile({
       <p className="text-[12px] text-text-tertiary">{label}</p>
       <p
         className={[
-          "mt-1 text-[20px] font-bold nums",
+          "mt-1 text-[20px] font-semibold nums",
           tone === "warn" ? "text-status-warning" : "text-text-primary",
         ].join(" ")}
       >

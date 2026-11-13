@@ -27,7 +27,7 @@ export function PushPreview({ action, actorName }: Props) {
   const body = raw.replace("{{name}}", name);
   return (
     <div className="rounded-2xl border border-hairline bg-surface-2 p-4">
-      <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-tertiary">
+      <div className="mb-2 flex items-center gap-2 text-[11px] text-text-tertiary">
         <Lock className="h-3 w-3" strokeWidth={2} aria-hidden />
         Экран блокировки · сейчас
       </div>

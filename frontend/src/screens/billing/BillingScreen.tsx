@@ -1,4 +1,4 @@
-import { ArrowLeft, Check, Sparkles } from "lucide-react";
+import { ArrowLeft, Check, Crown } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { hapticSelection } from "../../shared/tg";
@@ -110,7 +110,7 @@ function FreeCard({ plan, active }: { plan: Plan; active: boolean }) {
           <span className="text-[12px] text-text-tertiary">навсегда</span>
         )}
       </div>
-      <div className="mb-4 nums text-[36px] font-bold leading-none text-text-primary">
+      <div className="mb-4 nums text-[36px] font-semibold leading-none text-text-primary">
         $0
       </div>
       <p className="mb-5 text-[13px] text-text-secondary">{plan.tagline}</p>
@@ -146,13 +146,13 @@ function ProCard({
         <div className="mb-1 flex items-center justify-between">
           <h2 className="text-[18px] font-semibold">{plan.name}</h2>
           <span
-            className="inline-flex items-center gap-1 rounded-pill px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide"
+            className="inline-flex items-center gap-1 rounded-pill px-2.5 py-1 text-[11px] font-semibold"
             style={{
               background: "rgba(255,255,255,0.12)",
               boxShadow: "0 0 0 1px rgba(255,255,255,0.16) inset",
             }}
           >
-            <Sparkles className="h-3 w-3" strokeWidth={2} aria-hidden />
+            <Crown className="h-3 w-3" strokeWidth={2} aria-hidden />
             {hasPromo ? "Акция" : "Популярный"}
           </span>
         </div>

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Sparkles } from "lucide-react";
+import { Wand2 } from "lucide-react";
 import { shillingApi } from "../api";
 import type { Role, Step } from "../types";
 import { RoleAvatar, roleColor } from "./RoleCard";
@@ -103,7 +103,7 @@ export function ScenarioPreview({
             onClick={onGenerate}
             className="inline-flex items-center gap-1.5 rounded-pill bg-accent px-3.5 py-1.5 text-[13px] font-medium text-accent-on active:opacity-80"
           >
-            <Sparkles className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+            <Wand2 className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
             Сгенерировать через ИИ
           </button>
         )}

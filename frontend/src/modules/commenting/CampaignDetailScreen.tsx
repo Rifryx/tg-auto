@@ -908,7 +908,7 @@ function CampaignBlacklistSection({ campaignId }: { campaignId: number }) {
                   <p className="truncate text-[14px] text-text-primary">
                     {it.username ? `@${it.username}` : `chat_id ${it.chat_id}`}
                     {it.auto && (
-                      <span className="ml-1.5 rounded-pill bg-surface-2 px-2 py-0.5 text-[10px] uppercase text-text-tertiary">
+                      <span className="ml-1.5 rounded-pill bg-surface-2 px-2 py-0.5 text-[10px] text-text-tertiary">
                         auto
                       </span>
                     )}

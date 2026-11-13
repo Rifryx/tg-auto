@@ -740,7 +740,7 @@ function Block({
   return (
     <section className="card p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary">
+        <h3 className="text-[12px] font-semibold text-text-secondary">
           {title}
         </h3>
         {action}

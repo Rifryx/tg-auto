@@ -129,7 +129,7 @@ export function PrimingDetailScreen() {
                 {data.status}
               </span>
               {data.dry_run && (
-                <span className="ml-1 rounded-pill bg-surface-2 px-2 py-0.5 text-[10px] uppercase tracking-wider text-text-secondary">
+                <span className="ml-1 rounded-pill bg-surface-2 px-2 py-0.5 text-[10px] text-text-secondary">
                   dry-run
                 </span>
               )}

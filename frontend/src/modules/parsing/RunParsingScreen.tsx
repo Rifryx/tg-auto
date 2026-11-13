@@ -230,7 +230,7 @@ export function RunParsingScreen() {
           <span className="absolute inset-y-0 left-0 w-[3px] bg-accent" aria-hidden />
           <div className="mb-3 flex items-center gap-2">
             <Link2 className="h-4 w-4 text-accent" strokeWidth={2.2} aria-hidden />
-            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">Источник</div>
+            <div className="text-[13px] font-medium text-text-secondary">Источник</div>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -326,7 +326,7 @@ export function RunParsingScreen() {
           <span className="absolute inset-y-0 left-0 w-[3px] bg-status-active opacity-80" aria-hidden />
           <div className="mb-2 flex items-center gap-2">
             <UserCheck className="h-4 w-4 text-status-active" strokeWidth={2.2} aria-hidden />
-            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">Аккаунт-парсер</div>
+            <div className="text-[13px] font-medium text-text-secondary">Аккаунт-парсер</div>
           </div>
           <p className="mb-3 text-[12px] text-text-tertiary">
             Отдельный от рабочих аккаунт для чтения — выберите из списка.
@@ -367,7 +367,7 @@ export function RunParsingScreen() {
                         </div>
                       </div>
                       {collectorId === a.id && (
-                        <span className="shrink-0 rounded-pill bg-status-active/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-status-active">
+                        <span className="shrink-0 rounded-pill bg-status-active/15 px-2 py-0.5 text-[10px] text-status-active">
                           выбран
                         </span>
                       )}
@@ -389,7 +389,7 @@ export function RunParsingScreen() {
         <div className="card p-5">
           <div className="mb-3 flex items-center gap-2">
             <Filter className="h-4 w-4 text-text-secondary" strokeWidth={2} aria-hidden />
-            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">Фильтры</div>
+            <div className="text-[13px] font-medium text-text-secondary">Фильтры</div>
           </div>
           <Checkbox checked={requireUsername} onChange={setRequireUsername} label="Только с @username" />
           <Checkbox checked={premiumOnly} onChange={setPremiumOnly} label="Только Telegram Premium" />

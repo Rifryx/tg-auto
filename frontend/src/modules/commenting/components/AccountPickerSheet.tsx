@@ -114,7 +114,7 @@ export function AccountPickerSheet({
             <div className="flex flex-col gap-3 pb-2">
               {attached.length > 0 && (
                 <div className="flex flex-col gap-2">
-                  <p className="text-[12px] font-semibold uppercase tracking-wide text-text-tertiary">
+                  <p className="text-[12px] font-semibold text-text-tertiary">
                     Уже в кампании · {attached.length}
                   </p>
                   {attached.map((a) => (
@@ -152,7 +152,7 @@ export function AccountPickerSheet({
               {available.length > 0 && (
                 <div className="flex flex-col gap-2">
                   {attached.length > 0 && (
-                    <p className="text-[12px] font-semibold uppercase tracking-wide text-text-tertiary">
+                    <p className="text-[12px] font-semibold text-text-tertiary">
                       Можно добавить · {available.length}
                     </p>
                   )}

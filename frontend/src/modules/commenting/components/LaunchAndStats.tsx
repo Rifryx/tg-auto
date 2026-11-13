@@ -153,7 +153,7 @@ function RuntimeChip({
           : "border-hairline bg-surface-1"
       }`}
     >
-      <div className="mb-0.5 flex min-w-0 items-center gap-1 text-[10px] uppercase leading-tight tracking-wide text-text-tertiary">
+      <div className="mb-0.5 flex min-w-0 items-center gap-1 text-[10px] leading-tight text-text-tertiary">
         <span className="shrink-0">{icon}</span>
         <span className="min-w-0 truncate">{label}</span>
       </div>
@@ -181,7 +181,7 @@ function StatTile({
 }) {
   return (
     <div className="min-w-0 rounded-chip border border-hairline bg-surface-1 px-2.5 py-2">
-      <div className="mb-1 flex min-w-0 items-center gap-1 text-[10px] uppercase leading-tight tracking-wide text-text-tertiary">
+      <div className="mb-1 flex min-w-0 items-center gap-1 text-[10px] leading-tight text-text-tertiary">
         <span className="shrink-0">{icon}</span>
         <span className="min-w-0 truncate">{label}</span>
       </div>

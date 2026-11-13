@@ -227,7 +227,7 @@ function TDataDropZone({ onClick }: { onClick: () => void }) {
       <FolderOpen className="h-8 w-8 text-accent" strokeWidth={1.5} aria-hidden />
       <p className="text-[14px] font-semibold text-text-primary">TData</p>
       <p className="text-[11px] text-text-tertiary">ZIP с папкой tdata</p>
-      <span className="mt-1 rounded-pill bg-surface-2 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">
+      <span className="mt-1 rounded-pill bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-text-tertiary">
         по одному
       </span>
     </button>

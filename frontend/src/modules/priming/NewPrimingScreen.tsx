@@ -333,7 +333,7 @@ export function NewPrimingScreen() {
                         {label}
                       </span>
                       {isPreview && (
-                        <span className="rounded-pill bg-accent/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-accent">
+                        <span className="rounded-pill bg-accent/15 px-2 py-0.5 text-[10px] text-accent">
                           preview
                         </span>
                       )}
@@ -907,10 +907,10 @@ function ParsingListPicker({
               </div>
             </div>
             <div className="shrink-0 text-right">
-              <div className="text-[16px] font-bold tabular-nums text-text-primary">
+              <div className="text-[16px] font-semibold tabular-nums text-text-primary">
                 {l.after_filters_count}
               </div>
-              <div className="text-[10px] uppercase tracking-wider text-text-tertiary">
+              <div className="text-[10px] text-text-tertiary">
                 целей
               </div>
             </div>

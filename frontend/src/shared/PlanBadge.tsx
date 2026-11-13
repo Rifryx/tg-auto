@@ -1,4 +1,4 @@
-import { Sparkles } from "lucide-react";
+import { Crown } from "lucide-react";
 import { useCurrentPlan, useHasActivePromo } from "./store";
 
 export function PlanBadge({ size = "sm" }: { size?: "sm" | "md" }) {
@@ -17,7 +17,7 @@ export function PlanBadge({ size = "sm" }: { size?: "sm" | "md" }) {
         <span
           className={`promo-badge inline-flex items-center gap-1.5 rounded-pill font-semibold ${sizes}`}
         >
-          <Sparkles className={icon} strokeWidth={2} aria-hidden />
+          <Crown className={icon} strokeWidth={2} aria-hidden />
           Pro
         </span>
       );
@@ -26,7 +26,7 @@ export function PlanBadge({ size = "sm" }: { size?: "sm" | "md" }) {
       <span
         className={`inline-flex items-center gap-1.5 rounded-pill border border-strong bg-surface-2 font-semibold text-text-primary ${sizes}`}
       >
-        <Sparkles className={icon} strokeWidth={2} aria-hidden />
+        <Crown className={icon} strokeWidth={2} aria-hidden />
         Pro
       </span>
     );
