@@ -148,13 +148,19 @@ class RunCommunitiesRequest(_ParsingBase):
     require_public: bool = False
     require_linked_chat: bool = False
     last_post_max_days: Optional[int] = Field(default=None, ge=0, le=3650)
-    exclude_scam_fake: bool = True
+    exclude_scam_fake: bool = False
     verified_only: bool = False
     title_regex: Optional[str] = Field(default=None, max_length=256)
     username_regex: Optional[str] = Field(default=None, max_length=256)
     # Расширенные фильтры.
     title_exclude_regex: Optional[str] = Field(default=None, max_length=256)
+    # Legacy одиночный язык. Новый UI шлёт `languages` (список кодов).
     language: Optional[str] = Field(default=None, pattern="^(ru|en|ru_or_en)$")
+    languages: Optional[list[str]] = Field(
+        default=None,
+        description="Мульти-выбор языков: ru/en/uk/pl/be/kk/de/es/fr/it",
+        max_length=10,
+    )
     allow_noforwards: bool = True
     min_slowmode_seconds: Optional[int] = Field(default=None, ge=0, le=86_400)
     max_slowmode_seconds: Optional[int] = Field(default=None, ge=0, le=86_400)
@@ -189,13 +195,19 @@ class _CommunityFilterFields(_ParsingBase):
     require_public: bool = False
     require_linked_chat: bool = False
     last_post_max_days: Optional[int] = Field(default=None, ge=0, le=3650)
-    exclude_scam_fake: bool = True
+    exclude_scam_fake: bool = False
     verified_only: bool = False
     title_regex: Optional[str] = Field(default=None, max_length=256)
     username_regex: Optional[str] = Field(default=None, max_length=256)
     # Расширенные фильтры (точечность парсинга каналов).
     title_exclude_regex: Optional[str] = Field(default=None, max_length=256)
+    # Legacy одиночный язык. Новый UI шлёт `languages` (список кодов).
     language: Optional[str] = Field(default=None, pattern="^(ru|en|ru_or_en)$")
+    languages: Optional[list[str]] = Field(
+        default=None,
+        description="Мульти-выбор языков: ru/en/uk/pl/be/kk/de/es/fr/it",
+        max_length=10,
+    )
     allow_noforwards: bool = True
     min_slowmode_seconds: Optional[int] = Field(default=None, ge=0, le=86_400)
     max_slowmode_seconds: Optional[int] = Field(default=None, ge=0, le=86_400)
