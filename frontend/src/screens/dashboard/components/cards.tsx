@@ -110,7 +110,7 @@ export function StageCard({ status, count }: { status: AccountStatus; count: num
           {STATUS_LABEL[status]}
         </span>
       </div>
-      <span className="nums pl-1 text-[28px] font-bold leading-none text-text-primary">
+      <span className="nums pl-1 text-[28px] font-semibold leading-none text-text-primary">
         {count}
       </span>
     </Link>
@@ -173,7 +173,7 @@ function Metric({
     align === "center" ? "items-center px-2" : align === "right" ? "items-end pl-2" : "items-start pr-2";
   return (
     <div className={`flex flex-col ${box}`}>
-      <p className="nums text-[19px] font-bold leading-tight text-text-primary">{value}</p>
+      <p className="nums text-[19px] font-semibold leading-tight text-text-primary">{value}</p>
       <p className="mt-0.5 text-[11px] text-text-tertiary">{label}</p>
     </div>
   );
@@ -206,7 +206,7 @@ export function KpiTile({
         : "text-text-primary";
   const inner = (
     <>
-      <p className={`nums text-[27px] font-bold leading-none ${toneClass}`}>{value}</p>
+      <p className={`nums text-[27px] font-semibold leading-none ${toneClass}`}>{value}</p>
       <div className="mt-2">
         <p className="text-[12px] leading-tight text-text-secondary">{label}</p>
         {sub ? <p className="mt-0.5 text-[11px] leading-tight text-text-tertiary">{sub}</p> : null}
@@ -225,72 +225,106 @@ export function KpiTile({
 }
 
 // --- 7-дневный тренд действий ----------------------------------------------
-// Минималистичный бар-чарт: один нейтральный ряд, последний день (сегодня)
-// акцентирован. Числа — tabular-nums. Без библиотек, только токены темы.
+// Главный «момент» экрана: тренд — это линия (не столбцы). Плавная линия-область
+// на приглушённой сетке, один акцент (сегодня), мру-подписи дней. Рисуем SVG
+// руками, без библиотек; stroke не тянется (vector-effect), точка «сегодня» —
+// оверлеем в процентах, чтобы не искажалась при растяжении по ширине.
 const WEEKDAY_RU = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
 
-const TREND_TRACK_PX = 96;
+const TREND_H = 200; // высота поля графика, px (токены: 280–360 с заголовком)
+const PAD_T = 14; // отступ сверху, чтобы пик не упирался в край
+const PAD_B = 10;
 
 export function TrendChart({ points }: { points: TrendPoint[] }) {
   const total = points.reduce((a, p) => a + p.actions, 0);
   const max = Math.max(1, ...points.map((p) => p.actions));
-  const peak = Math.max(...points.map((p) => p.actions));
   const todayIso = new Date().toISOString().slice(0, 10);
   const avg = Math.round(total / Math.max(1, points.length));
 
+  const n = points.length;
+  const plotH = TREND_H - PAD_T - PAD_B;
+  // Координаты в процентах по X (0..100) и в пикселях по Y (0..TREND_H).
+  const pts = points.map((p, i) => ({
+    x: n > 1 ? (i / (n - 1)) * 100 : 50,
+    y: PAD_T + (1 - p.actions / max) * plotH,
+    p,
+  }));
+  const linePath = pts.map((pt, i) => `${i === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
+  const areaPath = `${linePath} L 100 ${TREND_H} L 0 ${TREND_H} Z`;
+  const last = pts[pts.length - 1];
+
   return (
     <div className="card p-5">
-      <div className="mb-5 flex items-end justify-between">
+      <div className="mb-4 flex items-end justify-between">
         <div>
-          <p className="nums text-[27px] font-bold leading-none text-text-primary">{total}</p>
+          <p className="nums text-[28px] font-semibold leading-none text-text-primary">{total}</p>
           <p className="mt-1.5 text-[12px] text-text-tertiary">действий за 7 дней</p>
         </div>
-        <span className="nums text-[12px] text-text-tertiary">≈ {avg}/день</span>
+        <span className="nums text-[12px] text-text-tertiary">≈ {avg} в день</span>
       </div>
 
       {total === 0 ? (
-        <div className="flex items-center justify-center text-[13px] text-text-tertiary" style={{ height: TREND_TRACK_PX }}>
+        <div
+          className="flex items-center justify-center text-[13px] text-text-tertiary"
+          style={{ height: TREND_H }}
+        >
           Пока нет действий за неделю
         </div>
       ) : (
         <>
-          {/* Столбцы на общей базовой линии: высота в пикселях от фикс. трека
-              (проценты внутри вложенного flex не резолвятся — был пустой чарт).
-              Сегодня — сплошной акцент, остальные дни — приглушённый, но хорошо
-              читаемый тон (не surface-2, иначе сливается с карточкой). */}
-          <div className="flex items-end gap-2" style={{ height: TREND_TRACK_PX }}>
-            {points.map((p) => {
-              const isToday = p.date === todayIso;
-              const isPeak = p.actions === peak && !isToday;
-              const h = Math.max(Math.round((p.actions / max) * TREND_TRACK_PX), p.actions > 0 ? 4 : 2);
-              return (
-                <div
-                  key={p.date}
-                  className="flex flex-1 items-end justify-center"
-                  style={{ height: TREND_TRACK_PX }}
-                  title={`${p.actions} действий`}
-                >
-                  <div
-                    className={`w-full rounded-t-[5px] ${
-                      isToday ? "bg-text-primary" : isPeak ? "bg-text-secondary" : "bg-text-tertiary"
-                    }`}
-                    style={{ height: h }}
-                    aria-hidden
-                  />
-                </div>
-              );
-            })}
+          <div className="relative" style={{ height: TREND_H }}>
+            <svg
+              viewBox={`0 0 100 ${TREND_H}`}
+              preserveAspectRatio="none"
+              className="absolute inset-0 h-full w-full"
+              aria-hidden
+            >
+              {/* Приглушённая сетка: три линии (низ/середина/верх). */}
+              {[PAD_T, PAD_T + plotH / 2, TREND_H - PAD_B].map((y, i) => (
+                <line
+                  key={i}
+                  x1="0"
+                  x2="100"
+                  y1={y}
+                  y2={y}
+                  stroke="var(--surface-border)"
+                  strokeWidth="1"
+                  vectorEffect="non-scaling-stroke"
+                />
+              ))}
+              <defs>
+                <linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--text-primary)" stopOpacity="0.16" />
+                  <stop offset="100%" stopColor="var(--text-primary)" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <path d={areaPath} fill="url(#trend-fill)" />
+              <path
+                d={linePath}
+                fill="none"
+                stroke="var(--text-primary)"
+                strokeWidth="2"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            </svg>
+            {/* Точка «сегодня» — оверлеем в %, чтобы круг не превращался в эллипс. */}
+            <span
+              className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-text-primary ring-4 ring-surface-1"
+              style={{ left: `${last.x}%`, top: `${last.y}px` }}
+              aria-hidden
+            />
           </div>
-          {/* Подписи дней — отдельной строкой, чтобы столбцы стояли ровно. */}
-          <div className="mt-2 flex gap-2">
+          <div className="mt-2.5 flex">
             {points.map((p) => {
               const isToday = p.date === todayIso;
               const wd = WEEKDAY_RU[new Date(`${p.date}T00:00:00Z`).getUTCDay()];
               return (
                 <span
                   key={p.date}
-                  className={`flex-1 text-center text-[10.5px] leading-none ${
-                    isToday ? "font-semibold text-text-secondary" : "text-text-tertiary"
+                  className={`nums flex-1 text-center text-[10.5px] leading-none ${
+                    isToday ? "font-medium text-text-secondary" : "text-text-tertiary"
                   }`}
                 >
                   {isToday ? "сег." : wd}

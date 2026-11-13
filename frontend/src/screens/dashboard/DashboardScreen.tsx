@@ -71,6 +71,18 @@ function DashboardContent({ data }: { data: Dashboard }) {
   const tz = useAppContent().data?.activity?.timezone;
   const k = data.kpis;
 
+  // Сравнение «сегодня против вчера» по дневному ряду — чтобы число действий
+  // не висело без контекста (сколько это, много или мало).
+  const trend = data.trend_7d;
+  const actionsDelta =
+    trend.length >= 2 ? trend[trend.length - 1].actions - trend[trend.length - 2].actions : null;
+  const actionsSub =
+    actionsDelta === null
+      ? null
+      : actionsDelta === 0
+        ? "как вчера"
+        : `${actionsDelta > 0 ? "+" : "−"}${Math.abs(actionsDelta)} к вчера`;
+
   // Алерты сворачиваем по (аккаунт + тип), чтобы повторы одной проблемы не
   // раздували ленту — показываем последнее событие и счётчик повторов.
   const groupedAlerts = (() => {
@@ -94,7 +106,7 @@ function DashboardContent({ data }: { data: Dashboard }) {
           подписью внутри плитки активных кампаний. */}
       <section>
         <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
-          <KpiTile label="Действий сегодня" value={k.actions_today} />
+          <KpiTile label="Действий сегодня" value={k.actions_today} sub={actionsSub} />
           <KpiTile
             label="Активных кампаний"
             value={k.active_campaigns}
@@ -173,7 +185,7 @@ function DashboardContent({ data }: { data: Dashboard }) {
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
     <h2
-      className="mb-4 text-[18px] font-bold leading-tight text-text-primary"
+      className="mb-4 text-[17px] font-semibold leading-tight text-text-primary"
       style={{ letterSpacing: "-0.01em" }}
     >
       {children}
