@@ -30,6 +30,7 @@ export function StepBubble({
   roles,
   roleIndex,
   onEditText,
+  onEditReaction,
   onChangeRole,
   onDelete,
   onCyclePauseHint,
@@ -51,6 +52,7 @@ export function StepBubble({
   roles: Role[];
   roleIndex: number;
   onEditText: (text: string) => void;
+  onEditReaction?: (emoji: string) => void;
   onChangeRole: (roleId: number) => void;
   onDelete: () => void;
   onCyclePauseHint?: () => void;
@@ -168,7 +170,11 @@ export function StepBubble({
           ].join(" ")}
         >
           {isReaction ? (
-            <span className="text-[20px]">{step.reaction_emoji || "👍"}</span>
+            <ReactionPicker
+              value={step.reaction_emoji || "👍"}
+              onChange={(e) => onEditReaction?.(e)}
+              disabled={onEditReaction == null}
+            />
           ) : (
             <InlineText
               value={step.text ?? ""}
@@ -381,4 +387,70 @@ function Chip({
 
 function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+
+/* Инлайновый эмодзи-пикер для шагов типа «реакция». Раньше эмодзи был
+   просто показан span-ом и его нельзя было поменять — пользователь
+   жаловался «в настройке диалога нейрошиллинга нельзя поменять реакцию».
+   Клик по эмодзи открывает поповер с типовыми Telegram-реакциями, выбор
+   коммитится сразу. */
+const COMMON_REACTIONS = ["👍", "❤️", "🔥", "🥰", "👏", "😁", "🤔", "🎉", "👎", "😢"];
+
+function ReactionPicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (emoji: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  return (
+    <div className="relative inline-block" ref={ref}>
+      <button
+        type="button"
+        onClick={() => !disabled && setOpen((v) => !v)}
+        disabled={disabled}
+        aria-label="Изменить реакцию"
+        className="inline-flex h-8 min-w-[40px] items-center justify-center rounded-pill border border-hairline bg-surface-2 px-2 text-[20px] active:bg-surface-1 disabled:cursor-default"
+      >
+        {value}
+      </button>
+      {open && (
+        <div className="absolute left-0 top-9 z-20 flex flex-wrap gap-1 rounded-chip border border-strong bg-bg-elevated p-2 shadow-xl">
+          {COMMON_REACTIONS.map((e) => {
+            const active = e === value;
+            return (
+              <button
+                key={e}
+                type="button"
+                onClick={() => {
+                  onChange(e);
+                  setOpen(false);
+                }}
+                className={[
+                  "flex h-8 w-8 items-center justify-center rounded-full text-[18px] active:bg-surface-2",
+                  active ? "bg-surface-2 ring-1 ring-accent" : "",
+                ].join(" ")}
+              >
+                {e}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }

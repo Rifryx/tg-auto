@@ -51,19 +51,37 @@ REASON_LABELS_RU: dict[str, str] = {
     REASON_KEYWORD_MISMATCH: "Не нашли ключевика в названии/описании/@username",
 }
 
-# Какие алфавиты считаем "русским" / "английским". Эвристика смотрит на долю
-# букв каждого скрипта в title+about. Пороги подобраны так, чтобы смешанные
-# тексты попадали в "mixed", а не ошибочно блокировались.
-_CYR_RE = re.compile(r"[А-Яа-яЁёІіЇїЄєҐґЎў]")
-_LAT_RE = re.compile(r"[A-Za-z]")
+# Эвристика языка смотрит на долю букв каждого скрипта в title+about и на
+# присутствие уникальных букв конкретных языков. Пороги подобраны так, чтобы
+# смешанные тексты попадали в "mixed", а не ошибочно блокировались.
+_CYR_RE = re.compile(r"[А-Яа-яЁёІіЇїЄєҐґЎўЎўӘәҢңҒғҚқӨөҰұҮүҺһ]")
+_LAT_RE = re.compile(r"[A-Za-zÀ-ÿĀ-žŠšŽžĆćŁłŃńŚśŹźŻżŃń]")
+
+# Коды поддерживаемых языков. UI шлёт их в списке `languages`.
+LANGUAGE_CODES = {"ru", "en", "uk", "pl", "be", "kk", "de", "es", "fr", "it"}
+
+# Уникальные буквы для языков. Хватает одного «своего» символа, чтобы сдвинуть
+# детекцию с базовой («ru» / «en») к конкретному языку. Для «ru» и «en» явных
+# маркеров нет — они дефолты по доминирующему скрипту.
+_UNIQUE = (
+    ("uk", re.compile(r"[ІіЇїЄєҐґ]")),
+    ("be", re.compile(r"[Ўў]")),
+    ("kk", re.compile(r"[ӘәҢңҒғҚқӨөҰұҮүҺһ]")),
+    ("pl", re.compile(r"[ĄąĆćĘęŁłŃńÓóŚśŹźŻż]")),
+    ("de", re.compile(r"[ÄäÖöÜüß]")),
+    ("es", re.compile(r"[Ññ¿¡]")),
+    ("fr", re.compile(r"[ÀâÇçÉéÈèÊêËëÎîÏïÔôÛûÙùŸÿŒœÆæ]")),
+    ("it", re.compile(r"[ÀàÈèÉéÌìÒòÙù]")),
+)
 
 
 def _detect_language(text: str) -> str:
-    """Возвращает "ru" / "en" / "mixed" / "unknown" по эвристике скриптов.
+    """Возвращает код языка (ru/en/uk/pl/be/kk/de/es/fr/it) или "mixed"/"unknown".
 
-    Эвристика намеренно простая: без внешних библиотек, работает оффлайн,
-    достаточна для грубой фильтрации (отсеять арабские/азиатские каналы при
-    выборе "русский или английский")."""
+    Простая эвристика без внешних библиотек: сначала по доминирующему скрипту
+    (кириллица/латиница), затем по уникальным символам конкретных языков.
+    Для азиатских/арабских каналов вернёт "unknown" — их пропускаем всегда.
+    """
     if not text:
         return "unknown"
     cyr = len(_CYR_RE.findall(text))
@@ -73,10 +91,25 @@ def _detect_language(text: str) -> str:
         return "unknown"
     cyr_ratio = cyr / total
     lat_ratio = lat / total
+
+    def _unique_match(cyrillic: bool) -> Optional[str]:
+        # cyrillic=True ищем только среди кириллических языков (uk/be/kk),
+        # иначе — среди латинских (pl/de/es/fr/it). Так латинские маркеры не
+        # «перебивают» кириллическое название с латинским хвостом.
+        cyr_set = {"uk", "be", "kk"}
+        for code, rx in _UNIQUE:
+            if cyrillic and code not in cyr_set:
+                continue
+            if not cyrillic and code in cyr_set:
+                continue
+            if rx.search(text):
+                return code
+        return None
+
     if cyr_ratio >= 0.7:
-        return "ru"
+        return _unique_match(cyrillic=True) or "ru"
     if lat_ratio >= 0.7:
-        return "en"
+        return _unique_match(cyrillic=False) or "en"
     return "mixed"
 
 
@@ -94,9 +127,14 @@ class CommunityFilterOptions:
     username_regex: Optional[str] = None
     # Новые точечные фильтры.
     title_exclude_regex: Optional[str] = None
-    # "ru" | "en" | "ru_or_en" | None — язык определяется по title+about.
-    # "unknown" тексты пропускаются (нет контента для анализа).
+    # Legacy single-select язык — "ru" / "en" / "ru_or_en" / None. Оставлен для
+    # обратной совместимости старых API-вызовов (нормализуется в `languages`
+    # при постройке опций). Новый UI шлёт мульти-выбор через `languages`.
     language: Optional[str] = None
+    # Новый мульти-выбор: список кодов (ru/en/uk/pl/be/kk/de/es/fr/it). Если
+    # задан — кандидат проходит, если detected_language ∈ languages. "unknown"
+    # пропускается всегда (слишком мало текста, чтобы судить).
+    languages: Optional[list[str]] = None
     # True → разрешены каналы c noforwards (запрет пересылки). False →
     # отсеиваем, если хотим иметь возможность форвардить/анализировать посты.
     allow_noforwards: bool = True
@@ -179,21 +217,30 @@ def first_community_drop_reason(
         if rx is not None and rx.search(row.get("title") or ""):
             return REASON_TITLE_EXCLUDE
 
+    # Нормализуем language/languages в один набор `wanted`.
+    wanted: set[str] = set()
+    if options.languages:
+        wanted.update(options.languages)
     if options.language:
+        if options.language == "ru_or_en":
+            wanted.update({"ru", "en"})
+        else:
+            wanted.add(options.language)
+    if wanted:
         text = " ".join(filter(None, [row.get("title"), row.get("about")]))
         detected = _detect_language(text)
         if detected != "unknown":
-            wanted = options.language
-            # "ru_or_en" пропускает ru, en и mixed; строгие "ru"/"en" — только совпадение.
-            if wanted == "ru_or_en":
-                if detected not in ("ru", "en", "mixed"):
+            # Кандидат проходит, если detected язык среди выбранных. "mixed"
+            # пропускаем, когда выбран любой латинский ИЛИ кириллический язык —
+            # смешанные тексты часто встречаются (ru+en в одном описании), и
+            # глухо отсекать их по строгому совпадению было бы слишком резко.
+            cyr_group = {"ru", "uk", "be", "kk"}
+            lat_group = {"en", "pl", "de", "es", "fr", "it"}
+            if detected == "mixed":
+                if not (wanted & cyr_group or wanted & lat_group):
                     return REASON_WRONG_LANGUAGE
-            elif wanted == "ru":
-                if detected not in ("ru", "mixed"):
-                    return REASON_WRONG_LANGUAGE
-            elif wanted == "en":
-                if detected not in ("en", "mixed"):
-                    return REASON_WRONG_LANGUAGE
+            elif detected not in wanted:
+                return REASON_WRONG_LANGUAGE
 
     if not options.allow_noforwards and row.get("noforwards"):
         return REASON_NOFORWARDS

@@ -110,7 +110,7 @@ export function RunParsingScreen() {
   const [premiumOnly, setPremiumOnly] = useState(false);
   const [requirePhoto, setRequirePhoto] = useState(false);
   const [verifiedOnly, setVerifiedOnly] = useState(false);
-  const [excludeScamFake, setExcludeScamFake] = useState(true);
+  const [excludeScamFake, setExcludeScamFake] = useState(false);
   const [requirePhoneVisible, setRequirePhoneVisible] = useState(false);
   const [usernameRegex, setUsernameRegex] = useState("");
   const [nameScript, setNameScript] = useState<"" | "cyrillic" | "latin">("");
