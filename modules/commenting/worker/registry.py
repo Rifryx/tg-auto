@@ -492,11 +492,20 @@ def publish_channel_lifecycle(
 
 @dataclass
 class _AccountChannels:
-    """Один Telethon-клиент аккаунта + его handler'ы по working-каналам."""
+    """Один Telethon-клиент аккаунта + его handler'ы по группам обсуждений.
+
+    Ключ handler'а — discussion_group_id, а НЕ monitored_channel_id: несколько
+    отслеживаемых каналов аккаунта могут указывать на одну и ту же группу
+    обсуждений (дубликат ссылки/канал добавлен дважды). Раньше на каждый такой
+    channel_id вешался свой telethon-handler на ОДИН чат — посты обрабатывались
+    по 2 раза (двойные комментарии) и в ленту летели дубли «Слушатель канала
+    подключён». Теперь на группу — один handler, а channel_id'ы считаем через
+    ``group_channels`` (reference counting при detach)."""
 
     client: Any
     pool: Any
-    handlers: dict  # monitored_channel_id -> (handler, event)
+    handlers: dict  # discussion_group_id -> (handler, event)
+    group_channels: dict  # discussion_group_id -> set[monitored_channel_id]
 
 
 class ChannelListenerRegistry:
@@ -511,6 +520,9 @@ class ChannelListenerRegistry:
     def __init__(self) -> None:
         self._accounts: dict[int, _AccountChannels] = {}
         self._channel_account: dict[int, int] = {}
+        # channel_id -> discussion_group_id, чтобы при detach знать, из какой
+        # группы убирать канал (и снимать handler, когда группа опустела).
+        self._channel_group: dict[int, int] = {}
         self._lock = asyncio.Lock()
 
     def active(self) -> list[int]:
@@ -618,8 +630,26 @@ class ChannelListenerRegistry:
             entry = self._accounts.get(account_id)
             if entry is None:
                 client = await pool.get(account_id)
-                entry = _AccountChannels(client=client, pool=pool, handlers={})
+                entry = _AccountChannels(
+                    client=client, pool=pool, handlers={}, group_channels={}
+                )
                 self._accounts[account_id] = entry
+
+            # Этот аккаунт уже слушает эту группу обсуждений (другой
+            # monitored-канал указывает на тот же чат). Второй handler не вешаем
+            # — иначе посты обрабатывались бы дважды. Просто учитываем channel_id
+            # в reference-count группы и НЕ дублируем событие в ленту.
+            if discussion_group_id in entry.handlers:
+                entry.group_channels[discussion_group_id].add(channel_id)
+                self._channel_account[channel_id] = account_id
+                self._channel_group[channel_id] = discussion_group_id
+                get_logger().info(
+                    "commenting.channel_listener.attach.shared_group",
+                    channel_id=channel_id,
+                    account_id=account_id,
+                    discussion_group_id=discussion_group_id,
+                )
+                return True
 
             # Без членства в discussion-группе Telethon не отдаёт её апдейты —
             # handler ниже не сработает ни на один пост. Вступаем best-effort.
@@ -644,8 +674,10 @@ class ChannelListenerRegistry:
             )
             event = events.NewMessage(chats=discussion_group_id)
             entry.client.add_event_handler(handler, event)
-            entry.handlers[channel_id] = (handler, event)
+            entry.handlers[discussion_group_id] = (handler, event)
+            entry.group_channels[discussion_group_id] = {channel_id}
             self._channel_account[channel_id] = account_id
+            self._channel_group[channel_id] = discussion_group_id
             get_logger().info(
                 "commenting.channel_listener.attach",
                 channel_id=channel_id,
@@ -664,17 +696,28 @@ class ChannelListenerRegistry:
             return True
 
     async def detach(self, channel_id: int) -> bool:
-        """Снимает слушатель канала; отпускает клиента, если он был последним."""
+        """Снимает слушатель канала; отпускает клиента, если он был последним.
+
+        Handler группы снимаем только когда из неё убран ПОСЛЕДНИЙ channel_id
+        (несколько каналов могли делить одну группу обсуждений)."""
         async with self._lock:
             account_id = self._channel_account.pop(channel_id, None)
             if account_id is None:
                 return False
+            gid = self._channel_group.pop(channel_id, None)
             entry = self._accounts.get(account_id)
             if entry is None:
                 return False
-            handler, event = entry.handlers.pop(channel_id, (None, None))
-            if handler is not None:
-                entry.client.remove_event_handler(handler, event)
+            if gid is not None:
+                channels = entry.group_channels.get(gid)
+                if channels is not None:
+                    channels.discard(channel_id)
+                    if not channels:
+                        # Группа опустела — снимаем telethon-handler.
+                        entry.group_channels.pop(gid, None)
+                        handler, event = entry.handlers.pop(gid, (None, None))
+                        if handler is not None:
+                            entry.client.remove_event_handler(handler, event)
             if not entry.handlers:
                 self._accounts.pop(account_id, None)
                 await entry.pool.release(account_id)
