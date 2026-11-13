@@ -21,7 +21,7 @@ from modules.commenting.repositories import (
     CommentLogRepository,
     MonitoredChannelRepository,
 )
-from modules.commenting.schemas import CampaignCreate
+from modules.commenting.schemas import CampaignCreate, CampaignUpdate
 from modules.commenting.worker import channels, registry, runner
 
 pytestmark = pytest.mark.asyncio
@@ -333,6 +333,44 @@ async def test_on_channel_post_schedules_one_comment(session):
     assert args[1] == campaign_id
     assert args[2] == 555
     assert args[4] == 100
+
+
+async def test_on_channel_post_keyword_filter(session):
+    """Режим «по словам»: пост без ключевика не комментируется, с ключевиком —
+    комментируется. Регрессия «коммент на любой пост в keyword-режиме»."""
+    _clean(session)
+    campaign_id = _make_campaign(session)
+    # Включаем keyword-режим с ключевиком «привет».
+    CampaignRepository(session).update(
+        campaign_id,
+        CampaignUpdate(post_selection_mode="keywords", keywords=["привет"]),
+    )
+    session.commit()
+    account_id = _make_account(session, status="assigned", campaign_id=campaign_id)
+    repo = MonitoredChannelRepository(session)
+    ch = repo.create(account_id, "@durov", is_folder=False)
+    repo.mark_working(
+        ch.id, channel_ref="durov", channel_tg_id=777, title="Chan",
+        discussion_group_id=555,
+    )
+    session.commit()
+
+    spy = _SpyTaskQueue()
+    ctx = _ctx(session, client=_ResolveClient(), task_queue=spy)
+
+    # Пост без ключевика — не комментируем.
+    count = await runner.on_channel_post(
+        ctx, account_id, ch.id, 100, post_text="я люблю пельмени"
+    )
+    assert count == 0
+    assert spy.scheduled == []
+
+    # Пост с ключевиком — комментируем.
+    count = await runner.on_channel_post(
+        ctx, account_id, ch.id, 101, post_text="привет, как дела?"
+    )
+    assert count == 1
+    assert len(spy.scheduled) == 1
 
 
 async def test_post_channel_comment_posts_and_logs(session):

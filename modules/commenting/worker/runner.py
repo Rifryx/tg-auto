@@ -984,6 +984,35 @@ async def on_channel_post(
                   {"reason": "blacklisted", "account_id": account_id})
             return 0
 
+        # Фильтр отбора постов (post_selection_mode): по ключевым словам /
+        # вероятности. В аккаунт-центричном мониторинге он раньше НЕ применялся
+        # (баг-репорт: «режим по ключевому слову, а коммент на любой пост»).
+        # Тред-продолжения (in_reply_to задан) не фильтруем — это ответ на свой
+        # же коммент, пост уже прошёл отбор при первом касании.
+        if in_reply_to is None:
+            from modules.commenting.worker.listener import _passes_post_filter
+
+            if not _passes_post_filter(
+                post_text,
+                mode=campaign.post_selection_mode,
+                keywords=campaign.keywords or [],
+                probability_percent=campaign.probability_percent,
+                rng=rng,
+            ):
+                log.info(
+                    "commenting.on_channel_post.skip",
+                    account_id=account_id,
+                    channel_msg_id=channel_msg_id,
+                    reason="post_filter",
+                    mode=campaign.post_selection_mode,
+                )
+                _push(ctx, campaign_id, TimelineKind.POST_FILTERED,
+                      f"Пост #{channel_msg_id} в «{ch_name}»: пропуск — не прошёл отбор "
+                      f"({campaign.post_selection_mode}).",
+                      {"reason": "post_filter", "mode": campaign.post_selection_mode,
+                       "account_id": account_id, "channel_msg_id": channel_msg_id})
+                return 0
+
         # in_reply_to задан ТОЛЬКО для тред-продолжения (аккаунт отвечает сам
         # себе после своего же коммента) — отличаем в сообщении, иначе выглядит
         # как «тот же пост поймали ещё раз» (баг-репорт: «ловит пост и
