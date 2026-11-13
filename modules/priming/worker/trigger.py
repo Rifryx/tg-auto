@@ -231,9 +231,22 @@ class TriggerRunner:
             TriggerAction.CONTACT_REMOVED: self._run_contact_removed,
         }
 
+    # Автоудаление ставим на 31 день — штатный месячный пресет Telegram.
+    # Почему именно 31, а не 1 или 30:
+    #  * 1 день (86400) удаляет и ответы собеседника слишком быстро —
+    #    входящие вопросы к аккаунту пропадают до того, как автоответчик
+    #    успеет их обработать;
+    #  * 30 дней отображается у получателя как «4 недели 2 дня» — такой
+    #    строки не бывает при ручной настройке, выдаёт автоматику;
+    #  * 31 день = ровно «1 месяц» в клиенте Telegram, выглядит как
+    #    обычное действие живого человека.
+    _TTL_MONTH_SECONDS = 2_678_400  # 31 * 86400
+
     async def _run_set_ttl_1d(self, peer: Any) -> dict[str, Any]:
-        await self._client(SetHistoryTTLRequest(peer=peer, period=86_400))
-        return {"period": 86_400}
+        await self._client(
+            SetHistoryTTLRequest(peer=peer, period=self._TTL_MONTH_SECONDS)
+        )
+        return {"period": self._TTL_MONTH_SECONDS}
 
     async def _run_set_ttl_off(self, peer: Any) -> dict[str, Any]:
         await self._client(SetHistoryTTLRequest(peer=peer, period=0))

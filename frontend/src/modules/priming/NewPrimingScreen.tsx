@@ -48,8 +48,8 @@ const TRIGGER_OPTIONS: { key: PrimingTriggerAction; label: string; note: string 
   },
   {
     key: "set_ttl_1d",
-    label: "Автоудаление (24 ч)",
-    note: "«{{name}} включил автоудаление сообщений»",
+    label: "Автоудаление (1 месяц)",
+    note: "«{{name}} включил автоудаление сообщений» — ставит штатный месячный таймер (31 день), выглядит как действие живого человека",
   },
   {
     key: "contact_added",

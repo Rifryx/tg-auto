@@ -209,10 +209,14 @@ async def _run(
                 },
             )
 
-    # Stories доступны ТОЛЬКО с Telegram Premium. Проверяем ПОСЛЕ дешёвой
-    # валидации payload, но ДО загрузки файла и публикации — иначе гарантированная
-    # PremiumAccountRequiredError на каждый не-премиум аккаунт. Заодно фиксируем
-    # флаг в БД (бейдж в UI).
+    # Stories может публиковать и обычный аккаунт без Premium — просто с
+    # жёсткими лимитами (у free примерно 1 история в сутки, у Premium — больше).
+    # Раньше мы жёстко блокировали не-Premium («not_premium»), хотя по факту
+    # такие аккаунты истории выкладывать умеют — пользователь справедливо на это
+    # указал. Поэтому НЕ блокируем заранее: только обновляем флаг is_premium для
+    # бейджа и пробуем опубликовать. Если Telegram всё же откажет
+    # (PremiumAccountRequiredError — зависит от аккаунта/региона) или упрёмся в
+    # лимит историй — ловим ниже и возвращаем понятный skipped.
     try:
         me = await around_telethon_call(
             lambda: client.get_me(),
@@ -232,15 +236,6 @@ async def _run(
                 account_id, AccountUpdate(is_premium=is_premium)
             )
             session.commit()
-        if not is_premium:
-            return BulkActionResult(
-                ok=False,
-                skipped=True,
-                detail={
-                    "reason": "not_premium",
-                    "message": "аккаунт без Telegram Premium — публикация Stories недоступна",
-                },
-            )
 
     # 1) загрузить файл своим клиентом (свой прокси). client.upload_file сам
     # рвёт большие файлы на chunk'и через SaveBigFilePartRequest — MTProto
@@ -269,21 +264,46 @@ async def _run(
     )
     privacy_cls = _PRIVACY_MAP[payload.privacy]
 
-    result = await around_telethon_call(
-        lambda: client(
-            SendStoryRequest(
-                peer="me",
-                media=media,
-                privacy_rules=[privacy_cls()],
-                random_id=_random_id(),
-                caption=payload.caption or None,
-                period=payload.period,
+    try:
+        result = await around_telethon_call(
+            lambda: client(
+                SendStoryRequest(
+                    peer="me",
+                    media=media,
+                    privacy_rules=[privacy_cls()],
+                    random_id=_random_id(),
+                    caption=payload.caption or None,
+                    period=payload.period,
+                )
+            ),
+            account_id=account_id,
+            session_factory=session_factory,
+            publisher=publisher,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Telegram может отказать именно на этом шаге: Premium требуется для
+        # этого аккаунта/региона, либо исчерпан лимит историй. Возвращаем
+        # понятный skipped, а не роняем всё задание.
+        name = type(exc).__name__
+        if "PremiumAccountRequired" in name:
+            return BulkActionResult(
+                ok=False, skipped=True,
+                detail={
+                    "reason": "premium_required",
+                    "message": "Для этого аккаунта Telegram требует Premium, "
+                    "чтобы опубликовать историю.",
+                },
             )
-        ),
-        account_id=account_id,
-        session_factory=session_factory,
-        publisher=publisher,
-    )
+        if "Stories" in name and ("TooMuch" in name or "Limit" in name):
+            return BulkActionResult(
+                ok=False, skipped=True,
+                detail={
+                    "reason": "stories_limit",
+                    "message": "Достигнут лимит историй на аккаунте — "
+                    "попробуйте позже.",
+                },
+            )
+        raise
     # result — Updates; конкретный story id вытащить не всегда возможно
     # (Telethon возвращает UpdatesTooLong для акков-новичков). Не критично для UI.
     return BulkActionResult(

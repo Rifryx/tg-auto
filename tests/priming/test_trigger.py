@@ -114,7 +114,9 @@ async def test_run_set_ttl_1d_calls_mtproto() -> None:
     runner = TriggerRunner(client, gov, account_id=1)
     result = await runner.run(TriggerAction.SET_TTL_1D, TargetRef(tg_user_id=10))
     assert result.outcome is ExecutionOutcome.PRIMED
-    assert result.meta.get("period") == 86_400
+    # Автоудаление ставится на штатный месячный пресет Telegram (31 день),
+    # а не на 1 день — см. комментарий в TriggerRunner._run_set_ttl_1d.
+    assert result.meta.get("period") == 2_678_400
 
 
 # ---------------------------------------------------------------------------

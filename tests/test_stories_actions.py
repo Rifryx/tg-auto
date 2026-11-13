@@ -182,8 +182,10 @@ async def test_publish_story_uploads_and_sends(session):
     assert send_args["privacy"] == InputPrivacyValueAllowAll.__name__
 
 
-async def test_publish_story_skips_non_premium(session):
-    """Не-премиум аккаунт: скип ДО загрузки/публикации, с понятной причиной."""
+async def test_publish_story_non_premium_attempts(session):
+    """Не-премиум аккаунт больше НЕ блокируется заранее: обычные аккаунты тоже
+    публикуют истории (с лимитами). Пробуем опубликовать; если Telegram не
+    отказал — история уходит. Флаг is_premium фиксируется для бейджа."""
     _clean(session)
     account_id = _make_account(session)
     client = _FakeClient(premium=False)
@@ -197,15 +199,40 @@ async def test_publish_story_skips_non_premium(session):
         publisher=None,
         client=client,
     )
-    assert result.ok is False and result.skipped is True
-    assert result.detail["reason"] == "not_premium"
-    # Не дошли до загрузки/публикации.
+    assert result.ok is True
     names = [c[0] for c in client.calls]
-    assert "upload_file" not in names and "send_story" not in names
-    # Флаг зафиксирован в БД (для бейджа).
+    assert "upload_file" in names and "send_story" in names
     from core.repositories.account import AccountRepository
 
     assert AccountRepository(session).get(account_id).is_premium is False
+
+
+async def test_publish_story_premium_required_skips(session):
+    """Если Telegram всё же требует Premium для этого аккаунта — понятный skip,
+    а не падение всего задания."""
+    _clean(session)
+    account_id = _make_account(session)
+
+    class _Client(_FakeClient):
+        async def __call__(self, request):
+            if isinstance(request, SendStoryRequest):
+                raise type(
+                    "PremiumAccountRequiredError", (Exception,), {}
+                )("PREMIUM_ACCOUNT_REQUIRED")
+            return await _FakeClient.__call__(self, request)
+
+    client = _Client(premium=False)
+    result = await publish_run(
+        account_id=account_id,
+        payload=PublishStoryPayload(
+            media_b64=PNG_1x1_B64, caption="hi", privacy="everybody", period=86400,
+        ),
+        session_factory=_factory(session),
+        publisher=None,
+        client=client,
+    )
+    assert result.ok is False and result.skipped is True
+    assert result.detail["reason"] == "premium_required"
 
 
 async def test_publish_story_close_friends_privacy(session):

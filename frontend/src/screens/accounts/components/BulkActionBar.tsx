@@ -306,9 +306,10 @@ export function BulkActionBar({
       {storiesOpen && (
         <StoriesSheet
           count={n}
-          // Stories работают только с Telegram Premium — считаем заранее,
-          // сколько из выбранных НЕ premium, чтобы предупредить ДО публикации
-          // (иначе эти аккаунты просто молча пропускаются с ошибкой в логах).
+          // Обычные аккаунты тоже выкладывают истории, но с жёсткими лимитами,
+          // а для части аккаунтов/регионов Telegram всё же требует Premium.
+          // Считаем заранее, сколько из выбранных НЕ premium, чтобы мягко
+          // предупредить ДО публикации (не блокируем — пробуем опубликовать).
           nonPremiumCount={
             accounts?.filter((a) => selectedIds.includes(a.id) && a.is_premium !== true).length
           }
