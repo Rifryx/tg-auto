@@ -1,10 +1,11 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Sparkles, X } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, ImageIcon, Sparkles, X } from "lucide-react";
 import { useState } from "react";
 import { accountsApi } from "../../../shared/accounts";
+import { profileAssetsApi } from "../../more/api";
 import { ApiError } from "../../../shared/api";
 import type { ProfilePreview } from "../../../shared/types";
-import { Field, TextArea, TextInput } from "../../../modules/commenting/components/ui";
+import { Field, TextArea, TextInput, Toggle } from "../../../modules/commenting/components/ui";
 import { CapsuleButton, Section } from "./ui";
 import { useBulkJob } from "./useBulkJob";
 
@@ -27,6 +28,16 @@ export function AiProfileSection({
   // Источник генерации: по персоне аккаунта или по свободному промпту.
   const [mode, setMode] = useState<"persona" | "prompt">(hasPersona ? "persona" : "prompt");
   const [prompt, setPrompt] = useState("");
+  // Тумблер «взять аватар из пула оформления»: при применении профиля
+  // дополнительно ставим случайный аватар из пула (bulk apply_profile_pool
+  // с одним avatar_tags). Доступен, только если в пуле есть аватары.
+  const [avatarFromPool, setAvatarFromPool] = useState(false);
+
+  const avatarAssets = useQuery({
+    queryKey: ["profile-assets", "avatar"],
+    queryFn: () => profileAssetsApi.list("avatar"),
+  });
+  const avatarCount = avatarAssets.data?.length ?? 0;
 
   const generate = useMutation({
     mutationFn: () =>
@@ -41,6 +52,11 @@ export function AiProfileSection({
   });
 
   const apply = useBulkJob(() => {
+    qc.invalidateQueries({ queryKey: ["account", accountId] });
+  });
+  // Отдельное задание на аватар из пула — чтобы не мешать apply_profile
+  // (текст) и показывать свой статус.
+  const applyAvatar = useBulkJob(() => {
     qc.invalidateQueries({ queryKey: ["account", accountId] });
   });
 
@@ -103,6 +119,29 @@ export function AiProfileSection({
             </div>
           )}
 
+          {/* Аватар из пула оформления — ставится при применении профиля. */}
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-chip border border-hairline bg-surface-1 px-3 py-2.5">
+            <div className="flex items-start gap-2">
+              <ImageIcon className="mt-0.5 h-4 w-4 shrink-0 text-accent" strokeWidth={1.8} aria-hidden />
+              <div>
+                <p className="text-[13px] font-medium text-text-primary">
+                  Аватар из пула оформления
+                </p>
+                <p className="text-[11px] text-text-tertiary">
+                  {avatarCount > 0
+                    ? `При применении поставим случайный аватар из пула (${avatarCount} шт.).`
+                    : "В пуле оформления пока нет аватаров — добавьте их в «Пул оформления»."}
+                </p>
+              </div>
+            </div>
+            <Toggle
+              checked={avatarFromPool && avatarCount > 0}
+              disabled={avatarCount === 0}
+              onChange={setAvatarFromPool}
+              label="Аватар из пула"
+            />
+          </div>
+
           {noPersona && mode === "persona" && (
             <p className="mb-2 text-[12px] text-status-critical">
               Нужна персона — привяжите её или используйте «По промпту».
@@ -124,12 +163,23 @@ export function AiProfileSection({
                 onClick={() => generate.mutate()}
               >
                 <span className="inline-flex items-center gap-2">
-                  <Sparkles className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  <Sparkles
+                    className={`h-4 w-4 ${generate.isPending ? "animate-spin" : ""}`}
+                    strokeWidth={2}
+                    aria-hidden
+                  />
                   {generate.isPending ? "Генерируем…" : "Сгенерировать профиль"}
                 </span>
               </CapsuleButton>
             );
           })()}
+          {/* Зацикленная индикация процесса — чтобы не казалось, что всё
+              зависло (запрос к LLM занимает несколько секунд). */}
+          {generate.isPending && (
+            <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-surface-2">
+              <div className="h-full w-1/3 animate-nav-running-bar rounded-full bg-accent" />
+            </div>
+          )}
         </div>
       )}
 
@@ -192,6 +242,26 @@ export function AiProfileSection({
               Профиль применён к Telegram.
             </p>
           )}
+          {avatarFromPool && avatarCount > 0 && (
+            <>
+              {applyAvatar.state.phase === "running" && (
+                <p className="mt-1.5 text-[12px] text-text-tertiary">
+                  Ставим аватар из пула…
+                </p>
+              )}
+              {applyAvatar.state.phase === "failed" && (
+                <p className="mt-1.5 text-[12px] text-status-critical">
+                  Аватар из пула не применился: {applyAvatar.state.error ?? "ошибка"}.
+                </p>
+              )}
+              {applyAvatar.state.phase === "done" && (
+                <p className="mt-1.5 flex items-center gap-1.5 text-[12px] text-status-active">
+                  <Check className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+                  Аватар из пула применён.
+                </p>
+              )}
+            </>
+          )}
 
           <div className="mt-4 flex gap-2">
             <CapsuleButton
@@ -225,6 +295,12 @@ export function AiProfileSection({
                   bio: draft.bio || null,
                   username_candidates: ordered,
                 });
+                // Параллельно ставим случайный аватар из пула, если включено.
+                if (avatarFromPool && avatarCount > 0) {
+                  applyAvatar.run("apply_profile_pool", [accountId], {
+                    avatar_tags: [],
+                  });
+                }
               }}
             >
               {apply.state.phase === "running" ? "Применяем…" : "Применить к Telegram"}
