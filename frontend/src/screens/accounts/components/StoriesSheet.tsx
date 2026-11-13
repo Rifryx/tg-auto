@@ -34,8 +34,8 @@ export function StoriesSheet({
 }: {
   count: number;
   /** Сколько из выбранных аккаунтов без Telegram Premium (или неизвестно).
-   *  Stories публикует только Premium — предупреждаем ДО отправки, а не
-   *  после молчаливого пропуска. */
+   *  Обычные аккаунты истории тоже публикуют, но с лимитами; для части —
+   *  Telegram требует Premium. Предупреждаем мягко ДО отправки. */
   nonPremiumCount?: number;
   busy: boolean;
   onApply: (payload: Record<string, unknown>) => void;
@@ -107,9 +107,11 @@ export function StoriesSheet({
             <div className="mb-4 flex items-start gap-2 rounded-chip border border-status-warning/40 bg-status-warning/10 px-3 py-2.5 text-[12px] text-status-warning">
               <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
               <span>
-                Stories доступны только с Telegram Premium. {nonPremiumCount} из {count}{" "}
-                выбранных — без Premium (или ещё не проверено) — для них публикация будет
-                пропущена.
+                {nonPremiumCount} из {count} выбранных — без Telegram Premium (или
+                статус ещё не проверен). Обычные аккаунты тоже выкладывают истории,
+                но с жёстким лимитом (примерно 1 в сутки), и для некоторых
+                аккаунтов/регионов Telegram может всё же потребовать Premium —
+                тогда публикация у них пропустится.
               </span>
             </div>
           )}
