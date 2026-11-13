@@ -172,6 +172,40 @@ async def test_tick_skips_quarantined_accounts(session) -> None:
     assert result["scheduled"] == 1
 
 
+async def test_tick_over_limit_account_does_not_loop(session) -> None:
+    """Аккаунт уже упёрся в дневной лимит → tick НЕ зависает в бесконечном
+    цикле (регрессия «кампания running, но 0 праймов, ничего не происходит»):
+    возвращается с scheduled=0, аккаунт помечен недоступным до завтра."""
+    campaign = _make_running_campaign(session)
+    ca_repo = CampaignAccountRepository(session)
+    acc = _make_account(session)
+    ca = ca_repo.create({"campaign_id": campaign.id, "account_id": acc.id})
+    # Профиль warm → day1_limit=15 (eff_limit). primes_today между eff_limit и
+    # daily_limit(40): acquire_next его ещё отдаёт (20<40), а warmup-рампа уже
+    # упёрта (20>=15) — именно здесь был бесконечный цикл.
+    ca_repo.update(ca.id, {"primes_today": 20})
+    CampaignTargetRepository(session).create({
+        "campaign_id": campaign.id, "username": "u",
+    })
+    session.commit()
+
+    ctx = _ctx(_factory(session))
+    # Если бы был баг — await никогда бы не вернулся (бесконечный цикл).
+    result = await orchestrator_tick(ctx, campaign.id)
+
+    assert result["scheduled"] == 0
+    tq: _SpyTaskQueue = ctx["task_queue"]
+    assert tq.enqueued == []
+    # Аккаунт выведен из выборки до следующих суток.
+    refreshed = ca_repo.get_by_id(ca.id)
+    assert refreshed.next_available_at is not None
+    assert refreshed.next_available_at > ctx["now"]
+    # Следующий tick всё равно запланирован.
+    assert any(
+        s[0] is TaskName.PRIMING_ORCHESTRATOR_TICK for s in tq.scheduled
+    )
+
+
 # ---------------------------------------------------------------------------
 # Idle path
 # ---------------------------------------------------------------------------

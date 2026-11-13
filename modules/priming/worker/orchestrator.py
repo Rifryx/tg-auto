@@ -83,6 +83,14 @@ def _publisher(ctx: dict):
     return ctx.get("publisher")
 
 
+def _next_utc_midnight(now: datetime) -> datetime:
+    """Начало следующих суток UTC — когда сбросится дневной счётчик праймов."""
+    start_of_today = now.astimezone(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return start_of_today + timedelta(days=1)
+
+
 # --- ядро -------------------------------------------------------------------
 
 
@@ -163,6 +171,12 @@ async def orchestrator_tick(ctx: dict, campaign_id: int) -> Optional[dict]:
 
     scheduled = 0
     idle = False
+    # Аккаунты, упёршиеся в дневной лимит на ЭТОМ тике. Без этого набора был
+    # бесконечный цикл: over-limit аккаунт возвращался в IDLE, и acquire_next
+    # тут же выбирал его снова (он самый «старый» по last_prime_at) → tick
+    # зависал, не планируя ни execute_prime, ни следующий tick. Симптом:
+    # кампания «running», но 0 праймов и ничего не происходит.
+    exhausted: set[int] = set()
     while True:
         # Каждую пару (аккаунт, цель) выбираем в отдельной короткой сессии,
         # чтобы FOR UPDATE SKIP LOCKED не держал строки долго.
@@ -176,10 +190,23 @@ async def orchestrator_tick(ctx: dict, campaign_id: int) -> Optional[dict]:
                 session.commit()
                 break
 
+            # Защита от цикла: если снова достался аккаунт, уже помеченный
+            # исчерпанным на этом тике, значит свободных «неисчерпанных» не
+            # осталось — выходим.
+            if acquired.id in exhausted:
+                ca_repo.update(acquired.id, {
+                    "state": PrimingAccountState.IDLE.value,
+                })
+                session.commit()
+                idle = True
+                break
+
             # Warmup-рампа: эффективный дневной лимит на КОНКРЕТНЫЙ
             # аккаунт с его warmup_started_at и профилем кампании.
-            # Если аккаунт уже упёрся в него — вернуть в idle и
-            # попробовать следующего (пусть на этом тике он не работает).
+            # Если аккаунт уже упёрся в него — помечаем недоступным до
+            # следующих суток UTC (сброс дневного счётчика) и пробуем
+            # следующего. next_available_at в будущем выводит его из выборки
+            # acquire_next (фильтр next_available_at <= now).
             eff_limit = effective_daily_limit(
                 warmup_profile,
                 acquired.warmup_started_at,
@@ -187,8 +214,10 @@ async def orchestrator_tick(ctx: dict, campaign_id: int) -> Optional[dict]:
                 campaign_cap=daily_limit,
             )
             if acquired.primes_today >= eff_limit:
+                exhausted.add(acquired.id)
                 ca_repo.update(acquired.id, {
                     "state": PrimingAccountState.IDLE.value,
+                    "next_available_at": _next_utc_midnight(now),
                 })
                 session.commit()
                 continue
