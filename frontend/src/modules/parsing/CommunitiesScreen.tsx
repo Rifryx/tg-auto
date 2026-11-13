@@ -57,6 +57,8 @@ export function CommunitiesScreen() {
   const [useRecs, setUseRecs] = useState(true);
   const [useForwards, setUseForwards] = useState(false);
   const [useMentions, setUseMentions] = useState(false);
+  // Похожие каналы от Telegram проходят мимо фильтра по ключевикам.
+  const [keepRecsNoKw, setKeepRecsNoKw] = useState(true);
   // Хранить как string: иначе `Number("") === 0` при стирании поля превращает
   // ввод в вечный «0», который юзер не может удалить. Парсим и клампим в
   // run-мутации.
@@ -132,6 +134,7 @@ export function CommunitiesScreen() {
           use_mentions: false,
           depth: 2,
           max_results: 200,
+          keep_recommendations_without_keywords: keepRecsNoKw,
           ...commonFilters,
         });
       }
@@ -149,6 +152,7 @@ export function CommunitiesScreen() {
         use_mentions: useMentions,
         depth: parsedDepth,
         max_results: parsedMaxResults,
+        keep_recommendations_without_keywords: keepRecsNoKw,
         ...commonFilters,
       });
     },
@@ -275,6 +279,16 @@ export function CommunitiesScreen() {
             <div className="mt-4 text-[13px] font-medium text-text-secondary">Методы</div>
             <Checkbox checked={useRecs} onChange={setUseRecs} label="Похожие каналы (рекомендации Telegram)"
               description="ML-подборка от Telegram по сидам — основной бесплатный способ." />
+            {useRecs && (
+              <div className="ml-6">
+                <Checkbox
+                  checked={keepRecsNoKw}
+                  onChange={setKeepRecsNoKw}
+                  label="Не отсеивать похожие по ключевику"
+                  description="Telegram и так подбирает каналы по теме сидов — возвращаем их, даже если ключевика нет в названии/описании."
+                />
+              </div>
+            )}
             <Checkbox checked={useSearch} onChange={setUseSearch} label="Глобальный поиск по слову" />
             <Checkbox checked={useForwards} onChange={setUseForwards} label="Форварды из постов сидов" description="Откуда сиды репостят." />
             <Checkbox checked={useMentions} onChange={setUseMentions} label="Упоминания (@/ссылки в постах)" />

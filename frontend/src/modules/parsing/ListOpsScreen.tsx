@@ -41,12 +41,21 @@ export function ListOpsScreen() {
     onSuccess: () => navigate("/modules/parsing"),
   });
 
+  const rows = lists.data ?? [];
+
+  // Виды выбранных списков. Смешивать пользователей и каналы/чаты нельзя —
+  // backend вернёт ошибку, а результат был бы пустым. Подсказываем заранее.
+  const selectedKinds = new Set(
+    selected.map((id) => rows.find((r) => r.id === id)?.entity_kind).filter(Boolean),
+  );
+  const mixedKinds = selectedKinds.size > 1;
+
   const problems: string[] = [];
   if (!name.trim()) problems.push("Укажите имя списка");
   if (selected.length < 2) problems.push("Выберите минимум 2 списка");
+  if (mixedKinds)
+    problems.push("Нельзя смешивать списки пользователей и каналов/чатов");
   if (op === "sample" && !(Number(sampleSize) >= 1)) problems.push("Укажите размер сэмпла");
-
-  const rows = lists.data ?? [];
 
   return (
     <div className="min-h-full">
@@ -149,8 +158,22 @@ export function ListOpsScreen() {
                     {on ? (op === "subtract" ? i + 1 : <Check className="h-3.5 w-3.5" strokeWidth={2.5} />) : ""}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[14px] font-medium text-text-primary">{l.name}</div>
-                    <div className="truncate text-[12px] text-text-tertiary">{l.after_filters_count} целей</div>
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={[
+                          "inline-flex shrink-0 items-center rounded-pill px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                          l.entity_kind === "community"
+                            ? "bg-accent/15 text-accent"
+                            : "bg-surface-2 text-text-secondary",
+                        ].join(" ")}
+                      >
+                        {l.entity_kind === "community" ? "Каналы" : "Юзеры"}
+                      </span>
+                      <span className="truncate text-[14px] font-medium text-text-primary">{l.name}</span>
+                    </div>
+                    <div className="truncate text-[12px] text-text-tertiary">
+                      {l.after_filters_count} {l.entity_kind === "community" ? "сообществ" : "целей"}
+                    </div>
                   </div>
                 </button>
               );

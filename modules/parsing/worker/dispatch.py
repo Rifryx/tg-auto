@@ -67,6 +67,13 @@ def _community_filter_options(payload: dict[str, Any]) -> CommunityFilterOptions
         title_exclude_regex=payload.get("title_exclude_regex") or None,
         language=payload.get("language") or None,
         languages=payload.get("languages") or None,
+        # «Похожие каналы» от Telegram проходят мимо фильтра по ключевикам,
+        # если включён соответствующий тумблер — они по теме уже по построению.
+        skip_keyword_check_for_sources=(
+            {"recommendation"}
+            if payload.get("keep_recommendations_without_keywords")
+            else None
+        ),
         allow_noforwards=bool(payload.get("allow_noforwards", True)),
         min_slowmode_seconds=payload.get("min_slowmode_seconds"),
         max_slowmode_seconds=payload.get("max_slowmode_seconds"),
@@ -170,6 +177,21 @@ async def parser_run(
                 # счётчиком попадает в лог прогона, как в CI-отчётах.
                 breakdown = result.filters_breakdown or {}
                 if breakdown:
+                    # Сливаем русские подписи из обоих наборов причин
+                    # (channel/chat и user), плюс пара служебных кодов,
+                    # которые возникают только в ходе сбора (enrich/seed).
+                    from modules.parsing.parser import community_filters as _cf
+                    from modules.parsing.parser import filters as _pf
+
+                    labels: dict[str, str] = {
+                        **_cf.REASON_LABELS_RU,
+                        **_pf.REASON_LABELS_RU,
+                        # Коды, которые не попадают в labels фильтров:
+                        "already_in_list": "Уже был в списке",
+                        "enrich_failed": "Не удалось получить снапшот",
+                        "seed_resolve_failed": "Сид не распознался",
+                        "mention_resolve_failed": "Упоминание не распозналось",
+                    }
                     repo.append_log(
                         int(job_id),
                         "Отсеяно (причина → сколько):",
@@ -177,8 +199,9 @@ async def parser_run(
                     for reason, cnt in sorted(
                         breakdown.items(), key=lambda kv: -kv[1]
                     ):
+                        label = labels.get(reason, reason)
                         repo.append_log(
-                            int(job_id), f"  • {reason}: {cnt}",
+                            int(job_id), f"  • {label}: {cnt}",
                         )
             session.commit()
 

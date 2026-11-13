@@ -418,7 +418,11 @@ export function NewPrimingScreen() {
 
           {audienceTab === "parsing" && (
             <ParsingListPicker
-              lists={parsedListsQuery.data ?? []}
+              // Прайминг работает с пользователями — списки каналов/чатов
+              // (community) сюда не берём, иначе прайм падал бы на «0 целей».
+              lists={(parsedListsQuery.data ?? []).filter(
+                (l) => l.entity_kind !== "community",
+              )}
               isLoading={parsedListsQuery.isLoading}
               pickedId={pickedListId}
               onPick={setPickedListId}

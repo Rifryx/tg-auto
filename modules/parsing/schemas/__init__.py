@@ -44,6 +44,11 @@ class ParsedListRead(_ParsingBase):
     owner_user_id: int
     name: str
     source_kind: ParserSourceKind
+    # Вид содержимого списка: "user" (пользователи) или "community"
+    # (каналы/чаты). Нужен, чтобы прайминг брал только списки пользователей и
+    # чтобы не смешивать виды в операциях над списками. Вычисляется в API по
+    # source_kind и фактическому содержимому (list_op может быть любым).
+    entity_kind: str = "user"
     chat_ref: Optional[str] = None
     days_window: Optional[int] = None
     min_messages: Optional[int] = None
@@ -226,6 +231,9 @@ class RunDiscoverRequest(_CommunityFilterFields):
     use_mentions: bool = False
     depth: int = Field(default=2, ge=1, le=3)
     max_results: int = Field(default=200, ge=1, le=1000)
+    # Похожие каналы от Telegram проходят мимо фильтра по ключевикам: они уже
+    # по теме (ML-рекомендации по сидам), пользователь просил их не отсеивать.
+    keep_recommendations_without_keywords: bool = False
 
 
 class ListOpRequest(_ParsingBase):

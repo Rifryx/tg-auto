@@ -121,13 +121,34 @@ async def _start_job(
     return {"job_id": job.id}
 
 
+def _entity_kind(session: Session, obj) -> str:
+    """Вид содержимого списка: "community" (каналы/чаты) или "user".
+
+    community_enrich — всегда сообщества. Для list_op (может быть любым) и
+    прочих — смотрим, есть ли строки в community_items.
+    """
+    from modules.priming.schemas.enums import ParserSourceKind
+
+    if obj.source_kind == ParserSourceKind.COMMUNITY_ENRICH.value:
+        return "community"
+    if ParsedCommunityItemRepository(session).count_by_list(obj.id) > 0:
+        return "community"
+    return "user"
+
+
+def _list_read(session: Session, obj) -> ParsedListRead:
+    read = ParsedListRead.model_validate(obj)
+    read.entity_kind = _entity_kind(session, obj)
+    return read
+
+
 @router.get("/lists", response_model=list[ParsedListRead])
 def list_lists(
     session: Session = Depends(get_session),
     user_id: str = Depends(require_user),
 ):
     return [
-        ParsedListRead.model_validate(r)
+        _list_read(session, r)
         for r in ParsedListRepository(session).list_by_owner(_owner_id(user_id))
     ]
 
@@ -139,7 +160,7 @@ def get_list(list_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail={
             "error": "not_found", "message": f"parsed list {list_id} not found",
         })
-    return ParsedListRead.model_validate(obj)
+    return _list_read(session, obj)
 
 
 @router.get(
@@ -356,6 +377,7 @@ async def run_discover(
             "use_mentions": body.use_mentions,
             "depth": body.depth,
             "max_results": body.max_results,
+            "keep_recommendations_without_keywords": body.keep_recommendations_without_keywords,
             **_community_filter_payload(body),
         },
     )
