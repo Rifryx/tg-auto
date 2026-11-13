@@ -217,7 +217,7 @@ function Column({
         highlight ? "border-accent/50 bg-surface-1" : "border-hairline",
       ].join(" ")}
     >
-      <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-text-tertiary">
+      <p className="mb-2 text-[12px] font-semibold text-text-tertiary">
         {title} · {count}
       </p>
       <div className="flex flex-col gap-2">{children}</div>

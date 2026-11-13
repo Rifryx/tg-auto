@@ -99,7 +99,7 @@ export function MediaPickerInline({
                   <MediaAssetThumb id={a.id} size={64} />
                   {active && (
                     <span className="pointer-events-none absolute inset-0 flex items-end justify-end bg-accent/20 p-1">
-                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-accent-on">
+                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-accent text-[10px] font-semibold text-accent-on">
                         ✓
                       </span>
                     </span>

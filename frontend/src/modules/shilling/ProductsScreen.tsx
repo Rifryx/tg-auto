@@ -186,7 +186,7 @@ function ProductSheet({
         className="relative mx-auto flex max-h-[92vh] w-full max-w-[560px] flex-col overflow-y-auto rounded-t-[28px] border border-hairline bg-bg-elevated p-5 pb-[calc(env(safe-area-inset-bottom)+16px)] lg:rounded-[28px] lg:pb-5"
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-[18px] font-bold text-text-primary">
+          <h2 className="text-[18px] font-semibold text-text-primary">
             {initial ? "Редактировать продукт" : "Новый продукт"}
           </h2>
           <button

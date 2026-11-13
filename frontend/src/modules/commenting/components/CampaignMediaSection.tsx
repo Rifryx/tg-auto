@@ -222,7 +222,7 @@ function MediaPickerSheet({
                     <MediaAssetThumb id={a.id} size={120} />
                     {active && (
                       <span className="pointer-events-none absolute inset-0 flex items-end justify-end bg-accent/20 p-1.5">
-                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-accent-on text-[11px] font-bold">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-accent-on text-[11px] font-semibold">
                           ✓
                         </span>
                       </span>
