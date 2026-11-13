@@ -12,7 +12,7 @@ import {
   Upload,
   Users,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
 import { parsingApi } from "../parsing/api";
@@ -20,6 +20,9 @@ import type { ParsedList } from "../parsing/types";
 import { AccountAvatar } from "../../shared/AccountAvatar";
 import { accountsApi } from "../../shared/accounts";
 import { accountWorkWarning, sortForWork } from "../../shared/status";
+import { Select } from "../../shared/Select";
+import { TZ_OPTIONS, detectedTimezone } from "../../shared/timezones";
+import { useAppContent } from "../../screens/more/AboutScreen";
 import type { Account } from "../../shared/types";
 import { primingApi } from "./api";
 import { Checkbox } from "./components/Checkbox";
@@ -77,9 +80,10 @@ const WARMUP_DEFAULTS: Record<
   WarmupProfile,
   { limit: number; min: number; max: number }
 > = {
-  cold: { limit: 5, min: 200, max: 600 },
-  warm: { limit: 20, min: 60, max: 200 },
-  hot: { limit: 40, min: 20, max: 60 },
+  // min/max — задержка между целями В МИНУТАХ.
+  cold: { limit: 5, min: 4, max: 10 },
+  warm: { limit: 20, min: 1, max: 3 },
+  hot: { limit: 40, min: 1, max: 2 },
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -97,16 +101,34 @@ export function NewPrimingScreen() {
   const [rotation, setRotation] = useState<TriggerRotationStrategy>("random");
   const [warmup, setWarmup] = useState<WarmupProfile>("warm");
   const [dailyLimit, setDailyLimit] = useState(20);
-  const [delayMin, setDelayMin] = useState(60);
-  const [delayMax, setDelayMax] = useState(200);
+  // Задержки между целями храним в МИНУТАХ (в UI), в секунды переводим на
+  // сабмите. Пользователь просил минуты вместо секунд — «700 с» нечитаемо.
+  const [delayMinMin, setDelayMinMin] = useState(1);
+  const [delayMaxMin, setDelayMaxMin] = useState(3);
   const [humanizer, setHumanizer] = useState<HumanizerMode>("balanced");
   const [dryRun, setDryRun] = useState(false);
   const [quietHours, setQuietHours] = useState(false);
+  // Таймзона тихих часов по умолчанию берётся из настроек профиля
+  // (Таймзона и окно активности). Пользователь не вписывает её вручную —
+  // ниже выпадающий список. quietTzTouched помечает ручной выбор, чтобы
+  // профиль не перезатирал его.
   const [quietTz, setQuietTz] = useState<string>("");
+  const [quietTzTouched, setQuietTzTouched] = useState(false);
   const [quietStart, setQuietStart] = useState<number>(0);
   const [quietEnd, setQuietEnd] = useState<number>(7);
   const [abSplit, setAbSplit] = useState(false);
   const [abRatio, setAbRatio] = useState(0.5);
+
+  // Таймзона профиля → дефолт для тихих часов (пока пользователь не выбрал
+  // свою). Фолбэк — таймзона браузера.
+  const profileTz = useAppContent().data?.activity?.timezone || "";
+  const detectedTz = detectedTimezone();
+  useEffect(() => {
+    if (quietTzTouched) return;
+    const def = profileTz || detectedTz;
+    if (def && def !== quietTz) setQuietTz(def);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileTz, quietTzTouched]);
 
   const [pickedAccounts, setPickedAccounts] = useState<Set<number>>(new Set());
   const [manualList, setManualList] = useState("");
@@ -122,8 +144,8 @@ export function NewPrimingScreen() {
     setWarmup(p);
     const d = WARMUP_DEFAULTS[p];
     setDailyLimit(d.limit);
-    setDelayMin(d.min);
-    setDelayMax(d.max);
+    setDelayMinMin(d.min);
+    setDelayMaxMin(d.max);
   }
 
   // Аккаунты пула
@@ -170,7 +192,7 @@ export function NewPrimingScreen() {
   } else if (targets.length === 0) {
     problems.push("Добавьте хотя бы одну цель");
   }
-  if (delayMin > delayMax) problems.push("Минимальная задержка больше максимальной");
+  if (delayMinMin > delayMaxMin) problems.push("Минимальная задержка больше максимальной");
   if (actions.size === 0) problems.push("Выберите хотя бы один триггер");
   if (quietHours) {
     if (quietStart >= quietEnd)
@@ -192,8 +214,8 @@ export function NewPrimingScreen() {
         humanizer_mode: humanizer,
         warmup_profile: warmup,
         daily_limit_per_account: dailyLimit,
-        delay_between_targets_sec_min: delayMin,
-        delay_between_targets_sec_max: delayMax,
+        delay_between_targets_sec_min: delayMinMin * 60,
+        delay_between_targets_sec_max: delayMaxMin * 60,
         dry_run: dryRun,
         quiet_hours_target: quietHours,
         quiet_hours_tz: quietHours && quietTz.trim() ? quietTz.trim() : null,
@@ -522,21 +544,21 @@ export function NewPrimingScreen() {
             />
             <Stepper
               label="Минимальная задержка"
-              value={delayMin}
-              onChange={setDelayMin}
+              value={delayMinMin}
+              onChange={setDelayMinMin}
               min={0}
-              max={delayMax}
-              step={10}
-              unit="с"
+              max={delayMaxMin}
+              step={1}
+              unit="мин"
             />
             <Stepper
               label="Максимальная задержка"
-              value={delayMax}
-              onChange={setDelayMax}
-              min={delayMin}
-              max={3600}
-              step={10}
-              unit="с"
+              value={delayMaxMin}
+              onChange={setDelayMaxMin}
+              min={delayMinMin}
+              max={120}
+              step={1}
+              unit="мин"
             />
           </div>
         </Section>
@@ -603,13 +625,13 @@ export function NewPrimingScreen() {
         <Section
           icon={<Moon className="h-4 w-4 text-text-secondary" strokeWidth={2.2} aria-hidden />}
           title="Тихие часы цели"
-          description="Не будим цель ночью в её часовом поясе. Нужны и часы, и IANA-timezone — иначе правило не срабатывает (гео неизвестно)."
+          description="Не беспокоим человека ночью по его часовому поясу. Укажите пояс и ночное окно — в это время прайм к цели не отправляется."
         >
           <Checkbox
             checked={quietHours}
             onChange={setQuietHours}
             label="Включить тихие часы"
-            description="Executor пишет outcome=skipped_quiet без обращения к Telethon — pool-квота не тратится."
+            description="В ночном окне цель пропускается без обращения к Telegram — лимиты аккаунтов не тратятся."
           />
           {quietHours && (
             <div className="mt-3 grid gap-3 rounded-xl bg-surface-2 p-3 sm:grid-cols-2">
@@ -620,14 +642,25 @@ export function NewPrimingScreen() {
                     strokeWidth={2}
                     aria-hidden
                   />
-                  Часовой пояс (IANA)
+                  Часовой пояс
                 </div>
-                <input
-                  type="text"
+                <Select
                   value={quietTz}
-                  onChange={(e) => setQuietTz(e.target.value)}
-                  placeholder="например: Europe/Moscow"
-                  className="w-full rounded-xl border border-hairline bg-surface-1 p-3 font-mono text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-strong focus:outline-none"
+                  onChange={(v) => {
+                    setQuietTz(v);
+                    setQuietTzTouched(true);
+                  }}
+                  options={Array.from(
+                    new Set([quietTz, profileTz, detectedTz, ...TZ_OPTIONS].filter(Boolean)),
+                  ).map((z) => ({
+                    value: z,
+                    label:
+                      z === profileTz
+                        ? `${z} (из профиля)`
+                        : z === detectedTz
+                          ? `${z} (ваш)`
+                          : z,
+                  }))}
                 />
               </label>
               <div className="text-[13px] font-medium text-text-secondary">
@@ -647,9 +680,10 @@ export function NewPrimingScreen() {
                 </div>
               </div>
               <p className="col-span-full text-[12px] text-text-tertiary">
-                Пример: TZ <code>Europe/Moscow</code>, окно 0–7 → в
-                03:00 по Москве цель получит skipped_quiet, в 10:00 —
-                обычный прайм. Если TZ пустая, окно игнорируется.
+                Например: пояс <code>Europe/Moscow</code>, окно 0–7 — цель,
+                к которой подходит очередь в 03:00 по Москве, будет
+                пропущена, а в 10:00 — сработает как обычно. Часовой пояс
+                берётся из настроек профиля, но его можно изменить здесь.
               </p>
             </div>
           )}
@@ -670,14 +704,14 @@ export function NewPrimingScreen() {
 
         {/* dry-run toggle */}
         <Section
-          title="Тестовый прогон"
-          description="Симуляция outcome по распределению без реальных Push. Полезно для UI/E2E."
+          title="Пробный запуск"
+          description="Кампания отработает «вхолостую»: ничего не отправится людям. Нужно, чтобы заранее посмотреть, как распределятся цели и аккаунты, не рискуя реальными сообщениями."
         >
           <Checkbox
             checked={dryRun}
             onChange={setDryRun}
-            label="Включить dry-run"
-            description="78/12/8/2 — распределение по спеке; execution_log пишется с флагом dry_run=true."
+            label="Запустить без реальной отправки"
+            description="Цели и статистика появятся в истории кампании с пометкой «пробный», но ни одного реального сообщения отправлено не будет. Снимите галочку для боевого запуска."
           />
         </Section>
 
