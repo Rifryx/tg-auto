@@ -373,6 +373,42 @@ async def test_on_channel_post_keyword_filter(session):
     assert len(spy.scheduled) == 1
 
 
+async def test_on_channel_post_uses_channel_campaign_not_first_link(session):
+    """Настройки отбора берутся из кампании КАНАЛА (source_campaign_id), а не из
+    произвольной первой привязки аккаунта. Регрессия «режим по словам, но
+    коммент на любой пост» при нескольких кампаниях аккаунта."""
+    _clean(session)
+    # Кампания A («all») — к ней привязан аккаунт (её вернёт get_by_account).
+    camp_all = _make_campaign(session)
+    # Кампания B («keywords») — ей принадлежит канал.
+    camp_kw = _make_campaign(session)
+    CampaignRepository(session).update(
+        camp_kw,
+        CampaignUpdate(post_selection_mode="keywords", keywords=["привет"]),
+    )
+    session.commit()
+    account_id = _make_account(session, status="assigned", campaign_id=camp_all)
+    repo = MonitoredChannelRepository(session)
+    ch = repo.create(account_id, "@durov", is_folder=False)
+    repo.mark_working(
+        ch.id, channel_ref="durov", channel_tg_id=777, title="Chan",
+        discussion_group_id=555,
+    )
+    # Канал принадлежит keyword-кампании.
+    ch.source_campaign_id = camp_kw
+    session.commit()
+
+    spy = _SpyTaskQueue()
+    ctx = _ctx(session, client=_ResolveClient(), task_queue=spy)
+
+    # Пост без ключевика: по настройкам кампании КАНАЛА (keywords) — пропуск.
+    count = await runner.on_channel_post(
+        ctx, account_id, ch.id, 200, post_text="я люблю пельмени"
+    )
+    assert count == 0
+    assert spy.scheduled == []
+
+
 async def test_post_channel_comment_posts_and_logs(session):
     _clean(session)
     campaign_id = _make_campaign(session)
