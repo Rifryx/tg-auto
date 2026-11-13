@@ -220,3 +220,22 @@ def test_pause_resume_stop_transitions(session) -> None:
     body = r.json()
     assert body["status"] == "stopped"
     assert body["finished_at"] is not None
+
+
+def test_delete_stopped_campaign(session) -> None:
+    """Остановленную кампанию можно удалить (раньше stopped не был deletable —
+    удалить её было нельзя никак)."""
+    api = _client(session, _SpyTaskQueue())
+    cid = api.post("/modules/priming/campaigns", json=_minimal_body()).json()["id"]
+    account_id = _make_account(session)
+    CampaignAccountRepository(session).create({"campaign_id": cid, "account_id": account_id})
+    CampaignTargetRepository(session).create({"campaign_id": cid, "username": "u"})
+    session.commit()
+
+    api = _client(session, _SpyTaskQueue())
+    assert api.post(f"/modules/priming/campaigns/{cid}/start").status_code == 200
+    assert api.post(f"/modules/priming/campaigns/{cid}/stop").json()["status"] == "stopped"
+
+    r = api.delete(f"/modules/priming/campaigns/{cid}")
+    assert r.status_code == 204
+    assert api.get(f"/modules/priming/campaigns/{cid}").status_code == 404
