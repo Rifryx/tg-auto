@@ -1084,9 +1084,10 @@ function behaviorSummary(s: {
   return `${selLabel} · ${scopeLabel} · ${workLabel}`;
 }
 
-/* Поле выбора даты/времени для «Отложенного запуска» — <input type="datetime-local">
-   в локальном времени браузера, в state кладём ISO (UTC). Та же логика, что
-   и в CampaignDetailScreen, только без AutoSave обвязки (здесь form submit). */
+/* Поле выбора даты/времени для «Отложенного запуска».
+   День / месяц / год — ТРИ отдельных поля (а не нативный <input type="date">,
+   который рендерил «дд.мм.гггг» и путал при вводе года — баг-репорт
+   «дд.мм.0200»). Время — отдельным полем. В state кладём ISO (UTC). */
 function ScheduledStartInput({
   value,
   onChange,
@@ -1094,54 +1095,108 @@ function ScheduledStartInput({
   value: string;
   onChange: (iso: string) => void;
 }) {
-  // Раньше был один <input type="datetime-local"> с мгновенным onChange —
-  // parent-state обновлялся на каждом нажатии клавиши, re-render сбрасывал
-  // курсор, пользователь не мог нормально редактировать дату (баг-репорт
-  // «нельзя поменять дату и время»). Разделил на date + time, как в
-  // CampaignDetailScreen — каждое поле независимое.
   const pad = (n: number) => String(n).padStart(2, "0");
-  const toDate = (iso: string) => {
+  const partsOf = (iso: string) => {
     const d = new Date(iso);
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    if (Number.isNaN(d.getTime())) {
+      return { day: "", month: "", year: "", time: "" };
+    }
+    return {
+      day: pad(d.getDate()),
+      month: pad(d.getMonth() + 1),
+      year: String(d.getFullYear()),
+      time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+    };
   };
-  const toTime = (iso: string) => {
-    const d = new Date(iso);
-    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  };
-  const [dateV, setDateV] = useState(toDate(value));
-  const [timeV, setTimeV] = useState(toTime(value));
+  const [day, setDay] = useState(() => partsOf(value).day);
+  const [month, setMonth] = useState(() => partsOf(value).month);
+  const [year, setYear] = useState(() => partsOf(value).year);
+  const [time, setTime] = useState(() => partsOf(value).time);
   useEffect(() => {
-    setDateV(toDate(value));
-    setTimeV(toTime(value));
+    const p = partsOf(value);
+    setDay(p.day);
+    setMonth(p.month);
+    setYear(p.year);
+    setTime(p.time);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
-  const commit = (d: string, t: string) => {
-    if (!d || !t) return;
-    const parsed = new Date(`${d}T${t}`);
+  const commit = (d: string, m: string, y: string, t: string) => {
+    if (!d || !m || y.length < 4 || !t) return;
+    const dn = Number(d);
+    const mn = Number(m);
+    const yn = Number(y);
+    if (dn < 1 || dn > 31 || mn < 1 || mn > 12) return;
+    const [hh, mm] = t.split(":").map(Number);
+    const parsed = new Date(yn, mn - 1, dn, hh || 0, mm || 0);
+    // Отбрасываем несуществующие даты (напр. 31.02): JS «перекинет» месяц.
+    if (parsed.getDate() !== dn || parsed.getMonth() !== mn - 1) return;
     if (!Number.isNaN(parsed.getTime())) onChange(parsed.toISOString());
   };
 
+  const boxCls =
+    "w-full rounded-chip border border-hairline bg-surface-1 px-3 py-3 text-center text-[15px] tabular-nums text-text-primary outline-none focus:border-strong placeholder:text-text-tertiary";
+
   return (
     <Field label="Запустить не раньше">
-      <div className="grid grid-cols-2 gap-2">
-        <input
-          type="date"
-          value={dateV}
-          onChange={(e) => {
-            setDateV(e.target.value);
-            commit(e.target.value, timeV);
-          }}
-          className="w-full rounded-chip border border-hairline bg-surface-1 px-4 py-3 text-[15px] text-text-primary outline-none focus:border-strong"
-        />
-        <input
-          type="time"
-          value={timeV}
-          onChange={(e) => {
-            setTimeV(e.target.value);
-            commit(dateV, e.target.value);
-          }}
-          className="w-full rounded-chip border border-hairline bg-surface-1 px-4 py-3 text-[15px] text-text-primary outline-none focus:border-strong"
-        />
+      <div className="flex items-end gap-2">
+        <label className="flex-[1] text-[11px] text-text-tertiary">
+          День
+          <input
+            inputMode="numeric"
+            maxLength={2}
+            placeholder="ДД"
+            value={day}
+            onChange={(e) => {
+              const v = e.target.value.replace(/\D/g, "").slice(0, 2);
+              setDay(v);
+              commit(v, month, year, time);
+            }}
+            className={`mt-1 ${boxCls}`}
+          />
+        </label>
+        <label className="flex-[1] text-[11px] text-text-tertiary">
+          Месяц
+          <input
+            inputMode="numeric"
+            maxLength={2}
+            placeholder="ММ"
+            value={month}
+            onChange={(e) => {
+              const v = e.target.value.replace(/\D/g, "").slice(0, 2);
+              setMonth(v);
+              commit(day, v, year, time);
+            }}
+            className={`mt-1 ${boxCls}`}
+          />
+        </label>
+        <label className="flex-[1.4] text-[11px] text-text-tertiary">
+          Год
+          <input
+            inputMode="numeric"
+            maxLength={4}
+            placeholder="ГГГГ"
+            value={year}
+            onChange={(e) => {
+              const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+              setYear(v);
+              commit(day, month, v, time);
+            }}
+            className={`mt-1 ${boxCls}`}
+          />
+        </label>
+        <label className="flex-[1.3] text-[11px] text-text-tertiary">
+          Время
+          <input
+            type="time"
+            value={time}
+            onChange={(e) => {
+              setTime(e.target.value);
+              commit(day, month, year, e.target.value);
+            }}
+            className={`mt-1 ${boxCls}`}
+          />
+        </label>
       </div>
     </Field>
   );
