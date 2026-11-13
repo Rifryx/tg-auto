@@ -80,7 +80,7 @@ export function BanRiskCard({ accountId }: { accountId: number }) {
 
         {topFactors.length > 0 && (
           <div className="mt-4 border-t border-hairline pt-3">
-            <p className="mb-2 text-[11px] uppercase tracking-wide text-text-tertiary">
+            <p className="mb-2 text-[12px] font-medium text-text-tertiary">
               Основные факторы
             </p>
             <div className="flex flex-col gap-1.5">

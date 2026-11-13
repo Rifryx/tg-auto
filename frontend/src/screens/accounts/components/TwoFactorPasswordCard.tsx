@@ -282,7 +282,7 @@ function RemovePasswordSheet({
       >
         <div className="mb-3 flex items-start justify-between">
           <div>
-            <h2 className="text-[18px] font-bold text-text-primary">
+            <h2 className="text-[18px] font-semibold text-text-primary">
               Снять 2FA-пароль?
             </h2>
             <p className="mt-1 text-[12px] text-text-tertiary">
