@@ -52,6 +52,10 @@ class CommentLog(Base, CreatedAtMixin):
     )
     post_channel_msg_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     posted_message_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    # Реальный канал поста (title/@username), под которым оставлен коммент.
+    # Нужен ленте активности: аккаунт может мониторить несколько каналов, и
+    # привязка «по аккаунту» давала неверную подпись.
+    channel_ref: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     comment_text: Mapped[str] = mapped_column(String, nullable=False)
     in_reply_to_message_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False)

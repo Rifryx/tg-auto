@@ -231,6 +231,7 @@ def _recent_activity(session: Session) -> list[dict[str, Any]]:
             CommentLog.account_id,
             CommentLog.status,
             CommentLog.created_at,
+            CommentLog.channel_ref,
         )
         .order_by(CommentLog.created_at.desc())
         .limit(_ACTIVITY_LIMIT)
@@ -261,6 +262,8 @@ def _recent_activity(session: Session) -> list[dict[str, Any]]:
                 "detail": f"комментарий ({r.status})",
                 "status": r.status,
                 "ts": r.created_at,
+                # Реальный канал поста из лога (а не «первый канал аккаунта»).
+                "channel_ref": r.channel_ref,
             }
         )
 
@@ -279,34 +282,49 @@ def _recent_activity(session: Session) -> list[dict[str, Any]]:
         ).all():
             labels[aid] = (phone, display_name)
 
-    # Канал для событий-комментариев: в аккаунт-центричной модели аккаунт
-    # привязан к своему каналу (monitored_channels.account_id). Показываем его
-    # имя в ленте — иначе видно только «комментарий (posted)» без того, КУДА он
-    # ушёл. Берём стабильно первый канал аккаунта (по id), одним запросом.
-    comment_acc_ids = {
+    # Канал для событий-комментариев берём из САМОГО лога (CommentLog.channel_ref)
+    # — это реальный канал поста. Раньше канал определялся «первым каналом
+    # аккаунта», и для аккаунтов с несколькими каналами подпись была неверной
+    # (баг-репорт: «пишет коммент в канал X, а по факту писалось в Y»).
+    # Фолбэк по первому каналу аккаунта — только для СТАРЫХ логов без channel_ref
+    # и только если у аккаунта ровно один канал (иначе не угадываем — не
+    # показываем канал вовсе, лучше без подписи, чем неверная).
+    legacy_acc_ids = {
         e["account_id"] for e in events
-        if e["type"] == "comment" and e["account_id"] is not None
+        if e["type"] == "comment"
+        and e["account_id"] is not None
+        and not (e.get("channel_ref") or "").strip()
     }
-    channel_by_acc: dict[int, str] = {}
-    if comment_acc_ids:
+    channel_by_acc: dict[int, Optional[str]] = {}
+    if legacy_acc_ids:
+        counts: dict[int, int] = {}
+        first_name: dict[int, str] = {}
         for acc_id, title, ref in session.execute(
             select(
                 MonitoredChannel.account_id,
                 MonitoredChannel.title,
                 MonitoredChannel.channel_ref,
             )
-            .where(MonitoredChannel.account_id.in_(comment_acc_ids))
+            .where(MonitoredChannel.account_id.in_(legacy_acc_ids))
             .order_by(MonitoredChannel.account_id, MonitoredChannel.id)
         ).all():
-            if acc_id in channel_by_acc:
-                continue
-            name = (title or ref or "").strip()
-            if name:
-                channel_by_acc[acc_id] = name
+            counts[acc_id] = counts.get(acc_id, 0) + 1
+            if acc_id not in first_name:
+                name = (title or ref or "").strip()
+                if name:
+                    first_name[acc_id] = name
+        # Подставляем только когда канал ровно один (однозначно).
+        for acc_id, cnt in counts.items():
+            if cnt == 1 and acc_id in first_name:
+                channel_by_acc[acc_id] = first_name[acc_id]
 
     result: list[dict[str, Any]] = []
     for e in events:
-        channel = channel_by_acc.get(e["account_id"]) if e["type"] == "comment" else None
+        channel = None
+        if e["type"] == "comment":
+            channel = (e.get("channel_ref") or "").strip() or channel_by_acc.get(
+                e["account_id"]
+            )
         detail = e["detail"]
         if channel:
             detail = f"{detail} → {channel}"
