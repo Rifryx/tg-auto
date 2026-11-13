@@ -113,6 +113,11 @@ def _passes_post_filter(
         return True
     if mode == "keywords":
         haystack = (text or "").lower()
+        # Защита от скаляра: если keywords пришёл строкой, НЕ итерируем по
+        # буквам (иначе одиночные символы матчат почти любой текст — симптом
+        # «комментит всё подряд в режиме по словам»), а берём строку целиком.
+        if isinstance(keywords, str):
+            keywords = [keywords]
         needles = [k.lower() for k in keywords if k]
         if not needles:
             return False

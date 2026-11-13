@@ -939,15 +939,27 @@ async def on_channel_post(
         if account is None or account.status != "assigned":
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="not_assigned")
             return 0
-        campaign_id, campaign = _account_campaign(session, account_id)
+        ch = MonitoredChannelRepository(session).get(monitored_channel_id)
+        ch_name = (ch.title or ch.channel_ref or ch.input_ref) if ch else "?"
+        # Кампанию берём ИМЕННО ту, что добавила этот канал (ch.source_campaign_id),
+        # а не «первую привязку аккаунта» (_account_campaign / get_by_account).
+        # Аккаунт может состоять в нескольких commenting-кампаниях (multi-campaign,
+        # миграция 0067), и get_by_account возвращал произвольную первую — с её
+        # настройками отбора. Симптом: режим «по словам» у одной кампании, а
+        # коммент уходит по настройкам другой (mode=all) → комментит всё подряд.
+        campaign = None
+        campaign_id = ch.source_campaign_id if ch is not None else None
+        if campaign_id is not None:
+            campaign = CampaignRepository(session).get(campaign_id)
+        if campaign is None:
+            # Фолбэк для старых каналов без source_campaign_id.
+            campaign_id, campaign = _account_campaign(session, account_id)
         if campaign is None or not campaign.enabled:
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="no_campaign")
             return 0
         if _scheduled_not_yet(campaign, now):
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="scheduled_not_started")
             return 0
-        ch = MonitoredChannelRepository(session).get(monitored_channel_id)
-        ch_name = (ch.title or ch.channel_ref or ch.input_ref) if ch else "?"
         if not is_within_active_hours(now, campaign):
             log.info("commenting.on_channel_post.skip", account_id=account_id, reason="inactive_hours")
             _push(ctx, campaign_id, TimelineKind.COMMENT_SKIPPED,
