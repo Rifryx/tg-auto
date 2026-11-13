@@ -155,10 +155,10 @@ export function PaymentSheet({ plan, onClose, onPaid }: PaymentSheetProps) {
 
         <div className="flex items-start justify-between px-5 pt-4">
           <div>
-            <div className="text-[13px] uppercase tracking-wide text-text-tertiary">
+            <div className="text-[13px] text-text-tertiary">
               Оплата
             </div>
-            <div className="mt-1 flex items-baseline gap-2 text-[20px] font-bold text-text-primary">
+            <div className="mt-1 flex items-baseline gap-2 text-[20px] font-semibold text-text-primary">
               <span>{plan.name} · ${priceUsdt}/мес</span>
               {hasPromo && basePriceUsdt > priceUsdt && (
                 <span className="text-[14px] font-medium text-text-tertiary line-through">

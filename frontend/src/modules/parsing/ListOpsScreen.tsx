@@ -85,7 +85,7 @@ export function ListOpsScreen() {
         </div>
 
         <div className="card p-5">
-          <div className="mb-3 text-[13px] font-medium uppercase tracking-wider text-text-secondary">Операция</div>
+          <div className="mb-3 text-[13px] font-medium text-text-secondary">Операция</div>
           <div className="grid grid-cols-2 gap-2">
             {OPS.map((o) => (
               <button
@@ -132,7 +132,7 @@ export function ListOpsScreen() {
         </div>
 
         <div className="card p-5">
-          <div className="mb-3 text-[13px] font-medium uppercase tracking-wider text-text-secondary">
+          <div className="mb-3 text-[13px] font-medium text-text-secondary">
             Списки ({selected.length})
           </div>
           <div className="flex flex-col gap-1.5">
@@ -151,7 +151,7 @@ export function ListOpsScreen() {
                 >
                   <span
                     className={[
-                      "flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] border text-[11px] font-bold",
+                      "flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] border text-[11px] font-semibold",
                       on ? "border-accent bg-accent text-accent-on" : "border-strong bg-surface-1 text-text-tertiary",
                     ].join(" ")}
                   >
@@ -161,7 +161,7 @@ export function ListOpsScreen() {
                     <div className="flex items-center gap-1.5">
                       <span
                         className={[
-                          "inline-flex shrink-0 items-center rounded-pill px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                          "inline-flex shrink-0 items-center rounded-pill px-1.5 py-0.5 text-[9px] font-semibold",
                           l.entity_kind === "community"
                             ? "bg-accent/15 text-accent"
                             : "bg-surface-2 text-text-secondary",

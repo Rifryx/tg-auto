@@ -6,7 +6,7 @@ import {
   Images,
   LogOut,
   ShieldAlert,
-  Sparkles,
+  Wand2,
   Stethoscope,
   Trash2,
   X,
@@ -216,7 +216,7 @@ export function BulkActionBar({
               onClick={() => checkValid(true)}
             />
             <ActionChip
-              icon={<Sparkles className="h-4 w-4" strokeWidth={1.8} />}
+              icon={<Wand2 className="h-4 w-4" strokeWidth={1.8} />}
               label="Профиль ИИ"
               disabled={busy}
               onClick={() => setAiProfileOpen(true)}
