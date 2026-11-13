@@ -22,9 +22,13 @@ import {
  */
 export function TwoFactorSection({ accountId }: { accountId: number }) {
   const qc = useQueryClient();
-  // Если на аккаунте уже стоит 2FA-пароль, привязка recovery-email отдельным
-  // блоком не нужна — им управляют прямо в карточке «Двухфакторный пароль».
-  // Поэтому здесь показываем секцию только когда пароля ещё нет.
+  // Recovery-email привязывается К СУЩЕСТВУЮЩЕМУ 2FA-паролю: бэкенд требует
+  // текущий пароль (POST /2fa/recovery-email/request → 422 без password), а
+  // Telegram цепляет email к уже настроенной двухфакторке. Поэтому блок имеет
+  // смысл ТОЛЬКО когда пароль есть. Раньше он показывался при has_2fa===false
+  // и писал «восстановить 2FA-пароль / привязать к текущему паролю» — хотя
+  // пароля нет; пользователь справедливо жаловался на противоречие с
+  // карточкой «Установить пароль» выше.
   const health = useQuery({
     queryKey: ["account", accountId, "health"],
     queryFn: () => accountsApi.health(accountId),
@@ -34,7 +38,7 @@ export function TwoFactorSection({ accountId }: { accountId: number }) {
     queryKey: ["account", accountId, "recovery-email"],
     queryFn: () => accountsApi.recoveryEmailState(accountId),
     refetchInterval: 3_000,
-    enabled: health.data?.has_2fa === false,
+    enabled: health.data?.has_2fa === true,
   });
 
   const [email, setEmail] = useState("");
@@ -64,8 +68,10 @@ export function TwoFactorSection({ accountId }: { accountId: number }) {
     if (s?.email && !s.pending_email) setReplacing(false);
   }, [s?.email, s?.pending_email]);
 
-  // Пароль уже установлен → секцию не показываем (ждём health).
-  if (health.data?.has_2fa !== false) {
+  // Пароля нет (или health ещё грузится) → recovery-email неприменим,
+  // секцию не показываем. Установка пароля — в карточке «Двухфакторный
+  // пароль» выше.
+  if (health.data?.has_2fa !== true) {
     return null;
   }
 
