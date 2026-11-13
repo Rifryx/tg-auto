@@ -1,4 +1,4 @@
-import { BellRing, ChevronRight, Filter, LayoutGrid, MessagesSquare, Sparkles } from "lucide-react";
+import { BellRing, ChevronRight, Filter, LayoutGrid, MessagesSquare } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
@@ -75,41 +75,33 @@ function PrimingHero() {
   return (
     <Link
       to="/modules/priming"
-      className="card-hero mb-8 flex items-start gap-5 p-6 active:opacity-90"
+      className="card-hero mb-8 flex items-start gap-5 p-6 transition-colors active:bg-surface-2"
     >
       <div className="min-w-0 flex-1">
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <span className="text-[20px] font-bold leading-tight text-text-primary">
+        <div className="mb-2 flex flex-wrap items-center gap-2.5">
+          <span className="text-[19px] font-semibold leading-tight text-text-primary">
             Прайминг
           </span>
-          <span className="inline-flex items-center gap-1 rounded-pill bg-accent px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-accent-on">
-            <Sparkles className="h-3 w-3" strokeWidth={2} aria-hidden />
+          {/* Тихая текстовая метка вместо «✨ НОВОЕ» (unslop: бейджи-блёстки
+              убираем, остаётся спокойный текст). */}
+          <span className="rounded-pill border border-hairline px-2 py-0.5 text-[11px] font-medium text-text-tertiary">
             Новое
           </span>
         </div>
         <p className="text-[14px] leading-relaxed text-text-secondary">
           Push через системные события — без сообщений в чате
         </p>
-        <span className="mt-5 inline-flex items-center rounded-pill bg-accent px-5 py-2.5 text-[14px] font-semibold text-accent-on">
-          Попробовать
-        </span>
+        <span className="btn btn-primary btn-md mt-5">Попробовать</span>
       </div>
-      <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-primary">
-        <BellRing className="h-8 w-8" strokeWidth={1.4} aria-hidden />
+      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-secondary">
+        <BellRing className="h-7 w-7" strokeWidth={1.5} aria-hidden />
       </span>
     </Link>
   );
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <h2
-      className="mb-4 text-[22px] font-bold leading-tight text-text-primary"
-      style={{ letterSpacing: "-0.01em" }}
-    >
-      {children}
-    </h2>
-  );
+  return <h2 className="section-title mb-3">{children}</h2>;
 }
 
 function ServiceRow({ to, icon: Icon, label, hint, runningIndicator }: Service) {
