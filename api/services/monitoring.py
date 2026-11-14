@@ -302,6 +302,56 @@ def _priming_summary(
     }
 
 
+def _mass_reactions_summary(
+    session: Session, *, user_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Сводка масс-реакций для дашборда.
+
+    У кампаний масс-реакций пока нет колонки владельца, поэтому multi-tenancy
+    скоупим через аккаунты: кампании с хотя бы одним своим аккаунтом и действия
+    своих аккаунтов за сегодня. Без user_id (тесты) — весь срез."""
+    from core.models import (
+        MassReactionCampaign,
+        MassReactionCampaignAccount,
+        MassReactionLog,
+    )
+
+    today_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    inst_stmt = select(func.count()).select_from(MassReactionCampaign)
+    active_stmt = (
+        select(func.count())
+        .select_from(MassReactionCampaign)
+        .where(MassReactionCampaign.status == "running")
+    )
+    today_stmt = (
+        select(func.count())
+        .select_from(MassReactionLog)
+        .where(MassReactionLog.started_at >= today_start)
+    )
+    if user_id is not None:
+        owned_campaigns = (
+            select(MassReactionCampaignAccount.campaign_id)
+            .join(Account, Account.id == MassReactionCampaignAccount.account_id)
+            .where(Account.user_id == user_id)
+        )
+        inst_stmt = inst_stmt.where(MassReactionCampaign.id.in_(owned_campaigns))
+        active_stmt = active_stmt.where(MassReactionCampaign.id.in_(owned_campaigns))
+        today_stmt = today_stmt.join(
+            Account, Account.id == MassReactionLog.account_id
+        ).where(Account.user_id == user_id)
+    instances = session.execute(inst_stmt).scalar_one()
+    active_now = session.execute(active_stmt).scalar_one()
+    today_actions = session.execute(today_stmt).scalar_one()
+    return {
+        "module": "mass_reactions",
+        "instances": instances,
+        "active_now": active_now,
+        "today_actions": today_actions,
+    }
+
+
 def _today_start() -> datetime:
     return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -568,6 +618,7 @@ def build_dashboard(
         _commenting_summary(session, user_id=user_id),
         _shilling_summary(session, user_id=user_id),
         _priming_summary(session, user_id=user_id),
+        _mass_reactions_summary(session, user_id=user_id),
     ]
     return {
         "alerts": _alerts(session, severity, user_id=user_id),

@@ -9,6 +9,7 @@ import {
   Megaphone,
   MessagesSquare,
   ShieldAlert,
+  SmilePlus,
   Timer,
   WifiOff,
 } from "lucide-react";
@@ -121,6 +122,7 @@ const MODULE_META: Record<string, { label: string; icon: LucideIcon; to: string 
   commenting: { label: "Нейрокомментинг", icon: MessagesSquare, to: "/modules/commenting" },
   shilling: { label: "Нейрошиллинг", icon: Megaphone, to: "/modules/shilling" },
   priming: { label: "Прайминг", icon: Flame, to: "/modules/priming" },
+  mass_reactions: { label: "Масс-реакции", icon: SmilePlus, to: "/modules/mass-reactions" },
 };
 
 // Плоская карточка модуля (без градиентов — пользователь просил убрать

@@ -9,16 +9,26 @@ import { humanizeError } from "../../shared/api";
 import { massReactionsApi } from "./api";
 import { HUMANIZER_LABEL, REACTION_EMOJIS, WARMUP_LABEL } from "./labels";
 import type {
+  ChatNotifyMode,
   ChatSourceMode,
   HumanizerMode,
   WarmupProfile,
 } from "./types";
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
     <label className="block">
       <span className="mb-1.5 block text-[13px] font-medium text-text-secondary">{label}</span>
       {children}
+      {hint && <span className="mt-1.5 block text-[12px] leading-snug text-text-tertiary">{hint}</span>}
     </label>
   );
 }
@@ -31,6 +41,8 @@ export function NewMassReactionScreen() {
   const [name, setName] = useState("");
   const [emojis, setEmojis] = useState<string[]>(["👍", "🔥"]);
   const [source, setSource] = useState<ChatSourceMode>("by_subscriptions");
+  const [chatsText, setChatsText] = useState("");
+  const [notify, setNotify] = useState<ChatNotifyMode>("notify_only");
   const [everyN, setEveryN] = useState("1");
   const [probability, setProbability] = useState("100");
   const [duration, setDuration] = useState("24");
@@ -43,8 +55,8 @@ export function NewMassReactionScreen() {
     setEmojis((prev) => (prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e]));
 
   const create = useMutation({
-    mutationFn: () =>
-      massReactionsApi.create({
+    mutationFn: async () => {
+      const c = await massReactionsApi.create({
         name: name.trim(),
         reaction_emojis: emojis,
         chat_source_mode: source,
@@ -55,11 +67,21 @@ export function NewMassReactionScreen() {
         max_chats_per_account: Math.min(20, Math.max(1, Number(maxChats) || 5)),
         warmup_profile: warmup,
         humanizer_mode: humanizer,
-      }),
+      });
+      // При «По списку» сразу добавляем введённые чаты в созданную кампанию
+      // (чтобы не заставлять идти на страницу кампании отдельным шагом).
+      if (source === "explicit_list" && chatsText.trim()) {
+        await massReactionsApi.addChats(c.id, chatsText.trim(), notify);
+      }
+      return c;
+    },
     onSuccess: (c) => navigate(`/modules/mass-reactions/campaigns/${c.id}`, { replace: true }),
   });
 
-  const canSubmit = name.trim().length > 0 && emojis.length > 0;
+  const canSubmit =
+    name.trim().length > 0 &&
+    emojis.length > 0 &&
+    (source !== "explicit_list" || chatsText.trim().length > 0);
 
   return (
     <>
@@ -94,49 +116,82 @@ export function NewMassReactionScreen() {
           </p>
         </div>
 
-        <Field label="Источник чатов">
+        <Field
+          label="Источник чатов"
+          hint={
+            source === "by_subscriptions"
+              ? "Реакции ставятся в чатах, на которые уже подписаны аккаунты кампании."
+              : "Ты сам задаёшь список чатов — вставь их в поле ниже."
+          }
+        >
           <Select
             value={source}
             onChange={(v) => setSource(v as ChatSourceMode)}
             options={[
               { value: "by_subscriptions", label: "По подпискам аккаунтов" },
-              { value: "explicit_list", label: "По списку (добавлю вручную)" },
+              { value: "explicit_list", label: "По списку (вставлю сам)" },
             ]}
           />
         </Field>
 
+        {source === "explicit_list" && (
+          <div className="flex flex-col gap-3 rounded-card border border-hairline bg-surface-1 p-3.5">
+            <Field label="Список чатов" hint="По одному в строке или через запятую: @chat, t.me/chat или ссылка-приглашение.">
+              <textarea
+                value={chatsText}
+                onChange={(e) => setChatsText(e.target.value)}
+                rows={4}
+                placeholder={"@cryptochat\nt.me/anotherchat\nhttps://t.me/+inviteHash"}
+                className={`${INPUT} resize-none`}
+              />
+            </Field>
+            <Field label="Если чата нет в подписках аккаунта" hint="«Подписаться» — аккаунт сам вступит в чат перед реакциями (рискованнее для антиспама).">
+              <Select
+                value={notify}
+                onChange={(v) => setNotify(v as ChatNotifyMode)}
+                options={[
+                  { value: "notify_only", label: "Только пометить (не вступать)" },
+                  { value: "notify_and_join", label: "Вступить в чат" },
+                ]}
+              />
+            </Field>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Реагировать на каждое N-е">
-            <Select
+          <Field label="Реагировать на каждое N-е сообщение" hint="1 — на каждое, 5 — на каждое пятое. Больше интервал — реже реакции.">
+            <input
+              inputMode="numeric"
               value={everyN}
-              onChange={setEveryN}
-              options={["1", "2", "3", "5"].map((n) => ({ value: n, label: `${n}-е` }))}
+              onChange={(e) => setEveryN(e.target.value.replace(/\D/g, ""))}
+              className={`${INPUT} tabular-nums`}
+              placeholder="1"
             />
           </Field>
-          <Field label="Вероятность, %">
+          <Field label="Вероятность, %" hint="Шанс поставить реакцию на подходящее сообщение (1–100).">
             <input inputMode="numeric" value={probability} onChange={(e) => setProbability(e.target.value.replace(/\D/g, ""))} className={`${INPUT} tabular-nums`} />
           </Field>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Длительность, ч">
+          <Field label="Длительность, ч" hint="Сколько часов кампания работает после запуска (до 72).">
             <input inputMode="numeric" value={duration} onChange={(e) => setDuration(e.target.value.replace(/\D/g, ""))} className={`${INPUT} tabular-nums`} />
           </Field>
-          <Field label="Макс. чатов на аккаунт">
+          <Field label="Макс. чатов на аккаунт" hint="Сколько чатов одновременно обслуживает один аккаунт (до 20).">
             <input inputMode="numeric" value={maxChats} onChange={(e) => setMaxChats(e.target.value.replace(/\D/g, ""))} className={`${INPUT} tabular-nums`} />
           </Field>
         </div>
 
-        <Field label="Дневной лимит реакций на аккаунт">
+        <Field label="Дневной лимит реакций на аккаунт" hint="Предохранитель от бана: больше этого числа за сутки один аккаунт не ставит (до 500).">
           <input inputMode="numeric" value={dailyLimit} onChange={(e) => setDailyLimit(e.target.value.replace(/\D/g, ""))} className={`${INPUT} tabular-nums`} />
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Прогрев">
+          <Field label="Прогрев" hint="Cold — осторожно и медленно, Hot — агрессивнее и быстрее.">
             <Select value={warmup} onChange={(v) => setWarmup(v as WarmupProfile)}
               options={(["cold", "warm", "hot"] as WarmupProfile[]).map((p) => ({ value: p, label: WARMUP_LABEL[p] }))} />
           </Field>
-          <Field label="Антидетект">
+          <Field label="Антидетект" hint="Разброс задержек «под человека». Выше — безопаснее, но медленнее.">
             <Select value={humanizer} onChange={(v) => setHumanizer(v as HumanizerMode)}
               options={(["off", "balanced", "aggressive"] as HumanizerMode[]).map((m) => ({ value: m, label: HUMANIZER_LABEL[m] }))} />
           </Field>
