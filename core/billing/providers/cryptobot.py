@@ -76,12 +76,44 @@ def create_invoice(
     except (httpx.HTTPError, ValueError) as exc:  # сеть / не-JSON
         raise CryptoBotError(f"createInvoice failed: {exc!r}") from exc
     if not data.get("ok"):
-        raise CryptoBotError(f"createInvoice error: {data.get('error')}")
+        raise CryptoBotError(_describe_error(data.get("error"), settings))
     result = data["result"]
     return CreatedInvoice(
         invoice_id=str(result["invoice_id"]),
         pay_url=result.get("pay_url") or result.get("bot_invoice_url") or "",
     )
+
+
+def _describe_error(error: object, settings) -> str:
+    """Человекочитаемая расшифровка ошибки Crypto Pay (``{code, name}``).
+
+    Показываем реальный код/имя провайдера (раньше пряталось за общим «временно
+    недоступна») и даём подсказку по самым частым причинам: неверный токен или
+    рассинхрон сети — токен тестового приложения против mainnet-URL и наоборот.
+    """
+    code = None
+    name = None
+    if isinstance(error, dict):
+        code = error.get("code")
+        name = error.get("name") or error.get("message")
+    base = f"Crypto Pay: {name or error} (код {code})" if (name or code) else f"Crypto Pay: {error}"
+
+    net = settings.cryptobot_network.strip().lower()
+    # 401/UNAUTHORIZED — почти всегда токен не той сети или с опечаткой.
+    if str(code) == "401" or (name and "UNAUTHORIZED" in str(name).upper()):
+        base += (
+            f". Сеть сейчас «{net}» ({settings.cryptobot_base_url}). "
+            "Токен приложения должен быть из той же сети: обычный @CryptoBot → "
+            "mainnet, @CryptoTestnetBot → testnet. Проверьте CRYPTOBOT_API_TOKEN "
+            "и CRYPTOBOT_NETWORK."
+        )
+    elif name and "ASSET" in str(name).upper():
+        base += (
+            f". Актив «{settings.cryptobot_asset}» не включён в приложении "
+            "Crypto Pay — разрешите его в настройках приложения или смените "
+            "CRYPTOBOT_ASSET."
+        )
+    return base
 
 
 def get_paid_invoice_ids(invoice_ids: Iterable[str]) -> set[str]:

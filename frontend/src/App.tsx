@@ -28,6 +28,9 @@ import { NewPrimingScreen } from "./modules/priming/NewPrimingScreen";
 import { PrimingDetailScreen } from "./modules/priming/PrimingDetailScreen";
 import { PrimingCampaignRun } from "./modules/priming/PrimingCampaignRun";
 import { PrimingCampaignLogs } from "./modules/priming/PrimingCampaignLogs";
+import { MassReactionsListScreen } from "./modules/mass-reactions/MassReactionsListScreen";
+import { NewMassReactionScreen } from "./modules/mass-reactions/NewMassReactionScreen";
+import { MassReactionDetailScreen } from "./modules/mass-reactions/MassReactionDetailScreen";
 import { ParsingListsScreen } from "./modules/parsing/ParsingListsScreen";
 import { CommunitiesScreen } from "./modules/parsing/CommunitiesScreen";
 import { CommunityListScreen } from "./modules/parsing/CommunityListScreen";
@@ -61,6 +64,9 @@ export function App() {
         <Route path="/modules/priming/campaigns/:id" element={<PrimingDetailScreen />} />
         <Route path="/modules/priming/campaigns/:id/run" element={<PrimingCampaignRun />} />
         <Route path="/modules/priming/campaigns/:id/logs" element={<PrimingCampaignLogs />} />
+        <Route path="/modules/mass-reactions" element={<MassReactionsListScreen />} />
+        <Route path="/modules/mass-reactions/campaigns/new" element={<NewMassReactionScreen />} />
+        <Route path="/modules/mass-reactions/campaigns/:id" element={<MassReactionDetailScreen />} />
         <Route path="/modules/parsing" element={<ParsingListsScreen />} />
         <Route path="/modules/parsing/run" element={<RunParsingScreen />} />
         <Route path="/modules/parsing/run/:jobId" element={<ParsingRunScreen />} />

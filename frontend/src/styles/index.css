@@ -81,22 +81,69 @@
     @apply rounded-card border border-hairline bg-surface-1;
   }
 
-  /* Hero-карточка с градиентным фоном (Proton Pass style):
-     подсветка в углу + усиленная обводка — выделяет featured-элементы. */
+  /* Featured-карточка: БЕЗ градиента (монохромный язык — тише «хром», богатство
+     уходит в контент, а не в фон). Выделяем усиленной обводкой и чуть более
+     приподнятой поверхностью. */
   .card-hero {
-    @apply rounded-card;
-    background: linear-gradient(
-      145deg,
-      color-mix(in srgb, white 8%, var(--surface-1)),
-      var(--surface-1)
-    );
-    border: 1px solid var(--surface-border-strong);
+    @apply rounded-card border border-strong bg-surface-1;
   }
 
-  /* Заголовок экрана H1 (§3): 28–34px / 700 / плотный трекинг. */
+  /* Заголовок экрана H1 (§3): иерархия размером и цветом, а не жирностью —
+     вес 600, крупный кегль, плотный трекинг. */
   .screen-title {
-    @apply text-[30px] font-bold leading-tight text-text-primary;
+    @apply text-[28px] font-semibold leading-tight text-text-primary;
     letter-spacing: -0.02em;
+  }
+
+  /* Заголовок секции внутри экрана — единый размер/вес для всех экранов. */
+  .section-title {
+    @apply text-[17px] font-semibold leading-tight text-text-primary;
+    letter-spacing: -0.01em;
+  }
+
+  /* --- Единый словарь контролов (кнопки/поля/чипы) -------------------------
+     Экраны переходят на эти классы, чтобы 200+ ad-hoc кнопок стали
+     консистентными. Монохром: основная кнопка — почти белая на графите. */
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-pill
+      font-medium leading-none transition-colors disabled:cursor-not-allowed
+      disabled:opacity-45;
+  }
+  .btn-md {
+    @apply h-11 px-5 text-[14px];
+  }
+  .btn-sm {
+    @apply h-9 px-4 text-[13px];
+  }
+  .btn-primary {
+    @apply bg-accent text-accent-on hover:opacity-90 active:opacity-80;
+  }
+  .btn-secondary {
+    @apply border border-hairline bg-surface-2 text-text-primary
+      hover:border-strong active:opacity-80;
+  }
+  .btn-ghost {
+    @apply text-text-secondary hover:bg-surface-1 hover:text-text-primary active:opacity-80;
+  }
+  .btn-danger {
+    @apply border border-status-critical/40 bg-status-critical/10 text-status-critical
+      hover:bg-status-critical/15 active:opacity-80;
+  }
+
+  /* Поле ввода и подпись к нему. */
+  .field-label {
+    @apply mb-1.5 block text-[13px] font-medium text-text-secondary;
+  }
+  .input {
+    @apply h-11 w-full rounded-chip border border-hairline bg-surface-2 px-3.5
+      text-[14px] text-text-primary transition-colors
+      placeholder:text-text-tertiary focus:border-strong focus:outline-none;
+  }
+
+  /* Нейтральный чип/пилюля-метка (счётчики, статусы, фильтры). */
+  .chip {
+    @apply inline-flex h-7 items-center gap-1.5 rounded-pill border border-hairline
+      bg-surface-2 px-2.5 text-[12px] text-text-secondary;
   }
 }
 
@@ -123,16 +170,17 @@
     box-shadow: 0 2px 10px -2px rgba(252, 74, 26, 0.6);
   }
 
-  /* Pro-карточка (обычная): премиальный фиолетовый градиент + свечение. В
-     монохромном интерфейсе такой цвет явно выделяет Pro на фоне спокойной
-     Free-карточки (акцент токенов — почти белый, для фона карточки не годится).
-     Промо-вариант перекрывает этот фон своим «огненным» градиентом. */
+  /* Pro-карточка (обычная): монохромный «яркий элемент» — сплошная акцентная
+     поверхность (почти белая на тёмной теме, графитовая на светлой) с
+     контрастным текстом. Это единственный яркий блок рядом со спокойной
+     Free-карточкой, без цветного градиента и свечения (unslop: богатство в
+     одном элементе, а не в фоне). Мягкая верхняя подсветка даёт глубину. */
   .pro-card {
-    color: #fff;
-    background: linear-gradient(150deg, #6366f1 0%, #8b5cf6 52%, #a855f7 100%);
+    color: var(--accent-on);
+    background: var(--accent);
     box-shadow:
-      0 16px 44px -20px rgba(124, 58, 237, 0.75),
-      0 0 0 1px rgba(255, 255, 255, 0.18) inset;
+      0 10px 30px -16px rgba(0, 0, 0, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.14);
   }
 
   /* Pro-карточка на экране тарифов во время акции. */

@@ -43,7 +43,7 @@ export function CampaignCard({ campaign }: { campaign: PrimingCampaign }) {
           </span>
           {campaign.dry_run && (
             <span
-              className="ml-1 shrink-0 rounded-pill bg-surface-2 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-text-secondary"
+              className="ml-1 shrink-0 rounded-pill bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-text-secondary"
               aria-label="Тестовый прогон, без реальных Push"
             >
               dry-run

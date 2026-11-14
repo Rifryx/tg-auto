@@ -73,7 +73,7 @@ function AnalyticsSection() {
   const l = data.load;
   return (
     <section className="mb-7">
-      <h2 className="mb-4 text-[17px] font-bold text-text-primary">Статистика</h2>
+      <h2 className="mb-4 text-[17px] font-semibold text-text-primary">Статистика</h2>
 
       <Group title="Пользователи">
         <Stat label="Всего" value={u.total} />
@@ -132,7 +132,7 @@ function AnalyticsSection() {
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-4">
-      <p className="mb-2 px-1 text-[12px] uppercase tracking-wide text-text-tertiary">
+      <p className="mb-2 px-1 text-[12px] text-text-tertiary">
         {title}
       </p>
       <div className="card-hero grid grid-cols-3 gap-3 p-4">{children}</div>
@@ -143,7 +143,7 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
 function Stat({ label, value }: { label: string; value?: number | string }) {
   return (
     <div>
-      <p className="nums text-[20px] font-bold leading-tight text-text-primary">
+      <p className="nums text-[20px] font-semibold leading-tight text-text-primary">
         {value ?? "—"}
       </p>
       <p className="text-[11px] leading-tight text-text-tertiary">{label}</p>
@@ -186,7 +186,7 @@ function ChartsSection() {
   if (!ts || !an) {
     return (
       <section className="mb-7">
-        <h2 className="mb-4 text-[17px] font-bold text-text-primary">Графики</h2>
+        <h2 className="mb-4 text-[17px] font-semibold text-text-primary">Графики</h2>
         <div className="card h-40 animate-pulse" />
       </section>
     );
@@ -204,7 +204,7 @@ function ChartsSection() {
 
   return (
     <section className="mb-7">
-      <h2 className="mb-4 text-[17px] font-bold text-text-primary">
+      <h2 className="mb-4 text-[17px] font-semibold text-text-primary">
         Графики <span className="text-[13px] font-normal text-text-tertiary">· 14 дней</span>
       </h2>
       <div className="grid gap-4 lg:grid-cols-2">
@@ -253,7 +253,7 @@ function ChartCard({
       <div className="mb-3 flex items-baseline justify-between">
         <p className="text-[13px] font-semibold text-text-secondary">{title}</p>
         {total !== undefined && (
-          <p className="nums text-[18px] font-bold text-text-primary">{total}</p>
+          <p className="nums text-[18px] font-semibold text-text-primary">{total}</p>
         )}
       </div>
       {children}
@@ -298,7 +298,7 @@ function PricingSection() {
 
   return (
     <section className="mb-7">
-      <h2 className="mb-4 text-[17px] font-bold text-text-primary">Цена подписки</h2>
+      <h2 className="mb-4 text-[17px] font-semibold text-text-primary">Цена подписки</h2>
       <div className="card flex flex-col gap-3 p-4">
         <Field label="Цена в USDT" value={usdt} onChange={setUsdt} mode="decimal" />
         <Field label="Цена в Stars ⭐" value={stars} onChange={setStars} mode="numeric" />
@@ -378,7 +378,7 @@ function PromotionsSection() {
   return (
     <section className="mb-7">
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-[17px] font-bold text-text-primary">Акции</h2>
+        <h2 className="text-[17px] font-semibold text-text-primary">Акции</h2>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -587,7 +587,7 @@ function SubsSection() {
   });
   return (
     <section className="mb-6">
-      <h2 className="mb-4 text-[17px] font-bold text-text-primary">
+      <h2 className="mb-4 text-[17px] font-semibold text-text-primary">
         Последние подписки
       </h2>
       {data && data.length === 0 && (
@@ -616,7 +616,7 @@ function SubsSection() {
                 </p>
               </div>
               <span
-                className={`nums shrink-0 rounded-pill px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${
+                className={`nums shrink-0 rounded-pill px-2.5 py-1 text-[11px] font-semibold ${
                   s.plan_id === "pro"
                     ? "text-text-primary"
                     : "border border-hairline text-text-secondary"
@@ -666,7 +666,7 @@ function SetPlanForm() {
 
   return (
     <section className="mb-4">
-      <h2 className="mb-4 text-[17px] font-bold text-text-primary">
+      <h2 className="mb-4 text-[17px] font-semibold text-text-primary">
         Выдать/забрать план
       </h2>
       <div className="card flex flex-col gap-3 p-4">
@@ -835,7 +835,7 @@ function AppContentSection() {
 
   return (
     <section className="mb-6">
-      <h2 className="mb-4 text-[17px] font-bold text-text-primary">Контент приложения</h2>
+      <h2 className="mb-4 text-[17px] font-semibold text-text-primary">Контент приложения</h2>
 
       <div className="card mb-3 flex flex-col gap-3 p-4">
         <p className="text-[13px] font-semibold text-text-secondary">О приложении</p>

@@ -65,6 +65,15 @@ async def startup(ctx: dict) -> None:
     ctx["campaign_lifecycle"] = lifecycle
     ctx["campaign_lifecycle_task"] = asyncio.create_task(lifecycle.run())
 
+    # Масс-реакции: слушатели активных чатов. Синхронизацию держит
+    # orchestrator_tick (attach/detach под текущий набор active-чатов), здесь
+    # делаем первичный подъём после старта.
+    from modules.mass_reactions.worker.registry import ReactionListenerRegistry
+
+    mr_registry = ReactionListenerRegistry()
+    ctx["mr_listener_registry"] = mr_registry
+    await mr_registry.sync(ctx)
+
     # Аккаунт-центричный мониторинг: слушатели working-каналов + их динамика
     # (channel_lifecycle: attach после resolve, detach при снятии с работы).
     channel_registry = ChannelListenerRegistry()

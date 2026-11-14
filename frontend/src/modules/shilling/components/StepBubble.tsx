@@ -247,7 +247,7 @@ function ReplyPicker({
 
       {open && (
         <div className="absolute right-0 top-[calc(100%+4px)] z-30 w-56 overflow-hidden rounded-chip border border-hairline bg-bg-elevated py-1 shadow-lg">
-          <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
+          <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-semibold text-text-tertiary">
             Ответить на реплику
           </p>
           {options.map((o) => (

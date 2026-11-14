@@ -15,13 +15,42 @@ import { ScreenHeader } from "../../app/layout/AppLayout";
 import { Select } from "../../shared/Select";
 import { primingApi } from "./api";
 import { StatusDot } from "./components/StatusDot";
-import type { PrimingCampaign, WarmupProfile } from "./types";
+import type { HumanizerMode, PrimingCampaign, WarmupProfile } from "./types";
 
 const WARMUP_LABEL: Record<WarmupProfile, string> = {
   cold: "Cold · медленно",
   warm: "Warm · средне",
   hot: "Hot · быстро",
 };
+
+const HUMANIZER_LABEL: Record<HumanizerMode, string> = {
+  off: "Выкл · только действия",
+  balanced: "Сбалансированный",
+  aggressive: "Агрессивный · больше фоновой активности",
+};
+
+/* Строка-тумблер (чекбокс) для редактора кампании. */
+function EditToggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-3 text-[13px] text-text-secondary">
+      <span>{label}</span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-5 w-5 accent-accent"
+      />
+    </label>
+  );
+}
 
 /* Экран деталей кампании — приезжает на промптах 6.3/6.4 (Ход/Логи).
    Пока — минимальная шапка с именем/статусом + плейсхолдер табов. */
@@ -129,7 +158,7 @@ export function PrimingDetailScreen() {
                 {data.status}
               </span>
               {data.dry_run && (
-                <span className="ml-1 rounded-pill bg-surface-2 px-2 py-0.5 text-[10px] uppercase tracking-wider text-text-secondary">
+                <span className="ml-1 rounded-pill bg-surface-2 px-2 py-0.5 text-[10px] text-text-secondary">
                   dry-run
                 </span>
               )}
@@ -277,23 +306,65 @@ function EditCard({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(campaign.name);
   const [warmup, setWarmup] = useState<WarmupProfile>(campaign.warmup_profile);
+  const [humanizer, setHumanizer] = useState<HumanizerMode>(campaign.humanizer_mode);
   const [dailyLimit, setDailyLimit] = useState(String(campaign.daily_limit_per_account));
+  // Задержки храним в секундах, редактируем в минутах (как при создании).
+  const [delayMin, setDelayMin] = useState(String(Math.round(campaign.delay_between_targets_sec_min / 60)));
+  const [delayMax, setDelayMax] = useState(String(Math.round(campaign.delay_between_targets_sec_max / 60)));
+  const [quietOn, setQuietOn] = useState(campaign.quiet_hours_target);
+  const [quietStart, setQuietStart] = useState(String(campaign.quiet_hours_start));
+  const [quietEnd, setQuietEnd] = useState(String(campaign.quiet_hours_end));
+  const [excludeBots, setExcludeBots] = useState(campaign.exclude_bots);
+  const [excludeDeleted, setExcludeDeleted] = useState(campaign.exclude_deleted);
+  const [excludeAdmins, setExcludeAdmins] = useState(campaign.exclude_admins);
+  const [requireUsername, setRequireUsername] = useState(campaign.require_username);
+  const [premiumOnly, setPremiumOnly] = useState(campaign.premium_only);
   const [dryRun, setDryRun] = useState(campaign.dry_run);
+
+  // Пере-синхронизируем все поля при смене кампании/прилёте свежих данных.
   useEffect(() => {
     setName(campaign.name);
     setWarmup(campaign.warmup_profile);
+    setHumanizer(campaign.humanizer_mode);
     setDailyLimit(String(campaign.daily_limit_per_account));
+    setDelayMin(String(Math.round(campaign.delay_between_targets_sec_min / 60)));
+    setDelayMax(String(Math.round(campaign.delay_between_targets_sec_max / 60)));
+    setQuietOn(campaign.quiet_hours_target);
+    setQuietStart(String(campaign.quiet_hours_start));
+    setQuietEnd(String(campaign.quiet_hours_end));
+    setExcludeBots(campaign.exclude_bots);
+    setExcludeDeleted(campaign.exclude_deleted);
+    setExcludeAdmins(campaign.exclude_admins);
+    setRequireUsername(campaign.require_username);
+    setPremiumOnly(campaign.premium_only);
     setDryRun(campaign.dry_run);
-  }, [campaign.id, campaign.name, campaign.warmup_profile, campaign.daily_limit_per_account, campaign.dry_run]);
+  }, [campaign]);
 
   const save = useMutation({
-    mutationFn: () =>
-      primingApi.update(campaign.id, {
+    mutationFn: () => {
+      // Минуты → секунды; гарантируем max >= min (CheckConstraint на бэке).
+      const dMin = Math.max(0, Number(delayMin) || 0) * 60;
+      const dMax = Math.max(dMin, Math.max(0, Number(delayMax) || 0) * 60);
+      const qStart = Math.min(23, Math.max(0, Number(quietStart) || 0));
+      const qEnd = Math.min(24, Math.max(qStart + 1, Number(quietEnd) || 24));
+      return primingApi.update(campaign.id, {
         name: name.trim() || campaign.name,
         warmup_profile: warmup,
-        daily_limit_per_account: Math.max(1, Number(dailyLimit) || 1),
+        humanizer_mode: humanizer,
+        daily_limit_per_account: Math.min(500, Math.max(1, Number(dailyLimit) || 1)),
+        delay_between_targets_sec_min: dMin,
+        delay_between_targets_sec_max: dMax,
+        quiet_hours_target: quietOn,
+        quiet_hours_start: qStart,
+        quiet_hours_end: qEnd,
+        exclude_bots: excludeBots,
+        exclude_deleted: excludeDeleted,
+        exclude_admins: excludeAdmins,
+        require_username: requireUsername,
+        premium_only: premiumOnly,
         dry_run: dryRun,
-      }),
+      });
+    },
     onSuccess: () => {
       onSaved();
       setOpen(false);
@@ -313,7 +384,7 @@ function EditCard({
             Редактировать кампанию
           </span>
         </div>
-        <span className="text-[12px] text-text-tertiary">имя, прогрев, лимит →</span>
+        <span className="text-[12px] text-text-tertiary">все параметры →</span>
       </button>
     );
   }
@@ -342,6 +413,19 @@ function EditCard({
         </div>
       </label>
       <label className="text-[13px] text-text-secondary">
+        Антидетект (Humanizer)
+        <div className="mt-1">
+          <Select
+            value={humanizer}
+            onChange={(v) => setHumanizer(v as HumanizerMode)}
+            options={(["off", "balanced", "aggressive"] as HumanizerMode[]).map((m) => ({
+              value: m,
+              label: HUMANIZER_LABEL[m],
+            }))}
+          />
+        </div>
+      </label>
+      <label className="text-[13px] text-text-secondary">
         Дневной лимит на аккаунт
         <input
           inputMode="numeric"
@@ -350,6 +434,70 @@ function EditCard({
           className="mt-1 w-full rounded-chip border border-hairline bg-surface-1 px-3 py-2.5 text-[14px] tabular-nums text-text-primary outline-none focus:border-strong"
         />
       </label>
+
+      {/* Задержка между касаниями — в минутах (как при создании). */}
+      <div className="grid grid-cols-2 gap-3">
+        <label className="text-[13px] text-text-secondary">
+          Пауза от, мин
+          <input
+            inputMode="numeric"
+            value={delayMin}
+            onChange={(e) => setDelayMin(e.target.value.replace(/\D/g, ""))}
+            className="mt-1 w-full rounded-chip border border-hairline bg-surface-1 px-3 py-2.5 text-[14px] tabular-nums text-text-primary outline-none focus:border-strong"
+          />
+        </label>
+        <label className="text-[13px] text-text-secondary">
+          до, мин
+          <input
+            inputMode="numeric"
+            value={delayMax}
+            onChange={(e) => setDelayMax(e.target.value.replace(/\D/g, ""))}
+            className="mt-1 w-full rounded-chip border border-hairline bg-surface-1 px-3 py-2.5 text-[14px] tabular-nums text-text-primary outline-none focus:border-strong"
+          />
+        </label>
+      </div>
+
+      {/* Тихие часы цели. */}
+      <label className="flex items-center justify-between gap-3 text-[13px] text-text-secondary">
+        <span>Тихие часы цели — не писать ночью</span>
+        <input
+          type="checkbox"
+          checked={quietOn}
+          onChange={(e) => setQuietOn(e.target.checked)}
+          className="h-5 w-5 accent-accent"
+        />
+      </label>
+      {quietOn && (
+        <div className="grid grid-cols-2 gap-3">
+          <label className="text-[13px] text-text-secondary">
+            Тихо с, ч
+            <input
+              inputMode="numeric"
+              value={quietStart}
+              onChange={(e) => setQuietStart(e.target.value.replace(/\D/g, ""))}
+              className="mt-1 w-full rounded-chip border border-hairline bg-surface-1 px-3 py-2.5 text-[14px] tabular-nums text-text-primary outline-none focus:border-strong"
+            />
+          </label>
+          <label className="text-[13px] text-text-secondary">
+            до, ч
+            <input
+              inputMode="numeric"
+              value={quietEnd}
+              onChange={(e) => setQuietEnd(e.target.value.replace(/\D/g, ""))}
+              className="mt-1 w-full rounded-chip border border-hairline bg-surface-1 px-3 py-2.5 text-[14px] tabular-nums text-text-primary outline-none focus:border-strong"
+            />
+          </label>
+        </div>
+      )}
+
+      {/* Фильтры аудитории. */}
+      <p className="mt-1 text-[12px] font-medium text-text-tertiary">Кого не трогать</p>
+      <EditToggle label="Исключить ботов" checked={excludeBots} onChange={setExcludeBots} />
+      <EditToggle label="Исключить удалённые аккаунты" checked={excludeDeleted} onChange={setExcludeDeleted} />
+      <EditToggle label="Исключить админов чатов" checked={excludeAdmins} onChange={setExcludeAdmins} />
+      <EditToggle label="Только с @username" checked={requireUsername} onChange={setRequireUsername} />
+      <EditToggle label="Только Telegram Premium" checked={premiumOnly} onChange={setPremiumOnly} />
+
       <label className="flex items-center justify-between gap-3 text-[13px] text-text-secondary">
         <span>Пробный запуск (dry-run) — без реальной отправки</span>
         <input

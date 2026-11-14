@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Sparkles, X } from "lucide-react";
+import { Wand2, X } from "lucide-react";
 import { useState } from "react";
 import { ApiError } from "../../../shared/api";
 import { shillingApi } from "../api";
@@ -142,7 +142,7 @@ export function GenerateScenarioSheet({
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center">
       <div className="max-h-[90vh] w-full overflow-y-auto rounded-t-card bg-bg-elevated p-5 sm:max-w-lg sm:rounded-card">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-[18px] font-bold text-text-primary">Сгенерировать сценарий</h2>
+          <h2 className="text-[18px] font-semibold text-text-primary">Сгенерировать сценарий</h2>
           <button onClick={onClose} aria-label="Закрыть" className="text-text-tertiary active:text-text-primary">
             <X className="h-5 w-5" strokeWidth={1.8} aria-hidden />
           </button>
@@ -206,7 +206,7 @@ export function GenerateScenarioSheet({
               disabled={!canGenerate}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-pill bg-accent text-[15px] font-semibold text-accent-on active:opacity-80 disabled:opacity-40"
             >
-              <Sparkles className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+              <Wand2 className="h-4 w-4" strokeWidth={2.2} aria-hidden />
               {generate.isPending ? "ИИ пишет диалог…" : "Сгенерировать"}
             </button>
           </div>

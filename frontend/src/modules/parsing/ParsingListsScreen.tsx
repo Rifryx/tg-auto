@@ -5,7 +5,7 @@ import {
   Filter,
   Loader2,
   Pause,
-  Sparkles,
+  Compass,
   Trash2,
   UserSearch,
 } from "lucide-react";
@@ -71,7 +71,7 @@ export function ParsingListsScreen() {
           что происходит, и не теряет текущие прогоны между переходами. */}
       {liveJobs.length > 0 && (
         <div className="mb-4 flex flex-col gap-2">
-          <p className="px-1 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">
+          <p className="px-1 text-[11px] font-semibold text-text-tertiary">
             Активные прогоны · {liveJobs.length}
           </p>
           <div className="card overflow-hidden p-0">
@@ -105,7 +105,7 @@ export function ParsingListsScreen() {
           onClick={() => navigate("/modules/parsing/communities")}
           className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-pill bg-surface-2 px-4 text-[14px] font-medium text-text-primary active:bg-surface-1"
         >
-          <Sparkles className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+          <Compass className="h-4 w-4" strokeWidth={2.2} aria-hidden />
           Каналы и сообщества
         </button>
         <button
@@ -175,7 +175,7 @@ export function ParsingListsScreen() {
                     <p className="mt-0.5 flex items-center gap-1.5 truncate text-[13px] text-text-tertiary">
                       <span
                         className={[
-                          "inline-flex shrink-0 items-center rounded-pill px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                          "inline-flex shrink-0 items-center rounded-pill px-1.5 py-0.5 text-[10px] font-semibold",
                           l.entity_kind === "community"
                             ? "bg-accent/15 text-accent"
                             : "bg-surface-2 text-text-secondary",
@@ -193,10 +193,10 @@ export function ParsingListsScreen() {
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
-                    <div className="text-[20px] font-bold tabular-nums text-text-primary">
+                    <div className="text-[20px] font-semibold tabular-nums text-text-primary">
                       {l.after_filters_count}
                     </div>
-                    <div className="text-[11px] uppercase tracking-wider text-text-tertiary">
+                    <div className="text-[11px] text-text-tertiary">
                       {l.entity_kind === "community" ? "сообществ" : "целей"}
                     </div>
                   </div>
@@ -290,7 +290,7 @@ function ConfirmDeleteSheet({
         aria-modal="true"
         className="relative mx-auto w-full max-w-[440px] rounded-t-[28px] border border-hairline bg-bg-elevated p-5 pb-[calc(env(safe-area-inset-bottom)+16px)] lg:rounded-[28px] lg:pb-5"
       >
-        <h2 className="text-[18px] font-bold text-text-primary">Удалить список?</h2>
+        <h2 className="text-[18px] font-semibold text-text-primary">Удалить список?</h2>
         <p className="mt-1 text-[13px] text-text-tertiary">
           «{name}» будет удалён вместе со всеми собранными целями. Отменить нельзя.
         </p>

@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Ban,
   ChevronRight,
+  Flame,
   KeyRound,
   MailX,
   Megaphone,
@@ -16,7 +17,7 @@ import { Link } from "react-router-dom";
 import { maskPhone } from "../../../shared/format";
 import { STATUS_LABEL, statusDotClass } from "../../../shared/status";
 import type { AccountStatus } from "../../../shared/types";
-import type { Alert, ActivityItem, ModuleSummary } from "../api";
+import type { Alert, ActivityItem, ModuleSummary, TrendPoint } from "../api";
 
 const EVENT_ICON: Record<string, LucideIcon> = {
   flood_wait: Timer,
@@ -109,7 +110,7 @@ export function StageCard({ status, count }: { status: AccountStatus; count: num
           {STATUS_LABEL[status]}
         </span>
       </div>
-      <span className="nums pl-1 text-[28px] font-bold leading-none text-text-primary">
+      <span className="nums pl-1 text-[28px] font-semibold leading-none text-text-primary">
         {count}
       </span>
     </Link>
@@ -117,41 +118,222 @@ export function StageCard({ status, count }: { status: AccountStatus; count: num
 }
 
 const MODULE_META: Record<string, { label: string; icon: LucideIcon; to: string }> = {
-  commenting: { label: "Комментирование", icon: MessagesSquare, to: "/tasks" },
-  shilling: { label: "НейроШиллинг", icon: Megaphone, to: "/modules/shilling" },
+  commenting: { label: "Нейрокомментинг", icon: MessagesSquare, to: "/modules/commenting" },
+  shilling: { label: "Нейрошиллинг", icon: Megaphone, to: "/modules/shilling" },
+  priming: { label: "Прайминг", icon: Flame, to: "/modules/priming" },
 };
 
+// Плоская карточка модуля (без градиентов — пользователь просил убрать
+// «нейрослоп»): иконка-чип, название, активная/пауза-метка и три метрики с
+// hairline-разделителями. Сидит в адаптивной сетке (1 кол. на телефоне, 3 на ПК).
 export function ModuleCard({ module }: { module: ModuleSummary }) {
   const meta = MODULE_META[module.module];
   const Icon = meta?.icon ?? MessagesSquare;
+  const live = module.active_now > 0;
   return (
     <Link
       to={meta?.to ?? "/tasks"}
-      className="card-hero flex items-center gap-4 p-5 active:opacity-90"
+      className="card flex flex-col p-4 transition-colors active:bg-surface-2"
     >
-      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-primary">
-        <Icon className="h-6 w-6" strokeWidth={1.5} aria-hidden />
-      </span>
-      <div className="min-w-0 flex-1">
-        <span className="text-[16px] font-bold text-text-primary">
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-chip bg-surface-2 text-text-primary">
+          <Icon className="h-[18px] w-[18px]" strokeWidth={1.7} aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-text-primary">
           {meta?.label ?? module.module}
         </span>
-        <div className="mt-2 flex gap-5">
-          <Metric label="Кампаний" value={module.instances} />
-          <Metric label="В работе" value={module.active_now} />
-          <Metric label="Сегодня" value={module.today_actions} />
-        </div>
+        {live ? (
+          <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-status-active">
+            <span className="h-1.5 w-1.5 rounded-full bg-status-active" aria-hidden />
+            В работе
+          </span>
+        ) : (
+          <ChevronRight className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
+        )}
       </div>
-      <ChevronRight className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={1.8} aria-hidden />
+      <div className="mt-4 grid grid-cols-3 divide-x divide-hairline">
+        <Metric label="Кампаний" value={module.instances} />
+        <Metric label="В работе" value={module.active_now} align="center" />
+        <Metric label="Сегодня" value={module.today_actions} align="right" />
+      </div>
     </Link>
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function Metric({
+  label,
+  value,
+  align = "left",
+}: {
+  label: string;
+  value: number;
+  align?: "left" | "center" | "right";
+}) {
+  const box =
+    align === "center" ? "items-center px-2" : align === "right" ? "items-end pl-2" : "items-start pr-2";
   return (
-    <div>
-      <p className="nums text-[20px] font-bold leading-tight text-text-primary">{value}</p>
+    <div className={`flex flex-col ${box}`}>
+      <p className="nums text-[19px] font-semibold leading-tight text-text-primary">{value}</p>
       <p className="mt-0.5 text-[11px] text-text-tertiary">{label}</p>
+    </div>
+  );
+}
+
+// --- KPI-плитка -------------------------------------------------------------
+// Плоская карточка с крупным числом и подписью. tone подсвечивает число, когда
+// значение требует внимания (ошибки/пауза), иначе — нейтральный основной цвет.
+export function KpiTile({
+  label,
+  value,
+  tone = "neutral",
+  sub,
+  to,
+}: {
+  label: string;
+  value: number;
+  tone?: "neutral" | "warning" | "critical" | "active";
+  sub?: string | null;
+  to?: string;
+}) {
+  // Тон числа подсвечивает только то, что требует внимания (ошибки) и только
+  // когда значение > 0; «active» держим нейтральным, чтобы не было зелёного
+  // декора ради декора (бриф: цвет — лишь для статусов).
+  const toneClass =
+    value > 0 && tone === "critical"
+      ? "text-status-critical"
+      : value > 0 && tone === "warning"
+        ? "text-status-warning"
+        : "text-text-primary";
+  const inner = (
+    <>
+      <p className={`nums text-[27px] font-semibold leading-none ${toneClass}`}>{value}</p>
+      <div className="mt-2">
+        <p className="text-[12px] leading-tight text-text-secondary">{label}</p>
+        {sub ? <p className="mt-0.5 text-[11px] leading-tight text-text-tertiary">{sub}</p> : null}
+      </div>
+    </>
+  );
+  const cls = "card flex min-h-[86px] flex-col justify-between gap-2 p-4";
+  if (to) {
+    return (
+      <Link to={to} className={`${cls} transition-colors active:bg-surface-2`}>
+        {inner}
+      </Link>
+    );
+  }
+  return <div className={cls}>{inner}</div>;
+}
+
+// --- 7-дневный тренд действий ----------------------------------------------
+// Главный «момент» экрана: тренд — это линия (не столбцы). Плавная линия-область
+// на приглушённой сетке, один акцент (сегодня), мру-подписи дней. Рисуем SVG
+// руками, без библиотек; stroke не тянется (vector-effect), точка «сегодня» —
+// оверлеем в процентах, чтобы не искажалась при растяжении по ширине.
+const WEEKDAY_RU = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+
+const TREND_H = 200; // высота поля графика, px (токены: 280–360 с заголовком)
+const PAD_T = 14; // отступ сверху, чтобы пик не упирался в край
+const PAD_B = 10;
+
+export function TrendChart({ points }: { points: TrendPoint[] }) {
+  const total = points.reduce((a, p) => a + p.actions, 0);
+  const max = Math.max(1, ...points.map((p) => p.actions));
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const avg = Math.round(total / Math.max(1, points.length));
+
+  const n = points.length;
+  const plotH = TREND_H - PAD_T - PAD_B;
+  // Координаты в процентах по X (0..100) и в пикселях по Y (0..TREND_H).
+  const pts = points.map((p, i) => ({
+    x: n > 1 ? (i / (n - 1)) * 100 : 50,
+    y: PAD_T + (1 - p.actions / max) * plotH,
+    p,
+  }));
+  const linePath = pts.map((pt, i) => `${i === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
+  const areaPath = `${linePath} L 100 ${TREND_H} L 0 ${TREND_H} Z`;
+  const last = pts[pts.length - 1];
+
+  return (
+    <div className="card p-5">
+      <div className="mb-4 flex items-end justify-between">
+        <div>
+          <p className="nums text-[28px] font-semibold leading-none text-text-primary">{total}</p>
+          <p className="mt-1.5 text-[12px] text-text-tertiary">действий за 7 дней</p>
+        </div>
+        <span className="nums text-[12px] text-text-tertiary">≈ {avg} в день</span>
+      </div>
+
+      {total === 0 ? (
+        <div
+          className="flex items-center justify-center text-[13px] text-text-tertiary"
+          style={{ height: TREND_H }}
+        >
+          Пока нет действий за неделю
+        </div>
+      ) : (
+        <>
+          <div className="relative" style={{ height: TREND_H }}>
+            <svg
+              viewBox={`0 0 100 ${TREND_H}`}
+              preserveAspectRatio="none"
+              className="absolute inset-0 h-full w-full"
+              aria-hidden
+            >
+              {/* Приглушённая сетка: три линии (низ/середина/верх). */}
+              {[PAD_T, PAD_T + plotH / 2, TREND_H - PAD_B].map((y, i) => (
+                <line
+                  key={i}
+                  x1="0"
+                  x2="100"
+                  y1={y}
+                  y2={y}
+                  stroke="var(--surface-border)"
+                  strokeWidth="1"
+                  vectorEffect="non-scaling-stroke"
+                />
+              ))}
+              <defs>
+                <linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--text-primary)" stopOpacity="0.16" />
+                  <stop offset="100%" stopColor="var(--text-primary)" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <path d={areaPath} fill="url(#trend-fill)" />
+              <path
+                d={linePath}
+                fill="none"
+                stroke="var(--text-primary)"
+                strokeWidth="2"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            </svg>
+            {/* Точка «сегодня» — оверлеем в %, чтобы круг не превращался в эллипс. */}
+            <span
+              className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-text-primary ring-4 ring-surface-1"
+              style={{ left: `${last.x}%`, top: `${last.y}px` }}
+              aria-hidden
+            />
+          </div>
+          <div className="mt-2.5 flex">
+            {points.map((p) => {
+              const isToday = p.date === todayIso;
+              const wd = WEEKDAY_RU[new Date(`${p.date}T00:00:00Z`).getUTCDay()];
+              return (
+                <span
+                  key={p.date}
+                  className={`nums flex-1 text-center text-[10.5px] leading-none ${
+                    isToday ? "font-medium text-text-secondary" : "text-text-tertiary"
+                  }`}
+                >
+                  {isToday ? "сег." : wd}
+                </span>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }

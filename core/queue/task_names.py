@@ -89,6 +89,13 @@ class TaskName(str, Enum):
     # priming. Работает через bulk-действия из modules/bulk/actions/
     # (apply_profile, apply_profile_pool, generate_and_apply_profile).
 
+    # --- Модуль mass_reactions ---
+    # place_reaction — поставить одну реакцию (chat × account × message) через
+    # governor. orchestrator_tick — раскладывает пары чат/аккаунт и держит
+    # слушателей с warmup-лимитами (подключается следующими шагами).
+    MASS_REACTIONS_PLACE_REACTION = "mass_reactions.place_reaction"
+    MASS_REACTIONS_ORCHESTRATOR_TICK = "mass_reactions.orchestrator_tick"
+
 
 class QueueName(str, Enum):
     """Логические очереди arq.

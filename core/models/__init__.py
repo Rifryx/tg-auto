@@ -42,6 +42,12 @@ from core.models.priming import (
     PrimingTargetSource,
 )
 from core.models.proxy import Proxy
+from core.models.mass_reactions import (
+    MassReactionCampaign,
+    MassReactionCampaignAccount,
+    MassReactionCampaignChat,
+    MassReactionLog,
+)
 from core.models.shilling import (
     ShillingBlacklist,
     ShillingCampaign,
@@ -99,6 +105,10 @@ __all__ = [
     "PrimingFloodIncident",
     "PrimingTargetSource",
     "Proxy",
+    "MassReactionCampaign",
+    "MassReactionCampaignAccount",
+    "MassReactionCampaignChat",
+    "MassReactionLog",
     "ShillingBlacklist",
     "ShillingCampaign",
     "ShillingCampaignAccount",

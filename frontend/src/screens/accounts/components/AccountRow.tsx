@@ -1,4 +1,5 @@
-import { Briefcase, Check, ChevronRight, Star } from "lucide-react";
+import { AlertTriangle, Ban, Briefcase, Check, ChevronRight, Clock, Star } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import { accountDisplay, ageFrom, countdown, timeAgo } from "../../../shared/format";
 import {
@@ -52,13 +53,14 @@ export function AccountRow({
   const statusHint = accountStatusHint(account);
 
   // Пометка результата последней проверки (bulk «Проверить») прямо на карточке.
-  const checkVerdict =
+  // Иконки — line-иконки одного набора (без эмодзи ⛔/⚠/✓, unslop §3).
+  const checkVerdict: { Icon: LucideIcon; text: string; cls: string } | null =
     check && check.last_full_check_at
       ? check.session_alive === false
-        ? { icon: "⛔", text: "сессия", cls: "text-status-critical" }
+        ? { Icon: Ban, text: "сессия", cls: "text-status-critical" }
         : check.spam_blocked === true
-          ? { icon: "⚠", text: "спамблок", cls: "text-status-warning" }
-          : { icon: "✓", text: "ок", cls: "text-status-active" }
+          ? { Icon: AlertTriangle, text: "спамблок", cls: "text-status-warning" }
+          : { Icon: Check, text: "ок", cls: "text-status-active" }
       : null;
 
   const meta: string[] = [];
@@ -111,16 +113,25 @@ export function AccountRow({
         <p className="truncate text-[11px] text-text-tertiary">
           {meta.join(" · ")}
           {roleLabel && <span className="text-text-secondary"> · {roleLabel}</span>}
-          {timer && <span className="text-status-warning"> · ⏳ {timer}</span>}
+          {timer && (
+            <span className="inline-flex items-center gap-0.5 text-status-warning">
+              {" · "}
+              <Clock className="h-3 w-3" strokeWidth={2} aria-hidden /> {timer}
+            </span>
+          )}
           {statusHint.shortDetail && !timer && (
-            <span className="text-status-warning"> · ⏳ {statusHint.shortDetail}</span>
+            <span className="inline-flex items-center gap-0.5 text-status-warning">
+              {" · "}
+              <Clock className="h-3 w-3" strokeWidth={2} aria-hidden /> {statusHint.shortDetail}
+            </span>
           )}
           {checkVerdict && (
             <span
-              className={checkVerdict.cls}
+              className={`inline-flex items-center gap-0.5 ${checkVerdict.cls}`}
               title={`Проверен ${timeAgo(check!.last_full_check_at!)}`}
             >
-              {" "}· {checkVerdict.icon} {checkVerdict.text}
+              {" · "}
+              <checkVerdict.Icon className="h-3 w-3" strokeWidth={2} aria-hidden /> {checkVerdict.text}
             </span>
           )}
         </p>
@@ -155,7 +166,7 @@ export function AccountRow({
     return (
       <button
         onClick={() => onToggleSelect?.(account.id)}
-        className={`card flex min-h-[64px] w-full items-center gap-3 px-4 py-3 text-left active:bg-surface-2 ${
+        className={`card flex min-h-[64px] w-full min-w-0 items-center gap-3 px-4 py-3 text-left active:bg-surface-2 ${
           selected ? "ring-1 ring-accent" : ""
         }`}
       >
@@ -167,7 +178,7 @@ export function AccountRow({
   return (
     <Link
       to={`/accounts/${account.id}`}
-      className="card flex min-h-[64px] items-center gap-3 px-4 py-3 active:bg-surface-2"
+      className="card flex min-h-[64px] min-w-0 items-center gap-3 px-4 py-3 active:bg-surface-2"
     >
       {inner}
     </Link>

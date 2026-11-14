@@ -613,11 +613,11 @@ function ProxyCard({
           </p>
         </div>
         {required ? (
-          <span className="rounded-chip bg-status-critical/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-status-critical">
+          <span className="rounded-chip bg-status-critical/15 px-2.5 py-1 text-[11px] font-medium text-status-critical">
             Обязательно
           </span>
         ) : (
-          <span className="rounded-chip bg-surface-2 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
+          <span className="rounded-chip bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-text-tertiary">
             Опционально
           </span>
         )}

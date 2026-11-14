@@ -4,13 +4,17 @@
 N+1) и кэширует результат в Redis на 5 секунд по ключу пользователя.
 
 Реестра модулей ещё нет (отложен), поэтому список модулей захардкожен: сейчас
-это ``commenting`` и ``shilling``.
+это ``commenting``, ``shilling`` и ``priming``.
+
+Помимо посекундных сводок по модулям дашборд отдаёт верхние KPI-плитки
+(``kpis``: действия/ошибки за сегодня, активные и приостановленные кампании,
+аккаунты в работе) и 7-дневный ряд действий (``trend_7d``) для спарклайна.
 """
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import redis
@@ -248,6 +252,164 @@ def _shilling_summary(
     }
 
 
+def _owner_int(user_id: Optional[str]) -> Optional[int]:
+    """created_by у прайминга — BIGINT; user_id из require_user — строка.
+    Приводим к int (Telegram id числовой), иначе None."""
+    if user_id is None:
+        return None
+    try:
+        return int(user_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def _priming_summary(
+    session: Session, *, user_id: Optional[str] = None
+) -> dict[str, Any]:
+    from core.models import PrimingCampaign, PrimingExecutionLog
+
+    today_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    owner = _owner_int(user_id)
+    inst_stmt = select(func.count()).select_from(PrimingCampaign)
+    active_stmt = (
+        select(func.count())
+        .select_from(PrimingCampaign)
+        .where(PrimingCampaign.status == "running")
+    )
+    today_stmt = (
+        select(func.count())
+        .select_from(PrimingExecutionLog)
+        .where(PrimingExecutionLog.started_at >= today_start)
+    )
+    # Multi-tenancy: кампании — по владельцу (created_by), действия — через
+    # join к accounts владельца (в логе есть account_id).
+    if user_id is not None:
+        inst_stmt = inst_stmt.where(PrimingCampaign.created_by == owner)
+        active_stmt = active_stmt.where(PrimingCampaign.created_by == owner)
+        today_stmt = today_stmt.join(
+            Account, Account.id == PrimingExecutionLog.account_id
+        ).where(Account.user_id == user_id)
+    instances = session.execute(inst_stmt).scalar_one()
+    active_now = session.execute(active_stmt).scalar_one()
+    today_actions = session.execute(today_stmt).scalar_one()
+    return {
+        "module": "priming",
+        "instances": instances,
+        "active_now": active_now,
+        "today_actions": today_actions,
+    }
+
+
+def _today_start() -> datetime:
+    return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _kpis(
+    session: Session,
+    modules: list[dict[str, Any]],
+    *,
+    user_id: Optional[str] = None,
+) -> dict[str, int]:
+    """Сводные числа для верхних плиток: действия сегодня, ошибки сегодня,
+    активных кампаний, аккаунтов в работе. Multi-tenancy: всё по своим
+    аккаунтам/кампаниям (modules уже отфильтрованы)."""
+    from core.models import PrimingCampaign, PrimingExecutionLog
+
+    today = _today_start()
+    owner_int = _owner_int(user_id)
+    actions_today = sum(int(m.get("today_actions", 0)) for m in modules)
+    active_campaigns = sum(int(m.get("active_now", 0)) for m in modules)
+
+    comment_err = (
+        select(func.count())
+        .select_from(CommentLog)
+        .where(CommentLog.created_at >= today, CommentLog.status == "failed")
+    )
+    shill_err = (
+        select(func.count())
+        .select_from(ShillingExecutionLog)
+        .where(
+            ShillingExecutionLog.created_at >= today,
+            ShillingExecutionLog.status == "failed",
+        )
+    )
+    acc_working = (
+        select(func.count())
+        .select_from(Account)
+        .where(Account.status.in_(("assigned", "warming")))
+    )
+    shill_paused = (
+        select(func.count())
+        .select_from(ShillingCampaign)
+        .where(ShillingCampaign.status == "paused")
+    )
+    prim_paused = (
+        select(func.count())
+        .select_from(PrimingCampaign)
+        .where(PrimingCampaign.status == "paused")
+    )
+    if user_id is not None:
+        comment_err = comment_err.join(
+            Account, Account.id == CommentLog.account_id
+        ).where(Account.user_id == user_id)
+        shill_err = shill_err.join(
+            Account, Account.id == ShillingExecutionLog.account_id
+        ).where(Account.user_id == user_id)
+        acc_working = acc_working.where(Account.user_id == user_id)
+        shill_paused = shill_paused.where(ShillingCampaign.owner_user_id == user_id)
+        prim_paused = prim_paused.where(PrimingCampaign.created_by == owner_int)
+
+    errors_today = 0
+    errors_today += session.execute(comment_err).scalar_one()
+    errors_today += session.execute(shill_err).scalar_one()
+    accounts_working = session.execute(acc_working).scalar_one()
+    # Кампании «на паузе» всех модулей — чтобы было видно, что требует внимания.
+    paused_campaigns = session.execute(shill_paused).scalar_one()
+    paused_campaigns += session.execute(prim_paused).scalar_one()
+
+    return {
+        "actions_today": int(actions_today),
+        "errors_today": int(errors_today),
+        "active_campaigns": int(active_campaigns),
+        "paused_campaigns": int(paused_campaigns),
+        "accounts_working": int(accounts_working),
+    }
+
+
+def _trend_7d(
+    session: Session, *, user_id: Optional[str] = None
+) -> list[dict[str, Any]]:
+    """Действия по дням за последние 7 суток (UTC). Склеиваем три источника —
+    комментарии, шиллинг и прайминг — в один дневной ряд для спарклайна.
+    Multi-tenancy: каждый источник — только по аккаунтам владельца (join)."""
+    from core.models import PrimingExecutionLog
+
+    start = _today_start() - timedelta(days=6)
+    counts: dict[str, int] = {}
+
+    def _bucket(col, account_col) -> None:
+        stmt = select(func.date(col), func.count()).where(col >= start)
+        if user_id is not None:
+            stmt = stmt.join(Account, Account.id == account_col).where(
+                Account.user_id == user_id
+            )
+        stmt = stmt.group_by(func.date(col))
+        for day, cnt in session.execute(stmt).all():
+            counts[str(day)] = counts.get(str(day), 0) + int(cnt)
+
+    _bucket(CommentLog.created_at, CommentLog.account_id)
+    _bucket(ShillingExecutionLog.created_at, ShillingExecutionLog.account_id)
+    _bucket(PrimingExecutionLog.started_at, PrimingExecutionLog.account_id)
+
+    out: list[dict[str, Any]] = []
+    for i in range(7):
+        day = (start + timedelta(days=i)).date()
+        out.append({"date": day.isoformat(), "actions": counts.get(day.isoformat(), 0)})
+    return out
+
+
 def _recent_activity(
     session: Session, *, user_id: Optional[str] = None
 ) -> list[dict[str, Any]]:
@@ -399,15 +561,20 @@ def build_dashboard(
 ) -> dict[str, Any]:
     """Полный дашборд из БД (без кэша). JSON-safe (timestamps → ISO-строки).
 
-    ``user_id`` (multi-tenancy): когда задан, все агрегаты/лента/алерты
-    фильтруются по аккаунтам и кампаниям владельца. None — весь срез (тесты)."""
+    ``user_id`` (multi-tenancy): когда задан, все агрегаты/лента/алерты/KPI/
+    тренд фильтруются по аккаунтам и кампаниям владельца. None — весь срез
+    (тесты)."""
+    modules = [
+        _commenting_summary(session, user_id=user_id),
+        _shilling_summary(session, user_id=user_id),
+        _priming_summary(session, user_id=user_id),
+    ]
     return {
         "alerts": _alerts(session, severity, user_id=user_id),
         "accounts_summary": _accounts_summary(session, user_id=user_id),
-        "modules_summary": [
-            _commenting_summary(session, user_id=user_id),
-            _shilling_summary(session, user_id=user_id),
-        ],
+        "modules_summary": modules,
+        "kpis": _kpis(session, modules, user_id=user_id),
+        "trend_7d": _trend_7d(session, user_id=user_id),
         "recent_activity": _recent_activity(session, user_id=user_id),
     }
 

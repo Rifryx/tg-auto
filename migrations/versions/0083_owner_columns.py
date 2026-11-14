@@ -6,8 +6,8 @@ nullable ``user_id`` + индекс и бэкфиллим существующи
 переменной окружения ``LEGACY_OWNER_USER_ID`` (если задана); иначе строки
 остаются «ничьими» и не видны никому.
 
-Revision ID: 0082_owner_columns
-Revises: 0081
+Revision ID: 0083_owner_columns
+Revises: 0082
 Create Date: 2026-11-14
 """
 from __future__ import annotations
@@ -18,8 +18,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0082_owner_columns"
-down_revision: Union[str, None] = "0081"
+revision: str = "0083_owner_columns"
+down_revision: Union[str, None] = "0082"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

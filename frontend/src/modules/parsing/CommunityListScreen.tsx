@@ -321,7 +321,7 @@ function CommunityRow({
             <BadgeCheck className="h-4 w-4 shrink-0 text-accent" strokeWidth={2} aria-hidden />
           )}
           {(c.is_scam || c.is_fake) && (
-            <span className="rounded-pill bg-status-critical/15 px-1.5 text-[10px] font-semibold uppercase text-status-critical">
+            <span className="rounded-pill bg-status-critical/15 px-1.5 text-[10px] font-semibold text-status-critical">
               {c.is_scam ? "scam" : "fake"}
             </span>
           )}
@@ -348,7 +348,7 @@ function CommunityRow({
         </p>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1.5">
-        <div className="flex items-center gap-1 text-[16px] font-bold tabular-nums text-text-primary">
+        <div className="flex items-center gap-1 text-[16px] font-semibold tabular-nums text-text-primary">
           <Users className="h-3.5 w-3.5 text-text-tertiary" strokeWidth={2} aria-hidden />
           {c.participants_count != null ? fmt(c.participants_count) : "—"}
         </div>
@@ -384,7 +384,7 @@ function ConfirmDeleteList({
         aria-modal="true"
         className="relative mx-auto w-full max-w-[440px] rounded-t-[28px] border border-hairline bg-bg-elevated p-5 pb-[calc(env(safe-area-inset-bottom)+16px)] lg:rounded-[28px] lg:pb-5"
       >
-        <h2 className="text-[18px] font-bold text-text-primary">Удалить этот список?</h2>
+        <h2 className="text-[18px] font-semibold text-text-primary">Удалить этот список?</h2>
         <p className="mt-1 text-[13px] text-text-tertiary">
           Все собранные в нём сообщества будут удалены вместе со списком. Отменить нельзя.
         </p>
