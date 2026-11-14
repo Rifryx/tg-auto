@@ -11,6 +11,9 @@ class ProxyCreate(BaseModel):
     host: str
     port: int
     type: ProxyType
+    # Владелец (Telegram user_id) — multi-tenancy. Роут всегда проставляет
+    # текущего пользователя.
+    user_id: Optional[str] = None
     name: Optional[str] = None
     login: Optional[str] = None
     password_enc: Optional[bytes] = None

@@ -9,6 +9,9 @@ from core.schemas.base import ORMModel
 
 class AccountCreate(BaseModel):
     phone: str
+    # Владелец (Telegram user_id) — multi-tenancy. Сервис создания всегда
+    # проставляет текущего пользователя.
+    user_id: Optional[str] = None
     session_enc: bytes
     # Фингерпринт — задаётся на стадии created и далее неизменен (инвариант §0.3).
     device_model: str

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
@@ -11,14 +11,39 @@ from api.deps.limits import enforce_limit
 from core.repositories.persona import PersonaRepository
 from core.schemas.persona import PersonaCreate, PersonaRead, PersonaUpdate
 
+
+async def _enforce_persona_owner(
+    request: Request,
+    user_id: str = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> None:
+    """Multi-tenancy: маршрут с ``persona_id`` в пути отдаёт 404, если персона
+    чужая/«ничья». Одна точка защиты на все /personas/{persona_id}."""
+    raw = request.path_params.get("persona_id")
+    if raw is None:
+        return
+    try:
+        pid = int(raw)
+    except (TypeError, ValueError):
+        return
+    persona = PersonaRepository(session).get(pid)
+    if persona is None or persona.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"persona {pid} not found")
+
+
 router = APIRouter(
-    prefix="/personas", tags=["personas"], dependencies=[Depends(require_user)]
+    prefix="/personas",
+    tags=["personas"],
+    dependencies=[Depends(require_user), Depends(_enforce_persona_owner)],
 )
 
 
 @router.get("", response_model=list[PersonaRead])
-def list_personas(session: Session = Depends(get_session)) -> list[PersonaRead]:
-    personas = PersonaRepository(session).list_all()
+def list_personas(
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> list[PersonaRead]:
+    personas = PersonaRepository(session).list_by_owner(user_id)
     return [PersonaRead.model_validate(p) for p in personas]
 
 
@@ -34,9 +59,13 @@ def get_persona(persona_id: int, session: Session = Depends(get_session)) -> Per
 def create_persona(
     body: PersonaCreate,
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
     _limit: None = Depends(enforce_limit("personas_max")),
 ) -> PersonaRead:
-    persona = PersonaRepository(session).create(body)
+    # Владельца проставляем из require_user (игнорируем любое значение из тела).
+    persona = PersonaRepository(session).create(
+        body.model_copy(update={"user_id": user_id})
+    )
     session.commit()
     return PersonaRead.model_validate(persona)
 

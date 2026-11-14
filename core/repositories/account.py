@@ -73,6 +73,7 @@ class AccountRepository(BaseRepository[Account]):
     def list_filtered(
         self,
         *,
+        user_id: Optional[str] = None,
         status: Optional[AccountStatus] = None,
         warming_profile: Optional[WarmingProfile] = None,
         project_id: Optional[int] = None,
@@ -86,6 +87,9 @@ class AccountRepository(BaseRepository[Account]):
         — эту логику обрабатываем здесь.
         """
         stmt = select(Account)
+        # Multi-tenancy: пользовательские выборки — только свои аккаунты.
+        if user_id is not None:
+            stmt = stmt.where(Account.user_id == user_id)
         if status is not None:
             stmt = stmt.where(Account.status == AccountStatus(status).value)
         if warming_profile is not None:

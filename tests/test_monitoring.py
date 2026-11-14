@@ -82,6 +82,9 @@ def _phone(n: int) -> str:
 def _make_account(session, n: int, status: str = "created") -> Account:
     acc = Account(
         phone=_phone(n),
+        # Владелец = пользователь дашборда (_make_app override require_user →
+        # "user-1"); иначе multi-tenancy-фильтр дашборда их не покажет.
+        user_id="user-1",
         session_enc=b"enc",
         status=status,
         device_model="iPhone15,3",

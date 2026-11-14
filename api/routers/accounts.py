@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -62,8 +62,31 @@ from modules.profiles.generator import (
 )
 from core.state_machine import AccountEvent, AccountStateMachine, TransitionError
 
+async def _enforce_account_owner(
+    request: Request,
+    user_id: str = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> None:
+    """Multi-tenancy: любой маршрут с ``account_id`` в пути отдаёт 404, если
+    аккаунт не принадлежит текущему пользователю (или «ничей» / чужой). Одна
+    точка защиты на все /accounts/{account_id}/… — новые эндпоинты закрыты
+    автоматически."""
+    raw = request.path_params.get("account_id")
+    if raw is None:
+        return
+    try:
+        aid = int(raw)
+    except (TypeError, ValueError):
+        return
+    acc = AccountRepository(session).get(aid)
+    if acc is None or acc.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"account {aid} not found")
+
+
 router = APIRouter(
-    prefix="/accounts", tags=["accounts"], dependencies=[Depends(require_user)]
+    prefix="/accounts",
+    tags=["accounts"],
+    dependencies=[Depends(require_user), Depends(_enforce_account_owner)],
 )
 
 
@@ -123,9 +146,11 @@ def list_accounts(
     role: Optional[str] = None,
     tag: Optional[str] = None,
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ) -> list[AccountRead]:
     accounts = accounts_service.list_accounts(
         session,
+        user_id=user_id,
         status=status,
         warming_profile=warming_profile,
         project_id=project_id,
@@ -148,12 +173,13 @@ class AccountHealthSummary(BaseModel):
 @router.get("/health-summary", response_model=list[AccountHealthSummary])
 def accounts_health_summary(
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ) -> list[AccountHealthSummary]:
     """Здоровье всех аккаунтов одним запросом — для пометки «проверен: вердикт»
     на карточках в списке (без N запросов health по одному)."""
     from core.repositories.account_health import AccountHealthRepository
 
-    ids = [a.id for a in accounts_service.list_accounts(session)]
+    ids = [a.id for a in accounts_service.list_accounts(session, user_id=user_id)]
     rows = AccountHealthRepository(session).list_for_accounts(ids)
     return [
         AccountHealthSummary(
@@ -287,11 +313,13 @@ async def create_account(
     body: AccountCreateRequest,
     session: Session = Depends(get_session),
     task_queue: TaskQueue = Depends(get_task_queue),
+    user_id: str = Depends(require_user),
     _limit: None = Depends(enforce_limit("accounts_max")),
 ) -> AccountRead:
     try:
         account = accounts_service.create_account(
             session,
+            user_id=user_id,
             phone=body.phone,
             proxy_id=body.proxy_id,
             persona_id=body.persona_id,
@@ -335,6 +363,7 @@ async def import_session_account(
     session: Session = Depends(get_session),
     task_queue: TaskQueue = Depends(get_task_queue),
     publisher: Optional[Publisher] = Depends(get_publisher),
+    owner_user_id: str = Depends(require_user),
     _limit: None = Depends(enforce_limit("accounts_max")),
 ) -> AccountRead:
     """Импорт аккаунта из готовой сессии: StringSession-строкой или .session-файлом.
@@ -372,6 +401,7 @@ async def import_session_account(
             warming_profile=warming_profile,
             session_string=string,
             send_to_warming=send_to_warming,
+            owner_user_id=owner_user_id,
         )
     except accounts_service.ProxyNotFoundError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
@@ -456,6 +486,7 @@ async def import_tdata_account(
     session: Session = Depends(get_session),
     task_queue: TaskQueue = Depends(get_task_queue),
     publisher: Optional[Publisher] = Depends(get_publisher),
+    owner_user_id: str = Depends(require_user),
     _limit: None = Depends(enforce_limit("accounts_max")),
 ) -> AccountRead:
     """Импорт аккаунта из TData (Telegram Desktop): ZIP/RAR конвертируется офлайн
@@ -490,6 +521,7 @@ async def import_tdata_account(
             warming_profile=warming_profile,
             session_string=string,
             send_to_warming=send_to_warming,
+            owner_user_id=owner_user_id,
         )
     except accounts_service.ProxyNotFoundError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
@@ -520,6 +552,7 @@ async def bulk_import_accounts(
     archive: UploadFile = File(..., description="ZIP с .session-файлами"),
     mapping: UploadFile = File(..., description="CSV: phone,proxy_id[,warming_profile,persona_id,project_id,role,tags]"),
     session: Session = Depends(get_session),
+    owner_user_id: str = Depends(require_user),
 ) -> dict:
     """Массовый импорт из архива + CSV (этап 1).
 
@@ -533,7 +566,12 @@ async def bulk_import_accounts(
     archive_bytes = await archive.read()
     csv_bytes = await mapping.read()
     try:
-        report = bulk_import(session, archive_bytes=archive_bytes, csv_bytes=csv_bytes)
+        report = bulk_import(
+            session,
+            archive_bytes=archive_bytes,
+            csv_bytes=csv_bytes,
+            owner_user_id=owner_user_id,
+        )
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     return report.as_dict()
@@ -820,18 +858,20 @@ class ExportedSession(BaseModel):
 def export_sessions(
     body: ExportSessionsRequest,
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ) -> list[ExportedSession]:
     """Экспорт StringSession выбранных аккаунтов (этап 3, bulk-action «Экспорт»).
 
     Расшифровываем ``session_enc`` и отдаём строкой — для бэкапа/переноса.
-    Битые/нерасшифровываемые сессии пропускаем (best-effort)."""
+    Битые/нерасшифровываемые сессии пропускаем (best-effort). Чужие аккаунты
+    (multi-tenancy) молча пропускаются — экспортировать можно только свои."""
     if not body.account_ids:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "account_ids is empty")
     repo = AccountRepository(session)
     out: list[ExportedSession] = []
     for aid in body.account_ids:
         account = repo.get(aid)
-        if account is None or not account.session_enc:
+        if account is None or account.user_id != user_id or not account.session_enc:
             continue
         try:
             session_string = decrypt_session(account.session_enc).decode("utf-8")
@@ -948,9 +988,12 @@ def list_at_risk(
     max_score: int = 40,
     limit: int = 100,
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ) -> list[AccountHealthRead]:
     """Список аккаунтов с низким health_score (сортировка по возрастанию)."""
-    rows = AccountHealthRepository(session).list_at_risk(max_score=max_score, limit=limit)
+    rows = AccountHealthRepository(session).list_at_risk(
+        max_score=max_score, limit=limit, user_id=user_id
+    )
     return [AccountHealthRead.model_validate(r) for r in rows]
 
 
@@ -1096,7 +1139,12 @@ async def bulk_set_2fa(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "account_ids is empty")
 
     repo_accounts = AccountRepository(session)
-    missing = [aid for aid in body.account_ids if repo_accounts.get(aid) is None]
+    # Multi-tenancy: чужие аккаунты трактуем как «неизвестные».
+    missing = [
+        aid
+        for aid in body.account_ids
+        if (_a := repo_accounts.get(aid)) is None or _a.user_id != user_id
+    ]
     if missing:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1233,12 +1281,18 @@ async def enqueue_health_check_bulk(
     session: Session = Depends(get_session),
     task_queue: TaskQueue = Depends(get_task_queue),
     governor: Governor = Depends(get_health_governor),
+    user_id: str = Depends(require_user),
 ) -> dict[str, Any]:
     if not body.account_ids:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "account_ids is empty")
-    # Валидируем существование аккаунтов до постановки задач.
+    # Валидируем существование аккаунтов до постановки задач. Чужие аккаунты
+    # (multi-tenancy) трактуем как «неизвестные» — не раскрываем их наличие.
     repo = AccountRepository(session)
-    missing = [aid for aid in body.account_ids if repo.get(aid) is None]
+    missing = [
+        aid
+        for aid in body.account_ids
+        if (_a := repo.get(aid)) is None or _a.user_id != user_id
+    ]
     if missing:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,

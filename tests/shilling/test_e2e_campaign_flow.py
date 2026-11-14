@@ -119,6 +119,9 @@ def _client(session, spy):
 def _pool_account(session) -> int:
     acc = Account(
         phone=str(next(_PHONE)), session_enc=b"x", status="pool",
+        # Владелец = пользователь из override require_user ("tester"); иначе
+        # attach_account отклонит «чужой» аккаунт (404).
+        user_id="tester",
         device_model="P", system_version="13", app_version="10",
         lang_code="ru", system_lang_code="ru-RU",
     )

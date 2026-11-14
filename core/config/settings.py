@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     # --- Crypto Bot (Crypto Pay API, @CryptoBot / @CryptoTestnetBot) ---
     # Токен приложения из @CryptoBot → Crypto Pay → Create App. Без него
     # крипто-оплата недоступна (в DEV_MODE работает stub-режим без токена).
+    # Multi-tenancy: при включении изоляции существующим строкам без владельца
+    # (accounts/personas/proxies) бэкфиллом проставляется этот Telegram user_id.
+    # Не задан — легаси-строки остаются «ничьими» (не видны никому).
+    legacy_owner_user_id: Optional[str] = None
+
     cryptobot_api_token: Optional[str] = None
     # Сеть: mainnet (pay.crypt.bot) или testnet (testnet-pay.crypt.bot).
     cryptobot_network: str = "mainnet"

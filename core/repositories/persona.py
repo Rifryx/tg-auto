@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from sqlalchemy import select
+
 from core.models import Persona
 from core.repositories.base import BaseRepository
 from core.schemas.persona import PersonaCreate, PersonaUpdate
@@ -13,6 +15,12 @@ class PersonaRepository(BaseRepository[Persona]):
     def create(self, data: PersonaCreate) -> Persona:
         persona = Persona(**data.model_dump())
         return self._add(persona)
+
+    def list_by_owner(self, user_id: str) -> list[Persona]:
+        """Персоны владельца (multi-tenancy). Пользовательские выборки — только
+        через этот метод; воркерный код персон не перечисляет пофильтрово."""
+        stmt = select(Persona).where(Persona.user_id == user_id)
+        return list(self.session.execute(stmt).scalars().all())
 
     def update(self, id_: int, data: PersonaUpdate) -> Optional[Persona]:
         persona = self.get(id_)

@@ -59,6 +59,9 @@ def _client(session):
 def _acc(session) -> int:
     a = Account(
         phone=str(next(_PHONE)), session_enc=b"x", status="pool",
+        # Владелец = пользователь из override require_user ("1"); иначе
+        # attach_accounts отклонит «чужой» аккаунт (404).
+        user_id="1",
         device_model="P", system_version="13", app_version="10",
         lang_code="ru", system_lang_code="ru-RU",
     )

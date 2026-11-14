@@ -20,6 +20,17 @@ class CampaignRepository(BaseRepository[ShillingCampaign]):
         stmt = select(ShillingCampaign).order_by(ShillingCampaign.created_at.desc())
         return list(self.session.execute(stmt).scalars())
 
+    def list_by_owner(self, owner_user_id: str) -> list[ShillingCampaign]:
+        """Кампании владельца (multi-tenancy) — свежие сверху. Пользовательские
+        выборки идут только через этот метод; воркерные (list_active и т.п.) —
+        без фильтра, они обслуживают все кампании."""
+        stmt = (
+            select(ShillingCampaign)
+            .where(ShillingCampaign.owner_user_id == owner_user_id)
+            .order_by(ShillingCampaign.created_at.desc())
+        )
+        return list(self.session.execute(stmt).scalars())
+
     def list_by_status(self, status: str) -> list[ShillingCampaign]:
         stmt = (
             select(ShillingCampaign)

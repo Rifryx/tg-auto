@@ -64,9 +64,12 @@ def _assets_client(session, user="u1"):
     return TestClient(app)
 
 
-def _make_account(session, phone):
+def _make_account(session, phone, user_id="u1"):
     a = Account(
         phone=phone, session_enc=b"e", status="pool",
+        # Владелец = пользователь _accounts_client по умолчанию ("u1"); иначе
+        # multi-tenancy-гард на /accounts/{id} вернёт 404.
+        user_id=user_id,
         device_model="d", system_version="v", app_version="a",
         lang_code="uk", system_lang_code="uk-UA",
     )

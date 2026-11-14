@@ -69,10 +69,47 @@ from modules.shilling.schemas import (
     TargetRead,
 )
 
+async def _enforce_campaign_owner(
+    request: Request,
+    user_id: str = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> None:
+    """Multi-tenancy: любой маршрут с ``campaign_id`` в пути отдаёт 404, если
+    кампания не принадлежит текущему пользователю (чужая / «ничья»). Одна точка
+    защиты на все /modules/shilling/campaigns/{campaign_id}/… — новые
+    подресурсы кампании закрываются автоматически."""
+    raw = request.path_params.get("campaign_id")
+    cid: Optional[int] = None
+    if raw is not None:
+        try:
+            cid = int(raw)
+        except (TypeError, ValueError):
+            cid = None
+    else:
+        # Подресурсы сценария адресуются scenario_id — разворачиваем в кампанию.
+        raw_sid = request.path_params.get("scenario_id")
+        if raw_sid is not None:
+            try:
+                sid = int(raw_sid)
+            except (TypeError, ValueError):
+                return
+            scenario = ScenarioRepository(session).get(sid)
+            if scenario is None:
+                raise HTTPException(
+                    status.HTTP_404_NOT_FOUND, f"Сценарий {sid} не найден"
+                )
+            cid = scenario.campaign_id
+    if cid is None:
+        return
+    campaign = CampaignRepository(session).get(cid)
+    if campaign is None or campaign.owner_user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Кампания {cid} не найдена")
+
+
 router = APIRouter(
     prefix="/modules/shilling",
     tags=["shilling"],
-    dependencies=[Depends(require_user)],
+    dependencies=[Depends(require_user), Depends(_enforce_campaign_owner)],
 )
 
 
@@ -101,18 +138,21 @@ def _enforce_child_limit(
 
 
 @router.get("/campaigns", response_model=list[CampaignRead])
-def list_campaigns(session: Session = Depends(get_session)) -> list[CampaignRead]:
-    """Список кампаний, свежие сверху (сортировка репозитория).
+def list_campaigns(
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> list[CampaignRead]:
+    """Список кампаний владельца, свежие сверху (сортировка репозитория).
 
     Защита в два слоя:
-    1) list_all() обёрнут в try/except — если SQL падает (напр., миграция
+    1) list_by_owner() обёрнут в try/except — если SQL падает (напр., миграция
        в контейнере ещё не прогналась и в БД нет новой колонки), возвращаем
        пустой список вместо 500. UX не ломается, в логах видно почему.
     2) Валидация per-row: если одна строка не проходит, она пропускается,
        остальные возвращаются.
     """
     try:
-        rows = CampaignRepository(session).list_all()
+        rows = CampaignRepository(session).list_by_owner(user_id)
     except Exception as exc:  # noqa: BLE001 — защищаемся от SQL-ошибок (нет миграции)
         log.error("shilling.campaigns.list_sql_failed", error=repr(exc))
         session.rollback()
@@ -148,9 +188,12 @@ def get_campaign(
 def create_campaign(
     body: CampaignCreate,
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
     _limit: None = Depends(enforce_limit("shilling_campaigns_active_max")),
 ) -> CampaignRead:
     campaign = CampaignRepository(session).create(body)
+    # Multi-tenancy: владелец — текущий пользователь.
+    campaign.owner_user_id = user_id
     session.commit()
     return CampaignRead.model_validate(campaign)
 
@@ -638,7 +681,18 @@ def attach_account(
     campaign_id: int,
     body: AttachAccountRequest,
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ) -> CampaignAccountRead:
+    # Multi-tenancy: привязать можно только СВОЙ аккаунт (кампания уже
+    # проверена на владельца роутерной зависимостью). Иначе чужой аккаунт
+    # оказался бы задействован в нашей кампании.
+    from core.repositories.account import AccountRepository
+
+    acc = AccountRepository(session).get(body.account_id)
+    if acc is None or acc.user_id != user_id:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"account {body.account_id} not found"
+        )
     try:
         link = service.attach_account(
             session,

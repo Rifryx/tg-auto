@@ -78,6 +78,9 @@ def _make_account(session, status: str = "created") -> int:
     account = AccountRepository(session).create(
         AccountCreate(
             phone=_next_phone(),
+            # Владелец = dev-user из _DEV_HEADERS ("42"); иначе multi-tenancy
+            # закрывает аккаунт для API-вызовов этого пользователя (404).
+            user_id="42",
             session_enc=b"enc",
             device_model="iPhone15,3",
             system_version="17.5.1",
@@ -169,9 +172,12 @@ def test_create_account_generates_fingerprint_and_enqueues_login(dev_mode, clien
 # --- 4. PATCH с фингерпринт-полем → 422 --------------------------------------
 
 
-def test_patch_account_rejects_fingerprint_field(dev_mode, client):
+def test_patch_account_rejects_fingerprint_field(dev_mode, client, session):
+    # Аккаунт должен принадлежать dev-user ("42"), иначе owner-guard вернёт 404
+    # раньше, чем сработает валидация тела (extra=forbid).
+    account_id = _make_account(session)
     resp = client.patch(
-        "/accounts/1", json={"device_model": "hacked"}, headers=_DEV_HEADERS
+        f"/accounts/{account_id}", json={"device_model": "hacked"}, headers=_DEV_HEADERS
     )
     assert resp.status_code == 422
 

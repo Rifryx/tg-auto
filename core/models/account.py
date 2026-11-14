@@ -73,6 +73,10 @@ class Account(Base, TimestampMixin):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Владелец (Telegram user_id из require_user). Nullable — чтобы миграция и
+    # легаси-строки без владельца не падали; создание всегда проставляет его, а
+    # пользовательские выборки фильтруют по нему (NULL = «ничей», не виден).
+    user_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
 
     phone: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     first_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)

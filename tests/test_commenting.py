@@ -52,6 +52,9 @@ def _clean(session):
 def _make_account(session, *, status) -> int:
     acc = Account(
         phone=f"+{next(_PHONE)}",
+        # Владелец = пользователь из override require_user ("tester"); иначе
+        # multi-tenancy-гард закрывает аккаунт/привязку (404).
+        user_id="tester",
         session_enc=b"enc",
         status=status,
         device_model="iPhone15,3",
@@ -80,6 +83,8 @@ def _make_campaign(session, name="c") -> int:
             posting_delay_max_sec=5,
         )
     )
+    # Владелец кампании = пользователь из override require_user ("tester").
+    campaign.owner_user_id = "tester"
     session.commit()
     return campaign.id
 

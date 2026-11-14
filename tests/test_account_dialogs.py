@@ -41,6 +41,9 @@ def _make_account(session) -> int:
     acc = AccountRepository(session).create(
         AccountCreate(
             phone=f"+{next(_PHONE)}",
+            # Владелец = пользователь из override require_user ("u"); иначе
+            # multi-tenancy-гард на /accounts/{id} вернёт 404.
+            user_id="u",
             session_enc=b"enc",
             device_model="iPhone15,3",
             system_version="17.5.1",

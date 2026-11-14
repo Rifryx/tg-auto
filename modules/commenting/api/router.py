@@ -84,10 +84,31 @@ from modules.commenting.schemas import (
 
 get_logger = structlog.get_logger
 
+async def _enforce_campaign_owner(
+    request: Request,
+    user_id: str = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> None:
+    """Multi-tenancy: любой маршрут с ``campaign_id`` в пути отдаёт 404, если
+    кампания не принадлежит текущему пользователю. Одна точка защиты на все
+    /modules/commenting/campaigns/{campaign_id}/… — подресурсы закрыты
+    автоматически."""
+    raw = request.path_params.get("campaign_id")
+    if raw is None:
+        return
+    try:
+        cid = int(raw)
+    except (TypeError, ValueError):
+        return
+    campaign = CampaignRepository(session).get(cid)
+    if campaign is None or campaign.owner_user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {cid} not found")
+
+
 router = APIRouter(
     prefix="/modules/commenting",
     tags=["commenting"],
-    dependencies=[Depends(require_user)],
+    dependencies=[Depends(require_user), Depends(_enforce_campaign_owner)],
 )
 
 
@@ -153,8 +174,14 @@ def _drop_campaign_monitoring(session, publisher, campaign_id: int, account_id: 
 
 
 @router.get("/campaigns", response_model=list[CampaignRead])
-def list_campaigns(session: Session = Depends(get_session)) -> list[CampaignRead]:
-    return [CampaignRead.model_validate(c) for c in CampaignRepository(session).list_all()]
+def list_campaigns(
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+) -> list[CampaignRead]:
+    return [
+        CampaignRead.model_validate(c)
+        for c in CampaignRepository(session).list_by_owner(user_id)
+    ]
 
 
 @router.get("/campaigns/{campaign_id}", response_model=CampaignRead)
@@ -270,7 +297,17 @@ async def attach_account(
     session: Session = Depends(get_session),
     publisher: Optional[Publisher] = Depends(get_publisher),
     task_queue: TaskQueue = Depends(get_task_queue),
+    user_id: str = Depends(require_user),
 ) -> CampaignAccountRead:
+    # Multi-tenancy: привязать можно только СВОЙ аккаунт (кампания уже
+    # проверена роутерной зависимостью).
+    from core.repositories.account import AccountRepository
+
+    acc = AccountRepository(session).get(body.account_id)
+    if acc is None or acc.user_id != user_id:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"account {body.account_id} not found"
+        )
     try:
         link = service.attach_account(
             session,
@@ -882,13 +919,21 @@ def get_timeline(
     "/accounts/{account_id}/campaigns", response_model=list[CampaignAccountRead]
 )
 def list_campaigns_of_account(
-    account_id: int, session: Session = Depends(get_session)
+    account_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ) -> list[CampaignAccountRead]:
     """Все commenting-кампании, в которых прикреплён аккаунт.
 
     С миграции 0067 аккаунт может работать в нескольких кампаниях одновременно
     (multi-campaign). Этот endpoint нужен UI на карточке аккаунта: показывает
     список якорей-ссылок на кампании вместо единственной assigned_container_id."""
+    # Multi-tenancy: только свой аккаунт.
+    from core.repositories.account import AccountRepository
+
+    acc = AccountRepository(session).get(account_id)
+    if acc is None or acc.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"account {account_id} not found")
     links = CampaignAccountRepository(session).list_by_account(account_id)
     return [CampaignAccountRead.model_validate(link) for link in links]
 
@@ -896,18 +941,23 @@ def list_campaigns_of_account(
 @router.get("/accounts/campaign-counts")
 def accounts_campaign_counts(
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ) -> dict[str, int]:
-    """Карта account_id → число commenting-кампаний.
+    """Карта account_id → число commenting-кампаний (только свои аккаунты).
 
     Нужна UI для списка аккаунтов, чтобы показать метку «N работ» без
     N отдельных запросов. Ключи как строки — JSON не любит int-ключи."""
     from sqlalchemy import func, select
 
+    from core.models import Account
     from modules.commenting.models import CampaignAccount
 
-    stmt = select(
-        CampaignAccount.account_id, func.count(CampaignAccount.campaign_id)
-    ).group_by(CampaignAccount.account_id)
+    stmt = (
+        select(CampaignAccount.account_id, func.count(CampaignAccount.campaign_id))
+        .join(Account, Account.id == CampaignAccount.account_id)
+        .where(Account.user_id == user_id)
+        .group_by(CampaignAccount.account_id)
+    )
     rows = session.execute(stmt).all()
     return {str(acc_id): int(cnt) for acc_id, cnt in rows}
 
