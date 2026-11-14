@@ -166,7 +166,7 @@ export function AccountRow({
     return (
       <button
         onClick={() => onToggleSelect?.(account.id)}
-        className={`card flex min-h-[64px] w-full items-center gap-3 px-4 py-3 text-left active:bg-surface-2 ${
+        className={`card flex min-h-[64px] w-full min-w-0 items-center gap-3 px-4 py-3 text-left active:bg-surface-2 ${
           selected ? "ring-1 ring-accent" : ""
         }`}
       >
@@ -178,7 +178,7 @@ export function AccountRow({
   return (
     <Link
       to={`/accounts/${account.id}`}
-      className="card flex min-h-[64px] items-center gap-3 px-4 py-3 active:bg-surface-2"
+      className="card flex min-h-[64px] min-w-0 items-center gap-3 px-4 py-3 active:bg-surface-2"
     >
       {inner}
     </Link>
