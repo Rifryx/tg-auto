@@ -56,6 +56,10 @@ from modules.shilling.worker.orchestrator import (
     start_campaign as shilling_start_campaign_impl,
 )
 from modules.priming.worker.executor import execute_prime as priming_execute_prime_impl
+from modules.mass_reactions.worker.tasks import (
+    orchestrator_tick_task as mr_orchestrator_tick_impl,
+    place_reaction_task as mr_place_reaction_impl,
+)
 from modules.priming.worker.humanizer import (
     humanizer_beat as priming_humanizer_beat_impl,
 )
@@ -93,11 +97,6 @@ _STUB_TASKS = [
     # priming: все реальные хендлеры уже смонтированы (execute_prime,
     # orchestrator_tick, humanizer_beat, parser_run). Profile-apply
     # ушёл в общий блок «Аккаунты» через bulk-actions.
-    # mass_reactions: ядро логики (репозитории, раскладчик, executor) готово и
-    # покрыто тестами; arq-обвязка хендлеров (Telethon-клиент + reschedule) —
-    # финальный интеграционный шаг, пока стабы.
-    TaskName.MASS_REACTIONS_PLACE_REACTION,
-    TaskName.MASS_REACTIONS_ORCHESTRATOR_TICK,
 ]
 
 
@@ -319,6 +318,20 @@ TASK_FUNCTIONS = [
     func(
         priming_humanizer_beat,
         name=TaskName.PRIMING_HUMANIZER_BEAT.value,
+        max_tries=1,
+    ),
+    # mass_reactions.place_reaction: 1 попытка — повтор мог бы задвоить реакцию;
+    # FloodWait/бан пишутся в лог и обрабатываются, следующий tick продолжит.
+    func(
+        task(TaskName.MASS_REACTIONS_PLACE_REACTION.value)(mr_place_reaction_impl),
+        name=TaskName.MASS_REACTIONS_PLACE_REACTION.value,
+        max_tries=1,
+    ),
+    # mass_reactions.orchestrator_tick: 1 попытка — следующий tick планируется
+    # изнутри задачи, повтор задублировал бы job'ы.
+    func(
+        task(TaskName.MASS_REACTIONS_ORCHESTRATOR_TICK.value)(mr_orchestrator_tick_impl),
+        name=TaskName.MASS_REACTIONS_ORCHESTRATOR_TICK.value,
         max_tries=1,
     ),
     # Recovery-email flow (этап 7, backlog #1): max_tries=1 — при

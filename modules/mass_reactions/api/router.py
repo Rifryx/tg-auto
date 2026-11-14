@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
+from api.deps.queue import get_task_queue
+from core.queue import TaskQueue
+from core.queue.task_names import TaskName
 from modules.mass_reactions.api import service
 from modules.mass_reactions.schemas.campaign import (
     AddAccountsBody,
@@ -65,8 +68,15 @@ def delete_campaign(campaign_id: int, session: Session = Depends(get_session)):
 
 
 @router.post("/campaigns/{campaign_id}/start", response_model=MassReactionCampaignRead)
-def start_campaign(campaign_id: int, session: Session = Depends(get_session)):
-    return service.start_campaign(session, campaign_id)
+async def start_campaign(
+    campaign_id: int,
+    session: Session = Depends(get_session),
+    queue: TaskQueue = Depends(get_task_queue),
+):
+    campaign = service.start_campaign(session, campaign_id)
+    # Запускаем раскладчик: он назначит чаты аккаунтам и запланирует себя дальше.
+    await queue.enqueue(TaskName.MASS_REACTIONS_ORCHESTRATOR_TICK, campaign_id)
+    return campaign
 
 
 @router.post("/campaigns/{campaign_id}/pause", response_model=MassReactionCampaignRead)

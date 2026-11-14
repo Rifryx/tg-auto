@@ -7,7 +7,19 @@ from fastapi.testclient import TestClient
 
 from api.deps.auth import require_user
 from api.deps.db import get_session
+from api.deps.queue import get_task_queue
 from modules.mass_reactions.api.router import router
+
+
+class _FakeQueue:
+    def __init__(self):
+        self.enqueued = []
+
+    async def enqueue(self, name, *args, **kwargs):
+        self.enqueued.append((getattr(name, "value", name), args))
+
+    async def schedule(self, name, run_at, *args, **kwargs):
+        self.enqueued.append((getattr(name, "value", name), args))
 
 
 def _client(session) -> TestClient:
@@ -15,6 +27,7 @@ def _client(session) -> TestClient:
     app.include_router(router)
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[require_user] = lambda: "user-1"
+    app.dependency_overrides[get_task_queue] = lambda: _FakeQueue()
     return TestClient(app)
 
 
