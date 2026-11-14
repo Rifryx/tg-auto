@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, XCircle, X } from "lucide-react";
 import { api } from "../../../shared/api";
-import type { BulkJobDetail, BulkJobRead, BulkJobStatus } from "../../../shared/types";
+import { accountDisplay } from "../../../shared/format";
+import type {
+  Account,
+  BulkJobDetail,
+  BulkJobRead,
+  BulkJobStatus,
+} from "../../../shared/types";
 import { CapsuleButton } from "./ui";
 
 /* Шторка с живым прогрессом конкретного bulk-задания (apply_profile_pool,
@@ -42,6 +48,19 @@ export function BulkJobsSheet({ jobId, onClose }: { jobId: number; onClose: () =
     mutationFn: () => api.post<BulkJobRead>(`/bulk-jobs/${jobId}/cancel`, {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["bulk-job", jobId] }),
   });
+
+  // Имена аккаунтов (как видит пользователь — своё имя или номер), чтобы в
+  // прогрессе показывать «Иван» / «+7 900 ***», а не «Аккаунт #<id из БД>».
+  const accounts = useQuery({
+    queryKey: ["accounts", "labels"],
+    queryFn: () => api.get<Account[]>("/accounts"),
+    staleTime: 60_000,
+  });
+  const nameById = new Map<number, string>(
+    (accounts.data ?? []).map((a) => [a.id, accountDisplay(a)]),
+  );
+  const labelFor = (accountId: number) =>
+    nameById.get(accountId) ?? `Аккаунт #${accountId}`;
 
   const data = detail.data;
   const job = data?.job;
@@ -151,7 +170,7 @@ export function BulkJobsSheet({ jobId, onClose }: { jobId: number; onClose: () =
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[13px] text-text-primary">
-                      Аккаунт #{it.account_id}
+                      {labelFor(it.account_id)}
                     </p>
                     {it.error && (
                       <p className="truncate text-[11px] text-status-critical">
