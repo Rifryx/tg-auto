@@ -73,7 +73,7 @@ async def place_reaction(
         if outcome == ReactionOutcome.REACTED and not dry_run:
             CampaignChatRepository(session).mark_reacted(chat_id, when=finished)
             CampaignAccountRepository(session).register_reaction(
-                account_id, when=finished
+                campaign_id, account_id, when=finished
             )
         session.commit()
 

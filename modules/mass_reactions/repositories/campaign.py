@@ -22,6 +22,18 @@ class CampaignRepository(BaseRepository[MassReactionCampaign]):
         )
         return list(self.session.execute(stmt).scalars())
 
+    def list_by_owner(self, owner_user_id: str) -> list[MassReactionCampaign]:
+        """Кампании владельца (multi-tenancy). Пользовательские выборки — только
+        через этот метод; воркерные (list_by_status) обслуживают все кампании."""
+        stmt = (
+            select(MassReactionCampaign)
+            .where(MassReactionCampaign.owner_user_id == owner_user_id)
+            .order_by(
+                MassReactionCampaign.created_at.desc(), MassReactionCampaign.id.desc()
+            )
+        )
+        return list(self.session.execute(stmt).scalars())
+
     def list_by_status(self, status: str) -> list[MassReactionCampaign]:
         stmt = (
             select(MassReactionCampaign)

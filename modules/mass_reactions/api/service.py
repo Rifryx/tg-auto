@@ -37,16 +37,24 @@ def _get_or_404(session: Session, campaign_id: int) -> MassReactionCampaign:
     return c
 
 
-def list_campaigns(session: Session) -> list[MassReactionCampaign]:
-    return CampaignRepository(session).list_all()
+def list_campaigns(
+    session: Session, owner_user_id: str
+) -> list[MassReactionCampaign]:
+    # Multi-tenancy: только свои кампании.
+    return CampaignRepository(session).list_by_owner(owner_user_id)
 
 
 def get_campaign(session: Session, campaign_id: int) -> MassReactionCampaign:
     return _get_or_404(session, campaign_id)
 
 
-def create_campaign(session: Session, data: Mapping[str, Any]) -> MassReactionCampaign:
-    return CampaignRepository(session).create(dict(data))
+def create_campaign(
+    session: Session, data: Mapping[str, Any], owner_user_id: str
+) -> MassReactionCampaign:
+    payload = dict(data)
+    # Владельца проставляем из require_user (игнорируем значение из тела).
+    payload["owner_user_id"] = owner_user_id
+    return CampaignRepository(session).create(payload)
 
 
 def update_campaign(
@@ -135,8 +143,19 @@ def list_accounts(session: Session, campaign_id: int):
     return CampaignAccountRepository(session).list_by_campaign(campaign_id)
 
 
-def add_accounts(session: Session, campaign_id: int, account_ids: list[int]):
+def add_accounts(
+    session: Session, campaign_id: int, account_ids: list[int], owner_user_id: str
+):
     _get_or_404(session, campaign_id)
+    # Multi-tenancy: привязать можно только СВОИ аккаунты (кампания уже
+    # проверена owner-guard'ом роутера). Чужой/несуществующий id → 404.
+    from core.repositories.account import AccountRepository
+
+    acc_repo = AccountRepository(session)
+    for aid in account_ids:
+        acc = acc_repo.get(aid)
+        if acc is None or acc.user_id != owner_user_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"account {aid} not found")
     repo = CampaignAccountRepository(session)
     existing = {a.account_id for a in repo.list_by_campaign(campaign_id)}
     created = []

@@ -54,11 +54,21 @@ class CampaignAccountRepository(BaseRepository[MassReactionCampaignAccount]):
         self.session.flush()
         return obj
 
-    def register_reaction(self, id_: int, *, when: datetime) -> None:
-        """Инкремент счётчиков после успешной реакции."""
+    def register_reaction(
+        self, campaign_id: int, account_id: int, *, when: datetime
+    ) -> None:
+        """Инкремент счётчиков после успешной реакции.
+
+        Скоуп по (campaign_id, account_id): один аккаунт может участвовать в
+        нескольких кампаниях, поэтому счётчик обновляем именно у связки этой
+        кампании (раньше фильтровали по ``campaign_accounts.id``, а executor
+        передавал туда ``account_id`` — инкремент уходил не в ту строку)."""
         stmt = (
             update(MassReactionCampaignAccount)
-            .where(MassReactionCampaignAccount.id == id_)
+            .where(
+                MassReactionCampaignAccount.campaign_id == campaign_id,
+                MassReactionCampaignAccount.account_id == account_id,
+            )
             .values(
                 reactions_today=MassReactionCampaignAccount.reactions_today + 1,
                 reactions_total=MassReactionCampaignAccount.reactions_total + 1,
