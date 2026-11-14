@@ -53,6 +53,35 @@ from modules.priming.schemas import (
 )
 
 
+def _owner_int(user_id: str) -> Optional[int]:
+    """created_by у прайминга — BIGINT; require_user отдаёт строку. Приводим к
+    int (Telegram id числовой), иначе None."""
+    try:
+        return int(user_id)
+    except (TypeError, ValueError):
+        return None
+
+
+async def _enforce_campaign_owner(
+    request: Request,
+    user_id: str = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> None:
+    """Multi-tenancy: маршрут с ``campaign_id`` в пути отдаёт 404, если кампания
+    не принадлежит текущему пользователю (``created_by``). Одна точка защиты на
+    все /modules/priming/campaigns/{campaign_id}/…"""
+    raw = request.path_params.get("campaign_id")
+    if raw is None:
+        return
+    try:
+        cid = int(raw)
+    except (TypeError, ValueError):
+        return
+    campaign = CampaignRepository(session).get(cid)
+    if campaign is None or campaign.created_by != _owner_int(user_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"campaign {cid} not found")
+
+
 router = APIRouter(
     prefix="/modules/priming",
     tags=["priming"],
@@ -61,6 +90,7 @@ router = APIRouter(
         # GET открыт — UI на нём показывает пейволл-капсулу; POST/PATCH/
         # DELETE отдают 402, если priming_enabled=False на плане.
         Depends(require_feature("priming_enabled")),
+        Depends(_enforce_campaign_owner),
     ],
 )
 
@@ -77,10 +107,13 @@ def _raise(exc: service.ServiceError):
 # ---------------------------------------------------------------------------
 
 @router.get("/campaigns", response_model=list[PrimingCampaignRead])
-def list_campaigns(session: Session = Depends(get_session)):
+def list_campaigns(
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+):
     return [
         PrimingCampaignRead.model_validate(c)
-        for c in CampaignRepository(session).list_all()
+        for c in CampaignRepository(session).list_by_owner(_owner_int(user_id))
     ]
 
 
@@ -300,6 +333,7 @@ def attach_accounts(
     campaign_id: int,
     body: dict = Body(...),
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ):
     account_ids = body.get("account_ids") or []
     if not isinstance(account_ids, list) or not all(
@@ -312,6 +346,18 @@ def attach_accounts(
                 "message": "account_ids must be a non-empty list[int]",
             },
         )
+    # Multi-tenancy: привязать можно только СВОИ аккаунты (кампания уже
+    # проверена роутерной зависимостью). Чужой/несуществующий id → 404.
+    from core.repositories.account import AccountRepository
+
+    acc_repo = AccountRepository(session)
+    for aid in account_ids:
+        acc = acc_repo.get(aid)
+        if acc is None or acc.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "not_found", "message": f"account {aid} not found"},
+            )
     try:
         result = service.attach_accounts(session, campaign_id, account_ids)
     except service.ServiceError as exc:
@@ -422,7 +468,9 @@ def import_from_list(
 
 @router.get("/accounts/{account_id}/health-sparkline")
 def account_health_sparkline(
-    account_id: int, session: Session = Depends(get_session),
+    account_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ):
     """7-дневная health-биометрия аккаунта для строки списка (prompt 7.5).
 
@@ -430,6 +478,15 @@ def account_health_sparkline(
     к новому. Пустые дни возвращаются нулями — фронт рисует «плоскую»
     линию, а не скрывает точку.
     """
+    # Multi-tenancy: только свой аккаунт.
+    from core.repositories.account import AccountRepository
+
+    acc = AccountRepository(session).get(account_id)
+    if acc is None or acc.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": f"account {account_id} not found"},
+        )
     days = ExecutionLogRepository(session).daily_health_buckets(
         account_id, days=7,
     )

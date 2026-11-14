@@ -127,6 +127,7 @@ def pick_free_proxy(
     *,
     geo: Optional[str] = None,
     strict_geo: bool = True,
+    owner_user_id: Optional[str] = None,
 ) -> Optional[Proxy]:
     """Один свободный alive-прокси. При ``geo`` — с совпадающим гео.
 
@@ -136,11 +137,16 @@ def pick_free_proxy(
     * ``strict_geo=False``: если matching-гео нет, отдаём любой свободный
       alive (полезно для админского override).
     * «Свободный» — NOT EXISTS accounts.proxy_id == proxy.id.
+    * ``owner_user_id`` (multi-tenancy): когда задан — только прокси владельца
+      (пользовательский автопик не берёт чужие прокси). None — весь пул
+      (воркер/bulk/тесты).
     """
     base = select(Proxy).where(
         Proxy.status == ProxyStatus.ALIVE.value,
         ~exists().where(Account.proxy_id == Proxy.id),
     )
+    if owner_user_id is not None:
+        base = base.where(Proxy.user_id == owner_user_id)
 
     if geo:
         matched = session.execute(base.where(Proxy.geo == geo).limit(1)).scalar_one_or_none()
@@ -156,6 +162,12 @@ def pick_for_phone(
     phone: str,
     *,
     strict_geo: bool = True,
+    owner_user_id: Optional[str] = None,
 ) -> Optional[Proxy]:
     """Автопик прокси под конкретный номер: detect_geo + pick_free_proxy."""
-    return pick_free_proxy(session, geo=detect_geo(phone), strict_geo=strict_geo)
+    return pick_free_proxy(
+        session,
+        geo=detect_geo(phone),
+        strict_geo=strict_geo,
+        owner_user_id=owner_user_id,
+    )

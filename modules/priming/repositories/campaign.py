@@ -23,6 +23,17 @@ class CampaignRepository(BaseRepository[PrimingCampaign]):
         )
         return list(self.session.execute(stmt).scalars())
 
+    def list_by_owner(self, created_by: Optional[int]) -> list[PrimingCampaign]:
+        """Кампании владельца (multi-tenancy; владелец — ``created_by``).
+        Пользовательские выборки — только через этот метод; воркерные
+        (list_by_status и т.п.) обслуживают все кампании."""
+        stmt = (
+            select(PrimingCampaign)
+            .where(PrimingCampaign.created_by == created_by)
+            .order_by(PrimingCampaign.created_at.desc(), PrimingCampaign.id.desc())
+        )
+        return list(self.session.execute(stmt).scalars())
+
     def list_by_status(self, status: str) -> list[PrimingCampaign]:
         stmt = (
             select(PrimingCampaign)

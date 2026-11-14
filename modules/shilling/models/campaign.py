@@ -76,6 +76,12 @@ class ShillingCampaign(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
+    # Владелец (Telegram user_id) — multi-tenancy. Nullable ради миграции и
+    # легаси-строк; создание всегда проставляет текущего пользователя, а
+    # пользовательские выборки фильтруют по нему (NULL = «ничей», не виден).
+    owner_user_id: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, index=True
+    )
 
     # ── Продвижение: бренд/ссылка (упоминается в репликах текстом) ──────
     brand_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)

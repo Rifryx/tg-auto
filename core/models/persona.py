@@ -12,6 +12,7 @@ class Persona(Base, CreatedAtMixin):
     __tablename__ = "personas"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     avatar_template_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     bio_template: Mapped[Optional[str]] = mapped_column(String, nullable=True)

@@ -56,9 +56,36 @@ class PhoneAlreadyExistsError(Exception):
         self.phone = phone
 
 
+def _assert_owned_refs(
+    session: Session,
+    *,
+    owner_user_id: Optional[str],
+    proxy,
+    persona_id: Optional[int],
+) -> None:
+    """Multi-tenancy: нельзя привязать к аккаунту чужой прокси/персону.
+
+    Проверяем только когда владелец известен (``owner_user_id`` задан —
+    пользовательский путь). Внутренние/тестовые вызовы без владельца
+    пропускают проверку. ``proxy`` — уже загруженный объект (или None).
+    """
+    if owner_user_id is None:
+        return
+    if proxy is not None and proxy.user_id is not None and proxy.user_id != owner_user_id:
+        raise ProxyNotFoundError(f"proxy {proxy.id} not found")
+    if persona_id is not None:
+        from core.repositories.persona import PersonaRepository
+
+        persona = PersonaRepository(session).get(persona_id)
+        if persona is not None and persona.user_id is not None and persona.user_id != owner_user_id:
+            # 404-подобное поведение: для клиента персоны «не существует».
+            raise ProxyNotFoundError(f"persona {persona_id} not found")
+
+
 def list_accounts(
     session: Session,
     *,
+    user_id: Optional[str] = None,
     status: Optional[AccountStatus] = None,
     warming_profile: Optional[WarmingProfile] = None,
     project_id: Optional[int] = None,
@@ -66,6 +93,7 @@ def list_accounts(
     tag: Optional[str] = None,
 ) -> list[Account]:
     return AccountRepository(session).list_filtered(
+        user_id=user_id,
         status=status,
         warming_profile=warming_profile,
         project_id=project_id,
@@ -77,6 +105,7 @@ def list_accounts(
 def create_account(
     session: Session,
     *,
+    user_id: Optional[str] = None,
     phone: str,
     proxy_id: Optional[int],
     persona_id: Optional[int],
@@ -97,6 +126,9 @@ def create_account(
         raise ProxyNotFoundError(
             "proxy is required (set ALLOW_NO_PROXY=true to create without proxy)"
         )
+    _assert_owned_refs(
+        session, owner_user_id=user_id, proxy=proxy, persona_id=persona_id
+    )
 
     accounts = AccountRepository(session)
     if accounts.get_by_phone(phone) is not None:
@@ -107,6 +139,7 @@ def create_account(
         account = accounts.create(
             AccountCreate(
                 phone=phone,
+                user_id=user_id,
                 # Пустая StringSession: заполнится логин-флоу после ввода кода.
                 session_enc=encrypt_session(b""),
                 proxy_id=proxy_id,
@@ -308,6 +341,7 @@ def pseudo_phone_from_session(session_string: str) -> str:
 def import_account_from_session(
     session: Session,
     *,
+    owner_user_id: Optional[str] = None,
     phone: str,
     proxy_id: Optional[int],
     persona_id: Optional[int],
@@ -335,6 +369,9 @@ def import_account_from_session(
         raise ProxyNotFoundError(
             "proxy is required (set ALLOW_NO_PROXY=true to import without proxy)"
         )
+    _assert_owned_refs(
+        session, owner_user_id=owner_user_id, proxy=proxy, persona_id=persona_id
+    )
 
     accounts = AccountRepository(session)
     if accounts.get_by_phone(phone) is not None:
@@ -344,6 +381,7 @@ def import_account_from_session(
         account = accounts.create(
             AccountCreate(
                 phone=phone,
+                user_id=owner_user_id,
                 session_enc=encrypt_session(session_string.encode()),
                 proxy_id=proxy_id,
                 persona_id=persona_id,

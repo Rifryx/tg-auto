@@ -8,6 +8,9 @@ from core.schemas.base import ORMModel
 
 class PersonaCreate(BaseModel):
     name: str
+    # Владелец (Telegram user_id) — multi-tenancy. Роут всегда проставляет
+    # текущего пользователя.
+    user_id: Optional[str] = None
     avatar_template_url: Optional[str] = None
     bio_template: Optional[str] = None
     personality_tags: list[str] = Field(default_factory=list)

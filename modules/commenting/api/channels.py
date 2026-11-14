@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from typing import Optional
@@ -26,8 +26,30 @@ from modules.commenting.worker.registry import (
     publish_channel_lifecycle,
 )
 
+
+async def _enforce_account_owner(
+    request: Request,
+    user_id: str = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> None:
+    """Multi-tenancy: каналы чужого/«ничьего» аккаунта не видны и не изменяемы.
+    Одна точка защиты на все /accounts/{account_id}/channels."""
+    raw = request.path_params.get("account_id")
+    if raw is None:
+        return
+    try:
+        aid = int(raw)
+    except (TypeError, ValueError):
+        return
+    acc = AccountRepository(session).get(aid)
+    if acc is None or acc.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"account {aid} not found")
+
+
 router = APIRouter(
-    prefix="/accounts", tags=["channels"], dependencies=[Depends(require_user)]
+    prefix="/accounts",
+    tags=["channels"],
+    dependencies=[Depends(require_user), Depends(_enforce_account_owner)],
 )
 
 

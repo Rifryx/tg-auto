@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -36,8 +36,29 @@ class ProxyCreateRequest(BaseModel):
     password: Optional[str] = None
     geo: Optional[str] = None
 
+async def _enforce_proxy_owner(
+    request: Request,
+    user_id: str = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> None:
+    """Multi-tenancy: маршрут с ``proxy_id`` в пути отдаёт 404, если прокси
+    чужой/«ничей». Одна точка защиты на все /proxies/{proxy_id}."""
+    raw = request.path_params.get("proxy_id")
+    if raw is None:
+        return
+    try:
+        pid = int(raw)
+    except (TypeError, ValueError):
+        return
+    proxy = ProxyRepository(session).get(pid)
+    if proxy is None or proxy.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"proxy {pid} not found")
+
+
 router = APIRouter(
-    prefix="/proxies", tags=["proxies"], dependencies=[Depends(require_user)]
+    prefix="/proxies",
+    tags=["proxies"],
+    dependencies=[Depends(require_user), Depends(_enforce_proxy_owner)],
 )
 
 
@@ -60,18 +81,19 @@ class ProxyOccupancy(BaseModel):
 def list_proxies(
     status: Optional[ProxyStatus] = None,
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ) -> list[ProxyRead]:
-    repo = ProxyRepository(session)
-    proxies = repo.list_by_status(status) if status is not None else repo.list_all()
+    proxies = ProxyRepository(session).list_by_owner(user_id, status=status)
     return [ProxyRead.model_validate(p) for p in proxies]
 
 
 @router.get("/pool", response_model=list[ProxyOccupancy])
 def list_pool(
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ) -> list[ProxyOccupancy]:
-    """Все прокси с флагом занятости — для UI пула прокси (этап 3)."""
-    proxies = ProxyRepository(session).list_all()
+    """Все прокси владельца с флагом занятости — для UI пула прокси (этап 3)."""
+    proxies = ProxyRepository(session).list_by_owner(user_id)
     # Один SELECT на карту proxy_id → account_id, чтобы не делать N+1.
     occupancy_rows = session.execute(
         select(Account.proxy_id, Account.id).where(Account.proxy_id.is_not(None))
@@ -101,13 +123,14 @@ def pick_proxy(
     geo: Optional[str] = None,
     strict_geo: bool = True,
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ) -> ProxyPickResponse:
     """Автопик свободного alive-прокси под номер/гео (этап 3, backlog #1).
 
     Приоритет параметров: явно указанный ``geo`` перекрывает автоопределение
     по ``phone``. ``strict_geo=False`` разрешает подобрать прокси другой
     страны, если matching-гео пусто (админский override — по умолчанию
-    выключено, инвариант §0.4).
+    выключено, инвариант §0.4). Multi-tenancy: автопик берёт только СВОИ прокси.
     """
     target_geo = (geo or "").strip().upper() or None
     detected = None
@@ -116,9 +139,13 @@ def pick_proxy(
         target_geo = detected
 
     if phone:
-        chosen = pick_for_phone(session, phone, strict_geo=strict_geo)
+        chosen = pick_for_phone(
+            session, phone, strict_geo=strict_geo, owner_user_id=user_id
+        )
     else:
-        chosen = pick_free_proxy(session, geo=target_geo, strict_geo=strict_geo)
+        chosen = pick_free_proxy(
+            session, geo=target_geo, strict_geo=strict_geo, owner_user_id=user_id
+        )
 
     if chosen is None:
         return ProxyPickResponse(
@@ -143,6 +170,7 @@ def get_proxy(proxy_id: int, session: Session = Depends(get_session)) -> ProxyRe
 def create_proxy(
     body: ProxyCreateRequest,
     session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
     _limit: None = Depends(enforce_limit("proxies_max")),
 ) -> ProxyRead:
     pwd_enc = encrypt_password(body.password.encode()) if body.password else None
@@ -150,6 +178,7 @@ def create_proxy(
         host=body.host.strip(),
         port=body.port,
         type=body.type,
+        user_id=user_id,
         name=(body.name.strip() or None) if body.name else None,
         login=(body.login.strip() or None) if body.login else None,
         password_enc=pwd_enc,

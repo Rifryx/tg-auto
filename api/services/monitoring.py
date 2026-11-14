@@ -69,7 +69,9 @@ def _event_types_for_severity(severity: str) -> list[str]:
     return [etype for etype, sev in _SEVERITY.items() if sev == severity]
 
 
-def _alerts(session: Session, severity: Optional[str]) -> list[dict[str, Any]]:
+def _alerts(
+    session: Session, severity: Optional[str], *, user_id: Optional[str] = None
+) -> list[dict[str, Any]]:
     stmt = (
         select(
             HealthEvent.id,
@@ -82,6 +84,9 @@ def _alerts(session: Session, severity: Optional[str]) -> list[dict[str, Any]]:
         .join(Account, Account.id == HealthEvent.account_id)
         .where(HealthEvent.resolved.is_(False))
     )
+    # Multi-tenancy: алерты только по своим аккаунтам.
+    if user_id is not None:
+        stmt = stmt.where(Account.user_id == user_id)
     if severity is not None:
         stmt = stmt.where(HealthEvent.event_type.in_(_event_types_for_severity(severity)))
     stmt = stmt.order_by(HealthEvent.created_at.desc(), HealthEvent.id.desc()).limit(
@@ -101,7 +106,7 @@ def _alerts(session: Session, severity: Optional[str]) -> list[dict[str, Any]]:
         for r in rows
     ]
     if severity in (None, "warning"):
-        items += _channel_alerts(session)
+        items += _channel_alerts(session, user_id=user_id)
         items.sort(key=lambda a: a["created_at"] or "", reverse=True)
         items = items[:_ALERTS_LIMIT]
     return items
@@ -112,10 +117,12 @@ def _alerts(session: Session, severity: Optional[str]) -> list[dict[str, Any]]:
 _CHANNEL_ALERT_KINDS_ON_DASHBOARD = ("not_subscribed", "access_lost", "blacklisted")
 
 
-def _channel_alerts(session: Session) -> list[dict[str, Any]]:
+def _channel_alerts(
+    session: Session, *, user_id: Optional[str] = None
+) -> list[dict[str, Any]]:
     from modules.commenting.models import ChannelAlert
 
-    rows = session.execute(
+    stmt = (
         select(
             ChannelAlert.id,
             ChannelAlert.account_id,
@@ -131,8 +138,12 @@ def _channel_alerts(session: Session) -> list[dict[str, Any]]:
             ChannelAlert.resolved.is_(False),
             ChannelAlert.kind.in_(_CHANNEL_ALERT_KINDS_ON_DASHBOARD),
         )
-        .order_by(ChannelAlert.created_at.desc())
-        .limit(_ALERTS_LIMIT)
+    )
+    # Multi-tenancy: алерты каналов только по своим аккаунтам.
+    if user_id is not None:
+        stmt = stmt.where(Account.user_id == user_id)
+    rows = session.execute(
+        stmt.order_by(ChannelAlert.created_at.desc()).limit(_ALERTS_LIMIT)
     ).all()
     return [
         {
@@ -153,34 +164,50 @@ def _channel_alerts(session: Session) -> list[dict[str, Any]]:
     ]
 
 
-def _accounts_summary(session: Session) -> dict[str, int]:
-    rows = session.execute(
-        select(Account.status, func.count()).group_by(Account.status)
-    ).all()
+def _accounts_summary(
+    session: Session, *, user_id: Optional[str] = None
+) -> dict[str, int]:
+    stmt = select(Account.status, func.count()).group_by(Account.status)
+    # Multi-tenancy: считаем только свои аккаунты.
+    if user_id is not None:
+        stmt = stmt.where(Account.user_id == user_id)
+    rows = session.execute(stmt).all()
     counts = {status: 0 for status in _ACCOUNT_STATUSES}
     for status, count in rows:
         counts[status] = count
     return counts
 
 
-def _commenting_summary(session: Session) -> dict[str, Any]:
+def _commenting_summary(
+    session: Session, *, user_id: Optional[str] = None
+) -> dict[str, Any]:
     today_start = datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
-    instances = session.execute(
-        select(func.count()).select_from(CampaignAccount)
-    ).scalar_one()
-    active_now = session.execute(
+    # Multi-tenancy: все три агрегата считаем через join к accounts владельца.
+    inst_stmt = select(func.count()).select_from(CampaignAccount)
+    active_stmt = (
         select(func.count())
         .select_from(CampaignAccount)
         .join(Account, Account.id == CampaignAccount.account_id)
         .where(Account.status == "assigned")
-    ).scalar_one()
-    today_actions = session.execute(
+    )
+    today_stmt = (
         select(func.count())
         .select_from(CommentLog)
         .where(CommentLog.created_at >= today_start)
-    ).scalar_one()
+    )
+    if user_id is not None:
+        inst_stmt = inst_stmt.join(
+            Account, Account.id == CampaignAccount.account_id
+        ).where(Account.user_id == user_id)
+        active_stmt = active_stmt.where(Account.user_id == user_id)
+        today_stmt = today_stmt.join(
+            Account, Account.id == CommentLog.account_id
+        ).where(Account.user_id == user_id)
+    instances = session.execute(inst_stmt).scalar_one()
+    active_now = session.execute(active_stmt).scalar_one()
+    today_actions = session.execute(today_stmt).scalar_one()
     return {
         "module": "commenting",
         "instances": instances,
@@ -189,23 +216,34 @@ def _commenting_summary(session: Session) -> dict[str, Any]:
     }
 
 
-def _shilling_summary(session: Session) -> dict[str, Any]:
+def _shilling_summary(
+    session: Session, *, user_id: Optional[str] = None
+) -> dict[str, Any]:
     today_start = datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
-    instances = session.execute(
-        select(func.count()).select_from(ShillingCampaign)
-    ).scalar_one()
-    active_now = session.execute(
+    inst_stmt = select(func.count()).select_from(ShillingCampaign)
+    active_stmt = (
         select(func.count())
         .select_from(ShillingCampaign)
         .where(ShillingCampaign.status == "running")
-    ).scalar_one()
-    today_actions = session.execute(
+    )
+    today_stmt = (
         select(func.count())
         .select_from(ShillingExecutionLog)
         .where(ShillingExecutionLog.created_at >= today_start)
-    ).scalar_one()
+    )
+    # Multi-tenancy: кампании — по владельцу кампании; действия за сегодня —
+    # через join к accounts владельца (в логе есть account_id).
+    if user_id is not None:
+        inst_stmt = inst_stmt.where(ShillingCampaign.owner_user_id == user_id)
+        active_stmt = active_stmt.where(ShillingCampaign.owner_user_id == user_id)
+        today_stmt = today_stmt.join(
+            Account, Account.id == ShillingExecutionLog.account_id
+        ).where(Account.user_id == user_id)
+    instances = session.execute(inst_stmt).scalar_one()
+    active_now = session.execute(active_stmt).scalar_one()
+    today_actions = session.execute(today_stmt).scalar_one()
     return {
         "module": "shilling",
         "instances": instances,
@@ -214,25 +252,48 @@ def _shilling_summary(session: Session) -> dict[str, Any]:
     }
 
 
-def _priming_summary(session: Session) -> dict[str, Any]:
+def _owner_int(user_id: Optional[str]) -> Optional[int]:
+    """created_by у прайминга — BIGINT; user_id из require_user — строка.
+    Приводим к int (Telegram id числовой), иначе None."""
+    if user_id is None:
+        return None
+    try:
+        return int(user_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def _priming_summary(
+    session: Session, *, user_id: Optional[str] = None
+) -> dict[str, Any]:
     from core.models import PrimingCampaign, PrimingExecutionLog
 
     today_start = datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
-    instances = session.execute(
-        select(func.count()).select_from(PrimingCampaign)
-    ).scalar_one()
-    active_now = session.execute(
+    owner = _owner_int(user_id)
+    inst_stmt = select(func.count()).select_from(PrimingCampaign)
+    active_stmt = (
         select(func.count())
         .select_from(PrimingCampaign)
         .where(PrimingCampaign.status == "running")
-    ).scalar_one()
-    today_actions = session.execute(
+    )
+    today_stmt = (
         select(func.count())
         .select_from(PrimingExecutionLog)
         .where(PrimingExecutionLog.started_at >= today_start)
-    ).scalar_one()
+    )
+    # Multi-tenancy: кампании — по владельцу (created_by), действия — через
+    # join к accounts владельца (в логе есть account_id).
+    if user_id is not None:
+        inst_stmt = inst_stmt.where(PrimingCampaign.created_by == owner)
+        active_stmt = active_stmt.where(PrimingCampaign.created_by == owner)
+        today_stmt = today_stmt.join(
+            Account, Account.id == PrimingExecutionLog.account_id
+        ).where(Account.user_id == user_id)
+    instances = session.execute(inst_stmt).scalar_one()
+    active_now = session.execute(active_stmt).scalar_one()
+    today_actions = session.execute(today_stmt).scalar_one()
     return {
         "module": "priming",
         "instances": instances,
@@ -245,47 +306,68 @@ def _today_start() -> datetime:
     return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def _kpis(session: Session, modules: list[dict[str, Any]]) -> dict[str, int]:
+def _kpis(
+    session: Session,
+    modules: list[dict[str, Any]],
+    *,
+    user_id: Optional[str] = None,
+) -> dict[str, int]:
     """Сводные числа для верхних плиток: действия сегодня, ошибки сегодня,
-    активных кампаний, аккаунтов в работе."""
-    from core.models import PrimingCampaign
+    активных кампаний, аккаунтов в работе. Multi-tenancy: всё по своим
+    аккаунтам/кампаниям (modules уже отфильтрованы)."""
+    from core.models import PrimingCampaign, PrimingExecutionLog
 
     today = _today_start()
+    owner_int = _owner_int(user_id)
     actions_today = sum(int(m.get("today_actions", 0)) for m in modules)
     active_campaigns = sum(int(m.get("active_now", 0)) for m in modules)
 
-    errors_today = 0
-    errors_today += session.execute(
+    comment_err = (
         select(func.count())
         .select_from(CommentLog)
         .where(CommentLog.created_at >= today, CommentLog.status == "failed")
-    ).scalar_one()
-    errors_today += session.execute(
+    )
+    shill_err = (
         select(func.count())
         .select_from(ShillingExecutionLog)
         .where(
             ShillingExecutionLog.created_at >= today,
             ShillingExecutionLog.status == "failed",
         )
-    ).scalar_one()
-
-    accounts_working = session.execute(
+    )
+    acc_working = (
         select(func.count())
         .select_from(Account)
         .where(Account.status.in_(("assigned", "warming")))
-    ).scalar_one()
-
-    # Кампании «на паузе» всех модулей — чтобы было видно, что требует внимания.
-    paused_campaigns = session.execute(
+    )
+    shill_paused = (
         select(func.count())
         .select_from(ShillingCampaign)
         .where(ShillingCampaign.status == "paused")
-    ).scalar_one()
-    paused_campaigns += session.execute(
+    )
+    prim_paused = (
         select(func.count())
         .select_from(PrimingCampaign)
         .where(PrimingCampaign.status == "paused")
-    ).scalar_one()
+    )
+    if user_id is not None:
+        comment_err = comment_err.join(
+            Account, Account.id == CommentLog.account_id
+        ).where(Account.user_id == user_id)
+        shill_err = shill_err.join(
+            Account, Account.id == ShillingExecutionLog.account_id
+        ).where(Account.user_id == user_id)
+        acc_working = acc_working.where(Account.user_id == user_id)
+        shill_paused = shill_paused.where(ShillingCampaign.owner_user_id == user_id)
+        prim_paused = prim_paused.where(PrimingCampaign.created_by == owner_int)
+
+    errors_today = 0
+    errors_today += session.execute(comment_err).scalar_one()
+    errors_today += session.execute(shill_err).scalar_one()
+    accounts_working = session.execute(acc_working).scalar_one()
+    # Кампании «на паузе» всех модулей — чтобы было видно, что требует внимания.
+    paused_campaigns = session.execute(shill_paused).scalar_one()
+    paused_campaigns += session.execute(prim_paused).scalar_one()
 
     return {
         "actions_today": int(actions_today),
@@ -296,26 +378,30 @@ def _kpis(session: Session, modules: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
-def _trend_7d(session: Session) -> list[dict[str, Any]]:
+def _trend_7d(
+    session: Session, *, user_id: Optional[str] = None
+) -> list[dict[str, Any]]:
     """Действия по дням за последние 7 суток (UTC). Склеиваем три источника —
-    комментарии, шиллинг и прайминг — в один дневной ряд для спарклайна."""
+    комментарии, шиллинг и прайминг — в один дневной ряд для спарклайна.
+    Multi-tenancy: каждый источник — только по аккаунтам владельца (join)."""
     from core.models import PrimingExecutionLog
 
     start = _today_start() - timedelta(days=6)
     counts: dict[str, int] = {}
 
-    def _bucket(col) -> None:
-        rows = session.execute(
-            select(func.date(col), func.count())
-            .where(col >= start)
-            .group_by(func.date(col))
-        ).all()
-        for day, cnt in rows:
+    def _bucket(col, account_col) -> None:
+        stmt = select(func.date(col), func.count()).where(col >= start)
+        if user_id is not None:
+            stmt = stmt.join(Account, Account.id == account_col).where(
+                Account.user_id == user_id
+            )
+        stmt = stmt.group_by(func.date(col))
+        for day, cnt in session.execute(stmt).all():
             counts[str(day)] = counts.get(str(day), 0) + int(cnt)
 
-    _bucket(CommentLog.created_at)
-    _bucket(ShillingExecutionLog.created_at)
-    _bucket(PrimingExecutionLog.started_at)
+    _bucket(CommentLog.created_at, CommentLog.account_id)
+    _bucket(ShillingExecutionLog.created_at, ShillingExecutionLog.account_id)
+    _bucket(PrimingExecutionLog.started_at, PrimingExecutionLog.account_id)
 
     out: list[dict[str, Any]] = []
     for i in range(7):
@@ -324,31 +410,39 @@ def _trend_7d(session: Session) -> list[dict[str, Any]]:
     return out
 
 
-def _recent_activity(session: Session) -> list[dict[str, Any]]:
+def _recent_activity(
+    session: Session, *, user_id: Optional[str] = None
+) -> list[dict[str, Any]]:
     from core.warming_detail import warming_detail
 
     # Две отдельные выборки (без union по разнотипным колонкам) → мёрдж в Python.
+    warming_stmt = select(
+        WarmingActivity.account_id,
+        WarmingActivity.action_type,
+        WarmingActivity.target,
+        WarmingActivity.meta,
+        WarmingActivity.status,
+        WarmingActivity.created_at,
+    )
+    comment_stmt = select(
+        CommentLog.account_id,
+        CommentLog.status,
+        CommentLog.created_at,
+        CommentLog.channel_ref,
+    )
+    # Multi-tenancy: лента активности — только по своим аккаунтам.
+    if user_id is not None:
+        warming_stmt = warming_stmt.join(
+            Account, Account.id == WarmingActivity.account_id
+        ).where(Account.user_id == user_id)
+        comment_stmt = comment_stmt.join(
+            Account, Account.id == CommentLog.account_id
+        ).where(Account.user_id == user_id)
     warming_rows = session.execute(
-        select(
-            WarmingActivity.account_id,
-            WarmingActivity.action_type,
-            WarmingActivity.target,
-            WarmingActivity.meta,
-            WarmingActivity.status,
-            WarmingActivity.created_at,
-        )
-        .order_by(WarmingActivity.created_at.desc())
-        .limit(_ACTIVITY_LIMIT)
+        warming_stmt.order_by(WarmingActivity.created_at.desc()).limit(_ACTIVITY_LIMIT)
     ).all()
     comment_rows = session.execute(
-        select(
-            CommentLog.account_id,
-            CommentLog.status,
-            CommentLog.created_at,
-            CommentLog.channel_ref,
-        )
-        .order_by(CommentLog.created_at.desc())
-        .limit(_ACTIVITY_LIMIT)
+        comment_stmt.order_by(CommentLog.created_at.desc()).limit(_ACTIVITY_LIMIT)
     ).all()
 
     events: list[dict[str, Any]] = []
@@ -459,20 +553,29 @@ def _recent_activity(session: Session) -> list[dict[str, Any]]:
     return result
 
 
-def build_dashboard(session: Session, severity: Optional[str] = None) -> dict[str, Any]:
-    """Полный дашборд из БД (без кэша). JSON-safe (timestamps → ISO-строки)."""
+def build_dashboard(
+    session: Session,
+    severity: Optional[str] = None,
+    *,
+    user_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Полный дашборд из БД (без кэша). JSON-safe (timestamps → ISO-строки).
+
+    ``user_id`` (multi-tenancy): когда задан, все агрегаты/лента/алерты/KPI/
+    тренд фильтруются по аккаунтам и кампаниям владельца. None — весь срез
+    (тесты)."""
     modules = [
-        _commenting_summary(session),
-        _shilling_summary(session),
-        _priming_summary(session),
+        _commenting_summary(session, user_id=user_id),
+        _shilling_summary(session, user_id=user_id),
+        _priming_summary(session, user_id=user_id),
     ]
     return {
-        "alerts": _alerts(session, severity),
-        "accounts_summary": _accounts_summary(session),
+        "alerts": _alerts(session, severity, user_id=user_id),
+        "accounts_summary": _accounts_summary(session, user_id=user_id),
         "modules_summary": modules,
-        "kpis": _kpis(session, modules),
-        "trend_7d": _trend_7d(session),
-        "recent_activity": _recent_activity(session),
+        "kpis": _kpis(session, modules, user_id=user_id),
+        "trend_7d": _trend_7d(session, user_id=user_id),
+        "recent_activity": _recent_activity(session, user_id=user_id),
     }
 
 
@@ -495,6 +598,6 @@ def get_dashboard(
             cached = cached.decode()
         return json.loads(cached)
 
-    data = build_dashboard(session, severity)
+    data = build_dashboard(session, severity, user_id=user_id)
     cache.setex(key, CACHE_TTL_SECONDS, json.dumps(data, default=str))
     return data

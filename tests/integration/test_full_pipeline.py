@@ -201,9 +201,12 @@ def _factory(session):
     return lambda: _Ctx()
 
 
-def _make_created_account(session, meta) -> int:
+def _make_created_account(session, meta, user_id: str = "tester") -> int:
     acc = Account(
         phone=f"+{next(_PHONE)}",
+        # Владелец = пользователь из override require_user в retire-тесте
+        # ("tester"); иначе owner-guard на /accounts/{id} вернёт 404.
+        user_id=user_id,
         session_enc=b"enc",
         status="created",
         meta=meta,

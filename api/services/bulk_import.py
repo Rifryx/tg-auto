@@ -114,8 +114,12 @@ def bulk_import(
     *,
     archive_bytes: bytes,
     csv_bytes: bytes,
+    owner_user_id: Optional[str] = None,
 ) -> ImportReport:
-    """Импортирует всё что смог. Не бросает при ошибках отдельных строк."""
+    """Импортирует всё что смог. Не бросает при ошибках отдельных строк.
+
+    ``owner_user_id`` (multi-tenancy) проставляется каждому созданному аккаунту
+    — чтобы массовый импорт тоже был изолирован по владельцу."""
 
     # ZIP: сложим в память ``{filename_lower: bytes}``. Ищем ``<phone>.session``
     # регистронезависимо (пользователь мог написать имя как угодно).
@@ -170,6 +174,7 @@ def bulk_import(
         try:
             account = import_account_from_session(
                 session,
+                owner_user_id=owner_user_id,
                 phone=phone,
                 proxy_id=int(kwargs["proxy_id"]),
                 persona_id=kwargs["persona_id"],

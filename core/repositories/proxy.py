@@ -37,3 +37,14 @@ class ProxyRepository(BaseRepository[Proxy]):
     def list_by_status(self, status: ProxyStatus) -> list[Proxy]:
         stmt = select(Proxy).where(Proxy.status == ProxyStatus(status).value)
         return list(self.session.execute(stmt).scalars().all())
+
+    def list_by_owner(
+        self, user_id: str, *, status: Optional[ProxyStatus] = None
+    ) -> list[Proxy]:
+        """Прокси владельца (multi-tenancy), опционально по статусу.
+        Пользовательские выборки — только через этот метод; пул/воркер ходят
+        без фильтра владельца."""
+        stmt = select(Proxy).where(Proxy.user_id == user_id)
+        if status is not None:
+            stmt = stmt.where(Proxy.status == ProxyStatus(status).value)
+        return list(self.session.execute(stmt).scalars().all())

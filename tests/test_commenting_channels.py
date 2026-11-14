@@ -171,6 +171,9 @@ def _ctx(session, *, client, task_queue=None, publisher=None, governor=None):
 def _make_account(session, *, status="pool", campaign_id=None) -> int:
     acc = Account(
         phone=f"+{next(_PHONE)}",
+        # Владелец = пользователь из override require_user ("u") в тестах,
+        # использующих эти хелперы через API; иначе multi-tenancy-гард 404.
+        user_id="u",
         session_enc=b"enc",
         status=status,
         assigned_container_type="commenting" if campaign_id else None,
@@ -204,6 +207,8 @@ def _make_campaign(session) -> int:
             discussion_group_id=555,
         )
     )
+    # Владелец кампании = пользователь из override require_user ("u").
+    c.owner_user_id = "u"
     session.commit()
     return c.id
 

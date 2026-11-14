@@ -38,13 +38,18 @@ class AccountHealthRepository(BaseRepository[AccountHealth]):
         self.session.flush()
         return obj
 
-    def list_at_risk(self, max_score: int = 40, limit: int = 100) -> list[AccountHealth]:
-        stmt = (
-            select(AccountHealth)
-            .where(AccountHealth.health_score <= max_score)
-            .order_by(AccountHealth.health_score.asc())
-            .limit(limit)
-        )
+    def list_at_risk(
+        self, max_score: int = 40, limit: int = 100, *, user_id: Optional[str] = None
+    ) -> list[AccountHealth]:
+        stmt = select(AccountHealth).where(AccountHealth.health_score <= max_score)
+        # Multi-tenancy: только аккаунты текущего владельца (join к accounts).
+        if user_id is not None:
+            from core.models import Account
+
+            stmt = stmt.join(
+                Account, Account.id == AccountHealth.account_id
+            ).where(Account.user_id == user_id)
+        stmt = stmt.order_by(AccountHealth.health_score.asc()).limit(limit)
         return list(self.session.execute(stmt).scalars().all())
 
     def list_for_accounts(self, account_ids: list[int]) -> list[AccountHealth]:
