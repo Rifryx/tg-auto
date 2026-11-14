@@ -17,9 +17,16 @@ from core.queue import TaskQueue
 from core.queue.task_names import TaskName
 from modules.mass_reactions.repositories import (
     CampaignAccountRepository,
+    CampaignChatRepository,
     CampaignRepository,
 )
-from modules.mass_reactions.schemas.enums import MassReactionCampaignStatus
+from modules.mass_reactions.schemas.enums import (
+    ChatNotifyMode,
+    ChatSourceMode,
+    ChatState,
+    MassReactionCampaignStatus,
+)
+from modules.mass_reactions.service import apply_resolution, mark_failed, mark_joined
 from modules.mass_reactions.worker.executor import place_reaction
 from modules.mass_reactions.worker.orchestrator import assign_pending_chats
 from modules.mass_reactions.worker.reaction import send_reaction
@@ -82,6 +89,72 @@ async def place_reaction_task(
     return {"outcome": outcome.value}
 
 
+async def resolve_pending_chats(
+    ctx: dict, *, campaign_id: int, chat_source_mode: str
+) -> int:
+    """Резолвит чаты PENDING/JOINING, у которых есть закреплённый аккаунт.
+
+    Через клиент аккаунта получаем entity (chat_tg_id + title); факт подписки
+    определяем по режиму источника (по подпискам → уже состоим) и/или успешному
+    вступлению при notify_and_join. Итоговое состояние ставит ``apply_resolution``.
+    Возвращает число зарезолвленных чатов. Устойчиво к ошибкам per-chat.
+    """
+    session_factory = ctx["session_factory"]
+    pool = ctx["client_pool"]
+    by_subs = chat_source_mode == ChatSourceMode.BY_SUBSCRIPTIONS.value
+
+    with session_factory() as session:
+        pending = [
+            {"id": c.id, "chat_ref": c.chat_ref, "account_id": c.account_id,
+             "notify_mode": c.notify_mode}
+            for c in CampaignChatRepository(session).list_by_campaign(campaign_id)
+            if c.state in (ChatState.PENDING.value, ChatState.JOINING.value)
+            and c.account_id is not None
+        ]
+
+    resolved = 0
+    for chat in pending:
+        try:
+            client = await pool.get(chat["account_id"])
+            try:
+                entity = await client.get_entity(chat["chat_ref"])
+            finally:
+                await pool.release(chat["account_id"])
+            chat_tg_id = int(getattr(entity, "id"))
+            title = getattr(entity, "title", None)
+
+            subscribed = by_subs
+            if not subscribed and chat["notify_mode"] == ChatNotifyMode.NOTIFY_AND_JOIN.value:
+                # best-effort вступление; успех → считаем подписанным
+                from telethon.tl.functions.channels import JoinChannelRequest
+
+                await client.__call__(JoinChannelRequest(entity))
+                subscribed = True
+
+            with session_factory() as session:
+                if subscribed:
+                    apply_resolution(
+                        session, chat["id"], chat_tg_id=chat_tg_id,
+                        title=title, subscribed=True,
+                    )
+                else:
+                    apply_resolution(
+                        session, chat["id"], chat_tg_id=chat_tg_id,
+                        title=title, subscribed=False,
+                    )
+                session.commit()
+            resolved += 1
+        except Exception as exc:  # noqa: BLE001 — один чат не роняет резолв
+            get_logger().warning(
+                "mass_reactions.resolve_failed",
+                chat_id=chat["id"], error=repr(exc),
+            )
+            with session_factory() as session:
+                mark_failed(session, chat["id"])
+                session.commit()
+    return resolved
+
+
 async def orchestrator_tick_task(ctx: dict, campaign_id: int) -> dict[str, Any]:
     """Раскладка чатов + авто-финиш + планирование следующего tick."""
     session_factory = ctx["session_factory"]
@@ -104,6 +177,18 @@ async def orchestrator_tick_task(ctx: dict, campaign_id: int) -> dict[str, Any]:
 
         assigned = assign_pending_chats(session, campaign)
         session.commit()
+        source_mode = campaign.chat_source_mode  # примитив до закрытия сессии
+
+    # Резолвим назначенные, но ещё не поднятые чаты (chat_tg_id + подписка/join).
+    if ctx.get("client_pool") is not None:
+        await resolve_pending_chats(
+            ctx, campaign_id=campaign_id, chat_source_mode=source_mode
+        )
+
+    # Подключаем/отключаем слушателей под текущий набор активных чатов.
+    registry = ctx.get("mr_listener_registry")
+    if registry is not None:
+        await registry.sync(ctx)
 
     await task_queue.schedule(
         TaskName.MASS_REACTIONS_ORCHESTRATOR_TICK,
