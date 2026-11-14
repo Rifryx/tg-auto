@@ -1,4 +1,4 @@
-import { BellRing, ChevronRight, Filter, LayoutGrid, MessagesSquare } from "lucide-react";
+import { BellRing, ChevronRight, Filter, LayoutGrid, MessagesSquare, SmilePlus } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
@@ -26,6 +26,12 @@ const CAMPAIGNS: Service[] = [
     icon: MessagesSquare,
     label: "НейроШиллинг",
     hint: "Сценарии посевов",
+  },
+  {
+    to: "/modules/mass-reactions",
+    icon: SmilePlus,
+    label: "Масс-реакции",
+    hint: "Реакции на сообщения людей в чатах",
   },
 ];
 

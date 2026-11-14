@@ -15,6 +15,7 @@ COMMENTING_SCHEMA = "commenting"
 SHILLING_SCHEMA = "shilling"
 PRIMING_SCHEMA = "priming"
 PARSING_SCHEMA = "parsing"
+MASS_REACTIONS_SCHEMA = "mass_reactions"
 
 
 class Base(DeclarativeBase):

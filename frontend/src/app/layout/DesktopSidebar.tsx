@@ -1,5 +1,6 @@
 import {
   BellRing,
+  SmilePlus,
   Bot,
   CreditCard,
   Filter,
@@ -47,6 +48,7 @@ const MAIN: Item[] = [
   { to: "/tasks", label: "Нейрокомментинг", icon: LayoutGrid, alsoActiveOn: ["/modules/commenting"] },
   { to: "/modules/shilling", label: "НейроШиллинг", icon: MessagesSquare, alsoActiveOn: ["/modules/shilling"] },
   { to: "/modules/priming", label: "Прайминг", icon: BellRing, alsoActiveOn: ["/modules/priming"] },
+  { to: "/modules/mass-reactions", label: "Масс-реакции", icon: SmilePlus, alsoActiveOn: ["/modules/mass-reactions"] },
   {
     to: "/modules/parsing",
     label: "Парсинг",
