@@ -1,7 +1,6 @@
 import { ImagePlus, TriangleAlert, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { mediaApi } from "../../../shared/accounts";
-import { apiBlob } from "../../../shared/api";
 import { Field, TextArea } from "../../../modules/commenting/components/ui";
 import { Select } from "../../../shared/Select";
 import { CapsuleButton } from "./ui";
@@ -57,14 +56,18 @@ export function StoriesSheet({
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
+    // Превью сразу из локального файла — мгновенно, без ожидания сервера.
+    // Раньше после upload картинку ЗАНОВО скачивали с сервера
+    // (/media-assets/{id}/blob) только ради превью — лишний круг и «долгая
+    // загрузка медиа», особенно для больших файлов.
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(URL.createObjectURL(file));
+    setAssetId(null);
     setUploading(true);
     setUploadError(false);
     try {
       const asset = await mediaApi.upload(file);
       setAssetId(asset.id);
-      const blob = await apiBlob(`/media-assets/${asset.id}/blob`);
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(URL.createObjectURL(blob));
     } catch {
       setUploadError(true);
     } finally {
