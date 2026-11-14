@@ -30,7 +30,7 @@ export function CommentLogList({ logs }: { logs: CommentLog[] }) {
       <div className="flex flex-col gap-5">
         {[...groups.entries()].map(([postId, items]) => (
           <div key={postId}>
-            <p className="mb-2 px-1 text-[12px] font-medium uppercase tracking-wide text-text-tertiary">
+            <p className="mb-2 px-1 text-[12px] font-medium text-text-tertiary">
               Пост #{postId}
             </p>
             <div className="flex flex-col gap-2">

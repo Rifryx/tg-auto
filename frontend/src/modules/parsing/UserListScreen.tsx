@@ -432,7 +432,7 @@ function ConfirmDeleteList({
         aria-modal="true"
         className="relative mx-auto w-full max-w-[440px] rounded-t-[28px] border border-hairline bg-bg-elevated p-5 pb-[calc(env(safe-area-inset-bottom)+16px)] lg:rounded-[28px] lg:pb-5"
       >
-        <h2 className="text-[18px] font-bold text-text-primary">Удалить этот список?</h2>
+        <h2 className="text-[18px] font-semibold text-text-primary">Удалить этот список?</h2>
         <p className="mt-1 text-[13px] text-text-tertiary">
           Все собранные пользователи будут удалены вместе со списком. Отменить нельзя.
         </p>

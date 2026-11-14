@@ -189,7 +189,7 @@ export function ParsingRunScreen() {
         {/* Найденное — наполняется в реальном времени */}
         <div className="card p-4">
           <div className="mb-2 flex items-center justify-between">
-            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">
+            <div className="text-[13px] font-medium text-text-secondary">
               {isCommunity ? "Найденные каналы/чаты" : "Собранная аудитория"}
             </div>
             <span className="nums text-[12px] text-text-tertiary">
@@ -276,7 +276,7 @@ export function ParsingRunScreen() {
 
         {/* Лог в реальном времени */}
         <div className="card p-4">
-          <div className="mb-2 text-[13px] font-medium uppercase tracking-wider text-text-secondary">
+          <div className="mb-2 text-[13px] font-medium text-text-secondary">
             Лог
           </div>
           <div
@@ -309,7 +309,7 @@ export function ParsingRunScreen() {
 function Counter({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-xl border border-hairline bg-surface-1 p-3">
-      <p className="nums text-[24px] font-bold leading-none text-text-primary">{value}</p>
+      <p className="nums text-[24px] font-semibold leading-none text-text-primary">{value}</p>
       <p className="mt-1 text-[12px] text-text-tertiary">{label}</p>
     </div>
   );

@@ -115,7 +115,7 @@ export function DryRunSimulator({
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center">
       <div className="max-h-[90vh] w-full overflow-y-auto rounded-t-card bg-bg-elevated p-5 sm:max-w-lg sm:rounded-card">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-[18px] font-bold text-text-primary">Сухой прогон</h2>
+          <h2 className="text-[18px] font-semibold text-text-primary">Сухой прогон</h2>
           <button onClick={close} aria-label="Закрыть" className="text-text-tertiary active:text-text-primary">
             <X className="h-5 w-5" strokeWidth={1.8} aria-hidden />
           </button>

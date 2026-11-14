@@ -398,7 +398,7 @@ function ScenarioEditor({
       {/* Роли */}
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-[13px] font-semibold uppercase tracking-wide text-text-tertiary">
+          <h3 className="text-[13px] font-semibold text-text-tertiary">
             Роли · {roleList.length}
           </h3>
           <button
@@ -438,7 +438,7 @@ function ScenarioEditor({
       {/* Шаги диалога */}
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-[13px] font-semibold uppercase tracking-wide text-text-tertiary">
+          <h3 className="text-[13px] font-semibold text-text-tertiary">
             Шаги диалога · {stepList.length}
           </h3>
         </div>

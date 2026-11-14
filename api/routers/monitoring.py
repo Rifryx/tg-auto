@@ -63,6 +63,19 @@ class ModuleSummary(BaseModel):
     today_actions: int
 
 
+class KpiSummary(BaseModel):
+    actions_today: int
+    errors_today: int
+    active_campaigns: int
+    paused_campaigns: int
+    accounts_working: int
+
+
+class TrendPoint(BaseModel):
+    date: str
+    actions: int
+
+
 class ActivityItem(BaseModel):
     type: str
     account_id: int
@@ -81,6 +94,8 @@ class DashboardResponse(BaseModel):
     alerts: list[AlertItem]
     accounts_summary: AccountsSummary
     modules_summary: list[ModuleSummary]
+    kpis: KpiSummary
+    trend_7d: list[TrendPoint]
     recent_activity: list[ActivityItem]
 
 

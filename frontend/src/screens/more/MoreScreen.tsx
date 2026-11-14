@@ -75,33 +75,24 @@ function AutopilotHero() {
   return (
     <Link
       to="/more/autopilot"
-      className="card-hero mb-8 flex items-start gap-5 p-6 active:opacity-90"
+      className="card-hero mb-8 flex items-start gap-5 p-6 transition-colors active:bg-surface-2"
     >
       <div className="min-w-0 flex-1">
-        <div className="text-[20px] font-bold leading-tight text-text-primary">
+        <div className="text-[19px] font-semibold leading-tight text-text-primary">
           Автопилот
         </div>
         <p className="mt-2 text-[14px] leading-relaxed text-text-secondary">
           Автоматизируйте прогрев, ротацию и мониторинг аккаунтов
         </p>
-        <span className="mt-5 inline-flex items-center rounded-pill bg-accent px-5 py-2.5 text-[14px] font-semibold text-accent-on">
-          Настроить
-        </span>
+        <span className="btn btn-primary btn-md mt-5">Настроить</span>
       </div>
-      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-primary">
-        <Bot className="h-7 w-7" strokeWidth={1.4} aria-hidden />
+      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-secondary">
+        <Bot className="h-7 w-7" strokeWidth={1.5} aria-hidden />
       </span>
     </Link>
   );
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <h2
-      className="mb-4 text-[22px] font-bold leading-tight text-text-primary"
-      style={{ letterSpacing: "-0.01em" }}
-    >
-      {children}
-    </h2>
-  );
+  return <h2 className="section-title mb-3">{children}</h2>;
 }

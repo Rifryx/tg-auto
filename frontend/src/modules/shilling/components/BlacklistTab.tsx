@@ -150,7 +150,7 @@ export function BlacklistTab({ campaignId }: { campaignId: number }) {
                   {e.username ? `@${e.username}` : `chat_id ${e.chat_id}`}
                   <span
                     className={[
-                      "ml-2 rounded-pill px-2 py-0.5 text-[10px] uppercase",
+                      "ml-2 rounded-pill px-2 py-0.5 text-[10px]",
                       e.auto ? "bg-surface-2 text-text-tertiary" : "bg-accent/15 text-accent",
                     ].join(" ")}
                   >

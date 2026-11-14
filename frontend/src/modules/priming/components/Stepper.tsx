@@ -58,7 +58,7 @@ export function Stepper({
                 e.currentTarget.blur();
               }
             }}
-            className="w-20 bg-transparent p-0 text-[22px] font-bold tabular-nums text-text-primary outline-none focus:text-accent"
+            className="w-20 bg-transparent p-0 text-[22px] font-semibold tabular-nums text-text-primary outline-none focus:text-accent"
             aria-label={label}
           />
           {unit && (

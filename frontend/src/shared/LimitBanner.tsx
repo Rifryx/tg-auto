@@ -1,4 +1,4 @@
-import { Sparkles } from "lucide-react";
+import { Gauge } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { hapticSelection } from "./tg";
 import { LIMIT_LABEL, useLimit } from "./limits";
@@ -33,7 +33,7 @@ export function LimitBanner({ feature }: { feature: FeatureKey }) {
         aria-hidden
         className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-text-secondary"
       >
-        <Sparkles className="h-4 w-4" strokeWidth={2} />
+        <Gauge className="h-4 w-4" strokeWidth={1.8} />
       </span>
       <div className="flex min-w-0 flex-1 flex-col">
         {atLimit ? (

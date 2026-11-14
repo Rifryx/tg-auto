@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertCircle, ArrowLeft, Filter, Link2, Sparkles, UserCheck } from "lucide-react";
+import { AlertCircle, ArrowLeft, Filter, Link2, Compass, UserCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScreenHeader } from "../../app/layout/AppLayout";
@@ -200,7 +200,7 @@ export function CommunitiesScreen() {
         <div className="flex gap-2 rounded-pill bg-surface-2 p-1">
           {([
             ["refs", "По ссылкам", Link2],
-            ["discover", "Найти новые", Sparkles],
+            ["discover", "Найти новые", Compass],
           ] as const).map(([v, lbl, Icon]) => (
             <button
               key={v}
@@ -237,7 +237,7 @@ export function CommunitiesScreen() {
             <span className="absolute inset-y-0 left-0 w-[3px] bg-accent" aria-hidden />
             <div className="mb-3 flex items-center gap-2">
               <Link2 className="h-4 w-4 text-accent" strokeWidth={2.2} aria-hidden />
-              <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">
+              <div className="text-[13px] font-medium text-text-secondary">
                 Ссылки на каналы ({refs.length})
               </div>
             </div>
@@ -258,8 +258,8 @@ export function CommunitiesScreen() {
           <div className="card relative overflow-hidden p-5">
             <span className="absolute inset-y-0 left-0 w-[3px] bg-accent" aria-hidden />
             <div className="mb-3 flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-accent" strokeWidth={2.2} aria-hidden />
-              <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">Откуда искать</div>
+              <Compass className="h-4 w-4 text-accent" strokeWidth={2.2} aria-hidden />
+              <div className="text-[13px] font-medium text-text-secondary">Откуда искать</div>
             </div>
             <label className="block text-[13px] font-medium text-text-secondary">
               Каналы-сиды ({seeds.length})
@@ -322,7 +322,7 @@ export function CommunitiesScreen() {
           <span className="absolute inset-y-0 left-0 w-[3px] bg-status-active opacity-80" aria-hidden />
           <div className="mb-2 flex items-center gap-2">
             <UserCheck className="h-4 w-4 text-status-active" strokeWidth={2.2} aria-hidden />
-            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">Аккаунт-парсер</div>
+            <div className="text-[13px] font-medium text-text-secondary">Аккаунт-парсер</div>
           </div>
           <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
             {collectors.map((a) => {
@@ -352,7 +352,7 @@ export function CommunitiesScreen() {
                     </div>
                   </div>
                   {collectorId === a.id && (
-                    <span className="shrink-0 rounded-pill bg-status-active/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-status-active">выбран</span>
+                    <span className="shrink-0 rounded-pill bg-status-active/15 px-2 py-0.5 text-[10px] text-status-active">выбран</span>
                   )}
                 </button>
               );
@@ -364,7 +364,7 @@ export function CommunitiesScreen() {
         <div className="card p-5">
           <div className="mb-3 flex items-center gap-2">
             <Filter className="h-4 w-4 text-text-secondary" strokeWidth={2} aria-hidden />
-            <div className="text-[13px] font-medium uppercase tracking-wider text-text-secondary">Фильтры результатов</div>
+            <div className="text-[13px] font-medium text-text-secondary">Фильтры результатов</div>
           </div>
 
           <label className="block text-[13px] font-medium text-text-secondary">Тип</label>
@@ -532,7 +532,7 @@ export function CommunitiesScreen() {
               problems.length === 0 ? "bg-accent text-accent-on active:opacity-80" : "bg-surface-2 text-text-tertiary",
             ].join(" ")}
           >
-            <Sparkles className="h-4 w-4" strokeWidth={2.4} aria-hidden />
+            <Compass className="h-4 w-4" strokeWidth={2.4} aria-hidden />
             {submit.isPending ? "Запуск…" : mode === "refs" ? "Найти похожие каналы" : "Найти каналы"}
           </button>
         </div>

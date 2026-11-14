@@ -128,7 +128,7 @@ export function PrimingCampaignLogs() {
                   {r.outcome}
                 </span>
                 {r.dry_run && (
-                  <span className="rounded-pill bg-surface-2 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-text-secondary">
+                  <span className="rounded-pill bg-surface-2 px-1.5 py-0.5 text-[9px] text-text-secondary">
                     dry
                   </span>
                 )}

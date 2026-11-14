@@ -83,7 +83,7 @@ export function DesktopSidebar() {
   return (
     <aside className="sticky top-0 hidden h-screen w-[260px] shrink-0 flex-col border-r border-hairline bg-bg-elevated lg:flex">
       <div className="px-6 pb-4 pt-6">
-        <p className="text-[20px] font-bold tracking-tight text-text-primary">CAT</p>
+        <p className="text-[19px] font-semibold tracking-tight text-text-primary">CAT</p>
         <p className="text-[12px] text-text-tertiary">Управление аккаунтами</p>
       </div>
 
@@ -153,8 +153,11 @@ function ThemeToggle({
 }
 
 function GroupTitle({ children }: { children: string }) {
+  // Sentence case, без широкого трекинга и капса (unslop §5: прописные
+  // разреженные подписи — типичный «нейро»-признак). Тихая muted-подпись,
+  // ближе к своим пунктам, чем к секции выше.
   return (
-    <p className="px-3 pb-1.5 pt-5 text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
+    <p className="px-3 pb-2 pt-6 text-[12px] font-medium text-text-tertiary">
       {children}
     </p>
   );
@@ -176,7 +179,7 @@ function Group({ items }: { items: Item[] }) {
               [
                 "relative flex h-10 items-center gap-3 rounded-chip px-3 text-[14px] font-medium transition-colors",
                 isActive || alsoActiveOn?.some((p) => pathname.startsWith(p))
-                  ? "bg-surface-2 text-text-primary"
+                  ? "bg-surface-2 text-text-primary shadow-[inset_0_0_0_1px_var(--surface-border)]"
                   : "text-text-secondary hover:bg-surface-1 hover:text-text-primary",
               ].join(" ")
             }

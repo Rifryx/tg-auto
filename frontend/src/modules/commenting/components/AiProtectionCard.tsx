@@ -67,7 +67,7 @@ export function AiProtectionCard() {
             )}
           </div>
           <span className="ml-auto flex items-center gap-2">
-            <span className="rounded-pill bg-status-active/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-status-active">
+            <span className="rounded-pill bg-status-active/15 px-2.5 py-1 text-[11px] font-semibold text-status-active">
               активна
             </span>
             <ChevronDown

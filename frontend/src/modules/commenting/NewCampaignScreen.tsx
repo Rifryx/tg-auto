@@ -6,7 +6,7 @@ import {
   ChevronDown,
   Clock,
   Palette,
-  Sparkles,
+  Wand2,
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
@@ -480,7 +480,7 @@ export function NewCampaignScreen() {
          этой секции. */}
       <CollapsibleSection
         title="Нейрокомментинг"
-        icon={Sparkles}
+        icon={Wand2}
         accent="new"
         summary={neuroSummary({
           tokenEconomyEnabled,
@@ -1270,7 +1270,7 @@ function CollapsibleSection({
           <div className="flex items-center gap-2">
             <span className="text-[15px] font-semibold text-text-primary">{title}</span>
             {accent === "new" && (
-              <span className="rounded-pill bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent">
+              <span className="rounded-pill bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">
                 новое
               </span>
             )}

@@ -106,7 +106,7 @@ export function PrimingCampaignRun() {
                 {campaign.status}
               </span>
               {campaign.dry_run && (
-                <span className="rounded-pill bg-surface-2 px-2 py-0.5 text-[10px] uppercase tracking-wider text-text-secondary">
+                <span className="rounded-pill bg-surface-2 px-2 py-0.5 text-[10px] text-text-secondary">
                   dry-run
                 </span>
               )}
@@ -141,7 +141,7 @@ export function PrimingCampaignRun() {
           <div className="card p-4">
             <div className="flex items-baseline justify-between">
               <div>
-                <div className="text-[11px] uppercase tracking-wider text-text-tertiary">
+                <div className="text-[11px] text-text-tertiary">
                   Успешных праймов
                 </div>
                 <div className="mt-1 flex items-baseline gap-2">
@@ -154,7 +154,7 @@ export function PrimingCampaignRun() {
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-[11px] uppercase tracking-wider text-text-tertiary">
+                <div className="text-[11px] text-text-tertiary">
                   Success rate
                 </div>
                 <div className="mt-1 text-[20px] font-semibold tabular-nums text-text-primary">
@@ -164,7 +164,7 @@ export function PrimingCampaignRun() {
             </div>
             <div className="mt-4">
               <Sparkline values={live.sparkline_24h} />
-              <div className="mt-1 flex justify-between text-[10px] uppercase tracking-wider text-text-tertiary">
+              <div className="mt-1 flex justify-between text-[10px] text-text-tertiary">
                 <span>−24 ч</span>
                 <span>сейчас</span>
               </div>
@@ -174,12 +174,12 @@ export function PrimingCampaignRun() {
           {/* Прогноз «Что произойдёт за час» */}
           {forecast && (
             <div className="card p-4">
-              <div className="text-[11px] uppercase tracking-wider text-text-tertiary">
+              <div className="text-[11px] text-text-tertiary">
                 Прогноз на ближайший час
               </div>
               <div className="mt-2 grid grid-cols-3 gap-3">
                 <div>
-                  <div className="text-[10px] uppercase tracking-wider text-text-tertiary">
+                  <div className="text-[10px] text-text-tertiary">
                     Ожидается primed
                   </div>
                   <div className="mt-1 text-[20px] font-semibold tabular-nums text-text-primary">
@@ -187,7 +187,7 @@ export function PrimingCampaignRun() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase tracking-wider text-text-tertiary">
+                  <div className="text-[10px] text-text-tertiary">
                     Ожидается flood
                   </div>
                   <div className="mt-1 text-[20px] font-semibold tabular-nums text-status-warning">
@@ -195,7 +195,7 @@ export function PrimingCampaignRun() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase tracking-wider text-text-tertiary">
+                  <div className="text-[10px] text-text-tertiary">
                     Старт через
                   </div>
                   <div className="mt-1 text-[20px] font-semibold tabular-nums text-text-primary">
@@ -215,7 +215,7 @@ export function PrimingCampaignRun() {
           {/* A/B breakdown — только если тест включён */}
           {live.ab_split_enabled && live.ab_breakdown && (
             <div className="card p-4">
-              <div className="mb-3 text-[11px] uppercase tracking-wider text-text-tertiary">
+              <div className="mb-3 text-[11px] text-text-tertiary">
                 A/B test · доля A ~ {Math.round(live.ab_split_ratio * 100)}%
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -264,7 +264,7 @@ export function PrimingCampaignRun() {
 
           {/* Список аккаунтов */}
           <div className="card p-2">
-            <div className="px-2 pt-2 text-[11px] uppercase tracking-wider text-text-tertiary">
+            <div className="px-2 pt-2 text-[11px] text-text-tertiary">
               Аккаунты · {live.accounts.length}
             </div>
             <div className="mt-2 flex flex-col gap-1">
@@ -338,7 +338,7 @@ function MiniKpi({
   };
   return (
     <div className="shrink-0 rounded-2xl border border-hairline bg-surface-1 px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wider text-text-tertiary">
+      <div className="text-[10px] text-text-tertiary">
         {label}
       </div>
       <div className={`mt-1 text-[16px] font-semibold tabular-nums ${toneStyle[tone]}`}>
@@ -351,7 +351,7 @@ function MiniKpi({
 function ABColumn({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-2xl border border-hairline bg-surface-1 p-3">
-      <div className="text-[10px] uppercase tracking-wider text-text-tertiary">
+      <div className="text-[10px] text-text-tertiary">
         Bucket {label}
       </div>
       <div className="mt-1 text-[20px] font-semibold tabular-nums text-text-primary">
@@ -395,7 +395,7 @@ function AccountRunRow({ row }: { row: PrimingLiveAccountRow }) {
               #{row.account_id}
             </span>
             {row.ab_bucket && (
-              <span className="rounded-pill bg-surface-2 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-text-secondary">
+              <span className="rounded-pill bg-surface-2 px-1.5 py-0.5 text-[9px] text-text-secondary">
                 {row.ab_bucket}
               </span>
             )}
@@ -419,7 +419,7 @@ function AccountRunRow({ row }: { row: PrimingLiveAccountRow }) {
           <div className="text-[14px] tabular-nums text-text-primary">
             {row.primes_today}
           </div>
-          <div className="text-[10px] uppercase tracking-wider text-text-tertiary">
+          <div className="text-[10px] text-text-tertiary">
             сегодня
           </div>
         </div>

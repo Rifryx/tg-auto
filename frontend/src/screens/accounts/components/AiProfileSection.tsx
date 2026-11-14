@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ImageIcon, Sparkles, X } from "lucide-react";
+import { Check, ImageIcon, Wand2, X } from "lucide-react";
 import { useState } from "react";
 import { accountsApi } from "../../../shared/accounts";
 import { profileAssetsApi } from "../../more/api";
@@ -68,7 +68,7 @@ export function AiProfileSection({
       {!draft && (
         <div className="card p-4">
           <p className="mb-3 flex items-start gap-2 text-[13px] text-text-secondary">
-            <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-accent" strokeWidth={1.8} aria-hidden />
+            <Wand2 className="mt-0.5 h-4 w-4 shrink-0 text-accent" strokeWidth={1.8} aria-hidden />
             Сгенерируем имя, фамилию, «о себе» и варианты @username. Результат
             можно отредактировать перед применением.
           </p>
@@ -163,7 +163,7 @@ export function AiProfileSection({
                 onClick={() => generate.mutate()}
               >
                 <span className="inline-flex items-center gap-2">
-                  <Sparkles
+                  <Wand2
                     className={`h-4 w-4 ${generate.isPending ? "animate-spin" : ""}`}
                     strokeWidth={2}
                     aria-hidden
