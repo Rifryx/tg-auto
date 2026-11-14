@@ -34,8 +34,41 @@ def is_stub() -> bool:
     return settings.dev_mode and not settings.cryptobot_api_token
 
 
+def _clean_token(raw: Optional[str]) -> str:
+    """Токен из .env без «мусора»: пробелы по краям и обрамляющие кавычки.
+
+    В .env часто пишут CRYPTOBOT_API_TOKEN="123:ABC" или со случайным пробелом
+    — pydantic затягивает кавычки/пробел в значение, и заголовок уходит с ними
+    → Crypto Pay отвечает 401 UNAUTHORIZED, хотя токен «правильный»."""
+    t = (raw or "").strip()
+    if len(t) >= 2 and t[0] == t[-1] and t[0] in ("'", '"'):
+        t = t[1:-1].strip()
+    return t
+
+
 def _headers() -> dict[str, str]:
-    return {"Crypto-Pay-API-Token": get_settings().cryptobot_api_token or ""}
+    return {"Crypto-Pay-API-Token": _clean_token(get_settings().cryptobot_api_token)}
+
+
+def _token_diag(settings) -> str:
+    """Безопасная диагностика загруженного токена (без утечки значения).
+
+    Помогает отличить «токен не подхватился / процесс не перезапущен» от
+    «значение битое» (кавычки/пробелы) и от «сервер отклонил корректный токен».
+    Сам секрет не печатаем — только длину, формат и факт очистки."""
+    raw = settings.cryptobot_api_token or ""
+    clean = _clean_token(raw)
+    if not clean:
+        return "Загруженный CRYPTOBOT_API_TOKEN пуст."
+    parts: list[str] = [f"загружен токен длиной {len(clean)}"]
+    if raw.strip() != raw or (len(raw.strip()) >= 2 and raw.strip()[0] in ("'", '"')):
+        parts.append("в .env были кавычки/пробелы — очищены")
+    if ":" not in clean:
+        parts.append(
+            "в токене нет ':' — это не похоже на токен Crypto Pay "
+            "(формат «<app_id>:<hash>»), проверьте, что скопирован весь токен"
+        )
+    return "(" + "; ".join(parts) + ".)"
 
 
 def create_invoice(
@@ -51,7 +84,7 @@ def create_invoice(
     # Без токена в проде реальный вызов обречён: @CryptoBot вернёт 401
     # UNAUTHORIZED, пользователь увидит невнятный «provider error». Отсекаем
     # заранее понятным сообщением, которое админ прочитает в UI оплаты.
-    if not settings.cryptobot_api_token:
+    if not _clean_token(settings.cryptobot_api_token):
         raise CryptoBotError(
             "CRYPTOBOT_API_TOKEN не задан на сервере — "
             "крипто-оплата отключена. Задайте токен приложения из @CryptoBot "
@@ -105,7 +138,7 @@ def _describe_error(error: object, settings) -> str:
             f". Сеть сейчас «{net}» ({settings.cryptobot_base_url}). "
             "Токен приложения должен быть из той же сети: обычный @CryptoBot → "
             "mainnet, @CryptoTestnetBot → testnet. Проверьте CRYPTOBOT_API_TOKEN "
-            "и CRYPTOBOT_NETWORK."
+            "и CRYPTOBOT_NETWORK. " + _token_diag(settings)
         )
     elif name and "ASSET" in str(name).upper():
         base += (
