@@ -119,6 +119,12 @@ class MassReactionCampaign(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    # Владелец (Telegram user_id из require_user) — multi-tenancy. Nullable
+    # ради миграции/легаси; создание проставляет владельца, пользовательские
+    # выборки фильтруют по нему (NULL = «ничей», не виден).
+    owner_user_id: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, index=True
+    )
 
     status: Mapped[str] = mapped_column(
         String,

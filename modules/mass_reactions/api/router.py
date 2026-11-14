@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from api.deps.auth import require_user
@@ -11,6 +11,7 @@ from api.deps.queue import get_task_queue
 from core.queue import TaskQueue
 from core.queue.task_names import TaskName
 from modules.mass_reactions.api import service
+from modules.mass_reactions.repositories import CampaignRepository
 from modules.mass_reactions.schemas.campaign import (
     AddAccountsBody,
     AddChatsBody,
@@ -21,16 +22,41 @@ from modules.mass_reactions.schemas.campaign import (
     MassReactionChatRead,
 )
 
+
+async def _enforce_campaign_owner(
+    request: Request,
+    user_id: str = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> None:
+    """Multi-tenancy: любой маршрут с ``campaign_id`` в пути отдаёт 404, если
+    кампания не принадлежит текущему пользователю. Одна точка защиты на все
+    /modules/mass-reactions/campaigns/{campaign_id}/… — подресурсы (чаты,
+    аккаунты, логи, lifecycle) закрыты автоматически."""
+    raw = request.path_params.get("campaign_id")
+    if raw is None:
+        return
+    try:
+        cid = int(raw)
+    except (TypeError, ValueError):
+        return
+    campaign = CampaignRepository(session).get(cid)
+    if campaign is None or campaign.owner_user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "campaign not found")
+
+
 router = APIRouter(
     prefix="/modules/mass-reactions",
     tags=["mass-reactions"],
-    dependencies=[Depends(require_user)],
+    dependencies=[Depends(require_user), Depends(_enforce_campaign_owner)],
 )
 
 
 @router.get("/campaigns", response_model=list[MassReactionCampaignRead])
-def list_campaigns(session: Session = Depends(get_session)):
-    return service.list_campaigns(session)
+def list_campaigns(
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
+):
+    return service.list_campaigns(session, user_id)
 
 
 @router.post(
@@ -39,9 +65,11 @@ def list_campaigns(session: Session = Depends(get_session)):
     status_code=status.HTTP_201_CREATED,
 )
 def create_campaign(
-    body: MassReactionCampaignCreate, session: Session = Depends(get_session)
+    body: MassReactionCampaignCreate,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ):
-    return service.create_campaign(session, body.model_dump())
+    return service.create_campaign(session, body.model_dump(), user_id)
 
 
 @router.get("/campaigns/{campaign_id}", response_model=MassReactionCampaignRead)
@@ -120,9 +148,12 @@ def list_accounts(campaign_id: int, session: Session = Depends(get_session)):
     status_code=status.HTTP_201_CREATED,
 )
 def add_accounts(
-    campaign_id: int, body: AddAccountsBody, session: Session = Depends(get_session)
+    campaign_id: int,
+    body: AddAccountsBody,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(require_user),
 ):
-    return service.add_accounts(session, campaign_id, body.account_ids)
+    return service.add_accounts(session, campaign_id, body.account_ids, user_id)
 
 
 @router.get("/campaigns/{campaign_id}/logs/stats")
