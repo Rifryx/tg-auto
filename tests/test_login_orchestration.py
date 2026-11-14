@@ -61,10 +61,14 @@ class _FakeRequest:
         return False
 
 
-def _make_account(session) -> int:
+def _make_account(session, user_id: str = "tester") -> int:
     account = AccountRepository(session).create(
         AccountCreate(
             phone=f"+{next(_PHONE)}",
+            # Владелец = пользователь из override require_user в retire-тесте
+            # ("tester"); иначе owner-guard на /accounts/{id} вернёт 404.
+            # Login/SSE-тесты фильтр по владельцу не задействуют.
+            user_id=user_id,
             session_enc=b"enc",
             device_model="iPhone15,3",
             system_version="17.5.1",
