@@ -20,12 +20,14 @@ export function AiProfileSheet({
   const [prompt, setPrompt] = useState("");
   const [applyBio, setApplyBio] = useState(true);
   const [applyUsername, setApplyUsername] = useState(true);
+  const [applyLastName, setApplyLastName] = useState(true);
   const [avatarFromPool, setAvatarFromPool] = useState(false);
 
   const build = (): Record<string, unknown> => {
     const p: Record<string, unknown> = {
       apply_bio: applyBio,
       apply_username: applyUsername,
+      apply_last_name: applyLastName,
       avatar_from_pool: avatarFromPool,
     };
     const trimmed = prompt.trim();
@@ -78,6 +80,20 @@ export function AiProfileSheet({
               type="checkbox"
               checked={applyUsername}
               onChange={(e) => setApplyUsername(e.target.checked)}
+              className="h-4 w-4 accent-[var(--accent)]"
+            />
+          </label>
+          <label className="flex items-center justify-between">
+            <span className="min-w-0 flex-1 pr-3 text-[14px] text-text-secondary">
+              Подбирать фамилию
+              <span className="block text-[11px] text-text-tertiary">
+                Выкл — фамилию не трогаем, оставляем текущую.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={applyLastName}
+              onChange={(e) => setApplyLastName(e.target.checked)}
               className="h-4 w-4 accent-[var(--accent)]"
             />
           </label>
