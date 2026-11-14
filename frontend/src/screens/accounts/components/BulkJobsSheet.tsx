@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, XCircle, X } from "lucide-react";
 import { api } from "../../../shared/api";
 import { accountDisplay } from "../../../shared/format";
+import { bulkErrorRu } from "../../../shared/bulkErrors";
 import type {
   Account,
   BulkJobDetail,
@@ -174,7 +175,7 @@ export function BulkJobsSheet({ jobId, onClose }: { jobId: number; onClose: () =
                     </p>
                     {it.error && (
                       <p className="truncate text-[11px] text-status-critical">
-                        {it.error}
+                        {bulkErrorRu(it.error)}
                       </p>
                     )}
                     {!it.error && it.result && (
@@ -212,7 +213,7 @@ export function BulkJobsSheet({ jobId, onClose }: { jobId: number; onClose: () =
 function renderResult(r: Record<string, unknown>): string {
   // Коротко показываем самое интересное; полный JSON — в логах.
   const parts: string[] = [];
-  if (typeof r.message_id === "number") parts.push(`msg #${r.message_id}`);
+  if (typeof r.message_id === "number") parts.push(`сообщение #${r.message_id}`);
   if (typeof r.applied === "number") parts.push(`применено: ${r.applied}`);
   if (typeof r.proxy_id === "number") parts.push(`прокси #${r.proxy_id}`);
   if (typeof r.sessions_logged_out === "number")
