@@ -138,11 +138,20 @@ def _extract_features(session, account_id: int, now: datetime) -> RiskFeatures:
     if account and account.created_at:
         age_days = max(0, (now - account.created_at).days)
 
+    # Текущий активный спам-блок: флаг из проверки @SpamBot. Учитываем только
+    # пока он не истёк (spam_until в будущем или не задан).
+    spam_block_active = bool(
+        health
+        and health.spam_blocked
+        and (health.spam_until is None or health.spam_until > now)
+    )
+
     return RiskFeatures(
         flood_waits_24h=flood_24h,
         flood_waits_7d=flood_7d,
         spam_blocks_7d=spam_7d,
         spam_blocks_30d=spam_30d,
+        spam_block_active=spam_block_active,
         action_fail_rate_24h=fail_rate_24h,
         action_fail_rate_7d=fail_rate_7d,
         actions_per_hour_24h=actions_per_hour,

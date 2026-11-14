@@ -66,6 +66,23 @@ def test_spam_blocks_high_risk():
     assert p.risk_level in (RiskLevel.HIGH, RiskLevel.CRITICAL)
 
 
+def test_active_spam_block_alone_gives_high_risk():
+    """Живой спам-блок (флаг account_health.spam_blocked) сам по себе → ≥ высокий,
+    даже без истории HealthEvent. Раньше при этом риск оставался 0."""
+    f = predict_risk(RiskFeatures(spam_block_active=True))
+    assert f.risk_score >= 0.5
+    assert f.risk_level in (RiskLevel.HIGH, RiskLevel.CRITICAL)
+    assert any(c == "spam_block_active" for c, _ in f.contributions)
+
+
+def test_low_health_raises_risk_above_clean():
+    """Низкий health двигает оценку вверх — она не стоит в нуле."""
+    clean = predict_risk(RiskFeatures(current_health_score=100))
+    bad = predict_risk(RiskFeatures(current_health_score=20))
+    assert bad.risk_score > clean.risk_score
+    assert any(c == "low_health" for c, _ in bad.contributions)
+
+
 # ── fail rate increases risk ────────────────────────────────────────────────
 
 
