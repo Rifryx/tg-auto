@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { TopBar } from "../../app/layout/TopBar";
+import { CollapsibleSection } from "../../components/CollapsibleSection";
 import { MONITORING_STREAM, useSse } from "../../shared/sse";
 import type { AccountStatus } from "../../shared/types";
 import { useAppContent } from "../more/AboutScreen";
@@ -134,16 +135,15 @@ function DashboardContent({ data }: { data: Dashboard }) {
         </div>
       </section>
 
-      {/* Модули — все сразу, плоские карточки в адаптивной сетке. */}
+      {/* Модули — сворачиваемая секция, плоские карточки в адаптивной сетке. */}
       {data.modules_summary.length > 0 && (
-        <section>
-          <SectionTitle>Модули</SectionTitle>
+        <CollapsibleSection title="Модули" storageKey="dash.modules.open">
           <div className="grid gap-3 lg:grid-cols-3">
             {data.modules_summary.map((m) => (
               <ModuleCard key={m.module} module={m} />
             ))}
           </div>
-        </section>
+        </CollapsibleSection>
       )}
 
       {/* Алерты и Активность — рядом на ПК, друг под другом на телефоне. */}

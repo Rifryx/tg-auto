@@ -180,16 +180,20 @@ function ProCard({
           type="button"
           onClick={onSubscribe}
           disabled={active}
-          className={[
-            "mt-7 w-full rounded-pill px-4 py-3.5 text-[15px] font-semibold transition-transform",
-            active
-              ? "cursor-default bg-white/15 text-white/70"
-              : "bg-white text-black active:scale-[0.99]",
-          ].join(" ")}
+          className="mt-7 w-full rounded-pill px-4 py-3.5 text-[15px] font-semibold transition-transform active:scale-[0.99]"
           style={
             active
-              ? undefined
-              : { boxShadow: "0 10px 28px -12px rgba(0,0,0,0.45)" }
+              ? {
+                  cursor: "default",
+                  // Контраст к фону Pro-карточки (--accent): через --accent-on.
+                  background: "color-mix(in srgb, var(--accent-on) 16%, transparent)",
+                  color: "color-mix(in srgb, var(--accent-on) 75%, transparent)",
+                }
+              : {
+                  background: "var(--accent-on)",
+                  color: "var(--accent)",
+                  boxShadow: "0 10px 28px -12px rgba(0,0,0,0.45)",
+                }
           }
         >
           {active ? "Активна" : "Оформить Pro"}
@@ -220,8 +224,11 @@ function Bullets({
             style={
               tone === "bright"
                 ? {
-                    background: "rgba(255,255,255,0.9)",
-                    boxShadow: "0 0 0 1px rgba(255,255,255,0.4) inset",
+                    // Pro-карточка: «галочка» и текст идут от --accent-on
+                    // (контрастный к фону карточки цвет), а не от белого —
+                    // иначе на почти-белом фоне тёмной темы текст исчезал.
+                    background: "color-mix(in srgb, var(--accent-on) 90%, transparent)",
+                    boxShadow: "0 0 0 1px color-mix(in srgb, var(--accent-on) 35%, transparent) inset",
                   }
                 : {
                     background: "var(--surface-2)",
@@ -233,10 +240,13 @@ function Bullets({
             <Check
               className="h-2.5 w-2.5"
               strokeWidth={3}
-              style={{ color: tone === "bright" ? "#000" : "var(--text-primary)" }}
+              style={{ color: tone === "bright" ? "var(--accent)" : "var(--text-primary)" }}
             />
           </span>
-          <span className={tone === "bright" ? "text-white opacity-95" : "text-text-primary"}>
+          <span
+            className={tone === "bright" ? "opacity-95" : "text-text-primary"}
+            style={tone === "bright" ? { color: "var(--accent-on)" } : undefined}
+          >
             {t}
           </span>
         </li>

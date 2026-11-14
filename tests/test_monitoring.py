@@ -135,6 +135,7 @@ def test_dashboard_empty_db(session):
         {"module": "commenting", "instances": 0, "active_now": 0, "today_actions": 0},
         {"module": "shilling", "instances": 0, "active_now": 0, "today_actions": 0},
         {"module": "priming", "instances": 0, "active_now": 0, "today_actions": 0},
+        {"module": "mass_reactions", "instances": 0, "active_now": 0, "today_actions": 0},
     ]
     assert body["kpis"] == {
         "actions_today": 0,
