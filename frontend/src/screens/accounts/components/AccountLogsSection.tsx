@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Flag } from "lucide-react";
 import { accountsApi } from "../../../shared/accounts";
 import { timeAgo } from "../../../shared/format";
+import { humanizeTgError } from "../../../shared/tgError";
 import type { CommentLog, CommentStatus } from "../../../shared/types";
 import { Section } from "./ui";
 
@@ -65,8 +66,8 @@ function LogRow({ log, border }: { log: CommentLog; border: boolean }) {
           <span className={meta.cls}>{meta.label}</span> · {timeAgo(log.created_at)}
         </p>
         {log.error && (
-          <p className="mt-0.5 break-all font-mono text-[11px] text-status-critical">
-            {log.error}
+          <p className="mt-0.5 break-words text-[11px] text-status-critical">
+            {humanizeTgError(log.error)}
           </p>
         )}
       </div>

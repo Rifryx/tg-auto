@@ -1,6 +1,7 @@
 import { Check, Flag, X } from "lucide-react";
 import { useState } from "react";
 import { timeAgo } from "../../../shared/format";
+import { humanizeTgError } from "../../../shared/tgError";
 import type { CommentLog, CommentStatus } from "../types";
 
 const STATUS_ICON: Record<CommentStatus, { Icon: typeof Check; cls: string }> = {
@@ -80,7 +81,7 @@ function CommentRow({ log }: { log: CommentLog }) {
             open ? "" : "line-clamp-2"
           }`}
         >
-          {log.error}
+          {humanizeTgError(log.error)}
         </p>
       )}
     </button>
