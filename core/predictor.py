@@ -21,6 +21,16 @@ W_FLOOD_24H = 0.06
 W_FLOOD_7D = 0.03
 W_SPAM_BLOCK_7D = 0.25
 W_SPAM_BLOCK_30D = 0.10
+# Текущий активный спам-блок (флаг account_health.spam_blocked из проверки
+# @SpamBot) — самый прямой сигнал: аккаунт прямо сейчас ограничен. Отдельно от
+# истории HealthEvent, потому что проверка через @SpamBot ставит флаг, но не
+# всегда пишет HealthEvent — из-за этого риск оставался 0 при живом спам-блоке.
+W_SPAM_BLOCK_ACTIVE = 0.5
+# Низкий health_score тянет риск вверх, чтобы оценка реально двигалась вместе
+# с известным состоянием аккаунта, а не стояла в нуле. Градиент: health 70 → 0,
+# health 0 → полный вес.
+W_LOW_HEALTH = 0.4
+LOW_HEALTH_THRESHOLD = 70
 
 # Action health.
 W_FAIL_RATE_24H = 0.20
@@ -48,6 +58,7 @@ class RiskFeatures:
     flood_waits_7d: int = 0
     spam_blocks_7d: int = 0
     spam_blocks_30d: int = 0
+    spam_block_active: bool = False  # текущий флаг account_health.spam_blocked
     action_fail_rate_24h: float = 0.0  # 0.0–1.0
     action_fail_rate_7d: float = 0.0
     actions_per_hour_24h: float = 0.0
@@ -140,6 +151,10 @@ def predict_risk(features: RiskFeatures) -> RiskPrediction:
         risk += c
 
     # Spam blocks (most dangerous signal).
+    # Текущий активный спам-блок — решающий сигнал: сразу ≥ «высокий».
+    if features.spam_block_active:
+        contributions.append(("spam_block_active", W_SPAM_BLOCK_ACTIVE))
+        risk += W_SPAM_BLOCK_ACTIVE
     if features.spam_blocks_7d > 0:
         c = W_SPAM_BLOCK_7D * features.spam_blocks_7d
         contributions.append(("spam_blocks_7d", c))
@@ -192,6 +207,17 @@ def predict_risk(features: RiskFeatures) -> RiskPrediction:
     if div_f > 0:
         c = W_ACTION_DIVERSITY * div_f
         contributions.append(("action_diversity", c))
+        risk += c
+
+    # Низкий health_score тянет риск вверх — чтобы оценка реально двигалась
+    # вместе с известным состоянием аккаунта, а не стояла в нуле.
+    if features.current_health_score < LOW_HEALTH_THRESHOLD:
+        c = (
+            W_LOW_HEALTH
+            * (LOW_HEALTH_THRESHOLD - features.current_health_score)
+            / LOW_HEALTH_THRESHOLD
+        )
+        contributions.append(("low_health", c))
         risk += c
 
     # Clamp to [0.0, 1.0].
