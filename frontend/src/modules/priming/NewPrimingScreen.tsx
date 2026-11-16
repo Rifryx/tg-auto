@@ -65,9 +65,9 @@ const ROTATION_OPTIONS: { key: TriggerRotationStrategy; label: string }[] = [
 ];
 
 const HUMANIZER_OPTIONS: { key: HumanizerMode; label: string }[] = [
-  { key: "off", label: "Off" },
-  { key: "balanced", label: "Balanced" },
-  { key: "aggressive", label: "Aggressive" },
+  { key: "off", label: "Выкл" },
+  { key: "balanced", label: "Сбалансированно" },
+  { key: "aggressive", label: "Агрессивно" },
 ];
 
 const WARMUP_OPTIONS: { key: WarmupProfile; label: string }[] = [

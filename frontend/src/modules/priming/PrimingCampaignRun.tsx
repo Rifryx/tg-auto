@@ -228,10 +228,10 @@ export function PrimingCampaignRun() {
           {/* Мини-KPI */}
           <div className="-mx-4 overflow-x-auto px-4 pb-1">
             <div className="flex gap-2">
-              <MiniKpi label="Privacy" value={live.counters.privacy_restricted ?? 0} tone="warning" />
-              <MiniKpi label="Flood-wait" value={live.counters.flood_wait ?? 0} tone="warning" />
-              <MiniKpi label="Deleted" value={live.counters.deleted ?? 0} tone="muted" />
-              <MiniKpi label="Not found" value={live.counters.not_found ?? 0} tone="muted" />
+              <MiniKpi label="Приватность" value={live.counters.privacy_restricted ?? 0} tone="warning" />
+              <MiniKpi label="Флуд-ожидание" value={live.counters.flood_wait ?? 0} tone="warning" />
+              <MiniKpi label="Удалён" value={live.counters.deleted ?? 0} tone="muted" />
+              <MiniKpi label="Не найден" value={live.counters.not_found ?? 0} tone="muted" />
               <MiniKpi
                 label="Карантин"
                 value={live.accounts.filter((a) => a.state === "quarantined").length}

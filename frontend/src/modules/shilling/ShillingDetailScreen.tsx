@@ -286,7 +286,7 @@ function SettingsSection({ campaignId }: { campaignId: number }) {
       />
 
       <SettingToggle
-        label="Live Interception"
+        label="Живой перехват диалога"
         hint="Если живой пользователь ответит реплаем на реплику бота — бот подхватит диалог и ответит."
         checked={camp.auto_responder !== "off"}
         disabled={patch.isPending}

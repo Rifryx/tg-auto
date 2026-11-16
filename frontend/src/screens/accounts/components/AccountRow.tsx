@@ -45,7 +45,7 @@ export function AccountRow({
   const timer = countdown(account.cooldown_until);
   const task = account.assigned_container_type
     ? CONTAINER_LABEL[account.assigned_container_type] ?? account.assigned_container_type
-    : "Idle";
+    : "Простой";
   const roleLabel = account.role ? ROLE_LABEL[account.role] : null;
   // ETA по статусу (прогрев / кулдаун) — показываем на карточке, чтобы
   // пользователь понимал когда аккаунт станет готовым, а не ломал глаза
