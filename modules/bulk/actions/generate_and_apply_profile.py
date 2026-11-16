@@ -43,6 +43,9 @@ class GenerateAndApplyPayload(BaseModel):
     llm_provider: str = "deepseek"
     apply_username: bool = True
     apply_bio: bool = True
+    # Подбирать ли фамилию. Выкл — фамилию не трогаем (оставляем текущую), имя
+    # и остальное применяется как обычно.
+    apply_last_name: bool = True
     # Свободное описание желаемого оформления от пользователя. Если задано — ИИ
     # генерит ПО ПРОМПТУ (персона не обязательна); иначе — из персоны аккаунта.
     prompt: Optional[str] = None
@@ -97,6 +100,8 @@ async def _run(
             seeds, 12
         )
     bio = generated.bio if payload.apply_bio else None
+    # None → Telegram «не менять фамилию» (см. apply_profile_to_telegram).
+    last_name = (generated.last_name or None) if payload.apply_last_name else None
 
     # Аватар из пула (ИИ картинки не рисует): берём случайный из загруженных.
     avatar_binary = None
@@ -116,7 +121,7 @@ async def _run(
         session_factory=session_factory,
         publisher=publisher,
         first_name=generated.first_name,
-        last_name=generated.last_name or None,
+        last_name=last_name,
         bio=bio,
         username_candidates=username_candidates,
     )
@@ -135,7 +140,7 @@ async def _run(
         updates: dict[str, object] = {}
         if result.updated_names:
             updates["first_name"] = generated.first_name
-            if generated.last_name:
+            if payload.apply_last_name and generated.last_name:
                 updates["last_name"] = generated.last_name
         if result.updated_bio and bio is not None:
             updates["bio"] = bio

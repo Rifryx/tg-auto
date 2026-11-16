@@ -243,6 +243,53 @@ async def test_generate_and_apply_uses_prompt_without_persona(session):
     assert result.skipped is False  # нет персоны, но не пропущено — по промпту
 
 
+async def test_generate_and_apply_respects_apply_last_name_off(session):
+    """apply_last_name=False: фамилию в Telegram не отправляем (None = «не менять»)
+    и не пишем в нашу БД — имя и остальное применяются как обычно."""
+    from types import SimpleNamespace
+
+    from core.enums import BulkActionType
+    from core.repositories.account import AccountRepository
+    from modules.bulk.actions import ACTION_REGISTRY
+    from modules.bulk.actions.generate_and_apply_profile import GenerateAndApplyPayload
+
+    _clean(session)
+    account_id = _make_account(session)
+    client = _FakeClient()
+
+    class _Gen:
+        async def generate_from_prompt(self, prompt):
+            return SimpleNamespace(
+                first_name="Иван", last_name="Петров", bio="t",
+                username_candidates=[],
+                as_dict=lambda: {"first_name": "Иван"},
+            )
+
+        async def generate(self, persona):
+            raise AssertionError("ожидали генерацию по промпту")
+
+    action = ACTION_REGISTRY[BulkActionType.GENERATE_AND_APPLY_PROFILE.value]
+    payload = GenerateAndApplyPayload(
+        prompt="x", apply_username=False, apply_last_name=False
+    )
+    result = await action.run(
+        account_id=account_id,
+        payload=payload,
+        session_factory=_factory(session),
+        publisher=None,
+        client=client,
+        generator=_Gen(),
+    )
+    assert result.ok is True
+    # В Telegram ушёл запрос с фамилией None (не менять), имя — задано.
+    req = client.calls[0]
+    assert req.first_name == "Иван"
+    assert req.last_name is None
+    # В нашей БД фамилия не перезаписана сгенерированной.
+    acc = AccountRepository(session).get(account_id)
+    assert acc.last_name != "Петров"
+
+
 async def test_generate_and_apply_avatar_from_pool(session):
     """«Профиль ИИ» + аватар из пула: берём случайный avatar-asset и ставим."""
     from types import SimpleNamespace

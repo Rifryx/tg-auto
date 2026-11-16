@@ -16,13 +16,27 @@ const OUTCOME_OPTIONS: {
   label: string;
 }[] = [
   { key: "all", label: "Все" },
-  { key: "primed", label: "Success" },
-  { key: "privacy_restricted", label: "Privacy" },
-  { key: "flood_wait", label: "Flood" },
-  { key: "deleted", label: "Deleted" },
-  { key: "not_found", label: "404" },
-  { key: "internal_error", label: "Error" },
+  { key: "primed", label: "Успех" },
+  { key: "privacy_restricted", label: "Приватность" },
+  { key: "flood_wait", label: "Флуд-ожидание" },
+  { key: "deleted", label: "Удалён" },
+  { key: "not_found", label: "Не найден" },
+  { key: "internal_error", label: "Ошибка" },
 ];
+
+const OUTCOME_LABEL: Record<string, string> = {
+  primed: "Успех",
+  already_applied: "Уже применено",
+  flood_wait: "Флуд-ожидание",
+  privacy_restricted: "Приватность закрыта",
+  deleted: "Аккаунт удалён",
+  not_found: "Не найдено",
+  channel_pinned_error: "Ошибка закрепления",
+  skipped_quiet: "Пропуск (тихие часы)",
+  internal_error: "Внутренняя ошибка",
+};
+
+const outcomeLabel = (o: string): string => OUTCOME_LABEL[o] ?? o;
 
 const OUTCOME_TONE: Record<PrimingLogRow["outcome"], string> = {
   primed: "border-status-active",
@@ -125,7 +139,7 @@ export function PrimingCampaignLogs() {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-[13px] font-medium text-text-primary">
-                  {r.outcome}
+                  {outcomeLabel(r.outcome)}
                 </span>
                 {r.dry_run && (
                   <span className="rounded-pill bg-surface-2 px-1.5 py-0.5 text-[9px] text-text-secondary">
@@ -187,7 +201,7 @@ function RawPayloadSheet({
       >
         <div className="mb-3 flex items-center justify-between">
           <div className="text-[15px] font-medium text-text-primary">
-            #{row.id} · {row.outcome}
+            #{row.id} · {outcomeLabel(row.outcome)}
           </div>
           <button
             type="button"
