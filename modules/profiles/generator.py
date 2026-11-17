@@ -53,6 +53,13 @@ SYSTEM_PROMPT = """
 * bio — от лица персонажа, живой тон; никаких «нейросеть», «AI», «GPT», «сгенерировано».
 * username_candidates — от 3 до 6 вариантов; варьируй суффиксы, разделители,
   сокращения; НЕ используй имя и фамилию буквально (это утечка LLM-паттерна).
+* Если в пользовательском сообщении есть строка "diversity_seed: <N>" — это
+  номер генерации в серии с ОДИНАКОВЫМ описанием персонажа (несколько
+  аккаунтов оформляются по одному и тому же промпту). Каждое число должно
+  давать ЗАМЕТНО другого персонажа: другое имя, другую фамилию, другой акцент
+  в bio — не только другой username. НЕ возвращай самый очевидный/шаблонный
+  вариант, который напрашивается первым; считай seed поводом выбрать менее
+  типичную, но всё ещё согласующуюся с описанием комбинацию.
 """.strip()
 
 
@@ -103,11 +110,21 @@ class ProfileGenerator:
     async def generate(self, persona: Persona) -> GeneratedProfile:
         return await self._run(_persona_to_user_prompt(persona))
 
-    async def generate_from_prompt(self, prompt: str) -> GeneratedProfile:
+    async def generate_from_prompt(
+        self, prompt: str, *, diversity_seed: Optional[int] = None
+    ) -> GeneratedProfile:
         """Сгенерировать профиль по свободному промпту пользователя (без персоны).
 
         Нужно, чтобы можно было оформить аккаунт без привязки персоны —
         достаточно описать желаемого персонажа текстом.
+
+        ``diversity_seed`` — номер генерации в серии с одинаковым промптом
+        (bulk-оформление нескольких аккаунтов одним описанием). Без него LLM
+        при идентичном узком промпте и разных независимых вызовах часто
+        сходится к одному и тому же «очевидному» имени/bio — в отличие от
+        username, для которого разнообразие и так явно требуется в
+        SYSTEM_PROMPT. Разные seed с тем же текстом должны давать заметно
+        разных персонажей (см. инструкцию в SYSTEM_PROMPT).
         """
         text = (prompt or "").strip()
         if not text:
@@ -116,6 +133,8 @@ class ProfileGenerator:
             "Пожелания пользователя к персонажу (свободный текст). Соблюдай тот же "
             "строгий JSON-формат ответа:\n" + text
         )
+        if diversity_seed is not None:
+            user_prompt += f"\n\ndiversity_seed: {diversity_seed}"
         return await self._run(user_prompt)
 
     async def _run(self, user_prompt: str) -> GeneratedProfile:

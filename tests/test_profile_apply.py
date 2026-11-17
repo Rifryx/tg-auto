@@ -218,7 +218,7 @@ async def test_generate_and_apply_uses_prompt_without_persona(session):
     client = _FakeClient()
 
     class _Gen:
-        async def generate_from_prompt(self, prompt):
+        async def generate_from_prompt(self, prompt, *, diversity_seed=None):
             assert prompt == "крипто-трейдер"
             return SimpleNamespace(
                 first_name="Иван", last_name="Петров", bio="trader",
@@ -258,7 +258,7 @@ async def test_generate_and_apply_respects_apply_last_name_off(session):
     client = _FakeClient()
 
     class _Gen:
-        async def generate_from_prompt(self, prompt):
+        async def generate_from_prompt(self, prompt, *, diversity_seed=None):
             return SimpleNamespace(
                 first_name="Иван", last_name="Петров", bio="t",
                 username_candidates=[],
@@ -307,7 +307,7 @@ async def test_generate_and_apply_avatar_from_pool(session):
     session.commit()
 
     class _Gen:
-        async def generate_from_prompt(self, prompt):
+        async def generate_from_prompt(self, prompt, *, diversity_seed=None):
             return SimpleNamespace(
                 first_name="Иван", last_name=None, bio="t",
                 username_candidates=[], as_dict=lambda: {},
