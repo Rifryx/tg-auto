@@ -85,7 +85,15 @@ async def _run(
     gen = generator or default_generator(payload.llm_provider)
     try:
         if user_prompt:
-            generated = await gen.generate_from_prompt(user_prompt)
+            # Один и тот же промпт шлётся на все выбранные аккаунты в bulk-job —
+            # diversity_seed подсказывает LLM, что это N-я генерация по этому
+            # же описанию, и нужен заметно другой персонаж, а не копия.
+            # account_id уникален в рамках job, случайный хвост — на случай
+            # повторного запуска того же job с теми же account_id (ретрай).
+            diversity_seed = account_id * 1_000 + random.randint(0, 999)
+            generated = await gen.generate_from_prompt(
+                user_prompt, diversity_seed=diversity_seed
+            )
         else:
             generated = await gen.generate(persona)
     except ProfileGenerationError as exc:
