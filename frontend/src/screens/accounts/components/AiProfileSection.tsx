@@ -236,12 +236,35 @@ export function AiProfileSection({
               {apply.state.error ?? "Не удалось применить профиль."}
             </p>
           )}
-          {apply.state.phase === "done" && (
-            <p className="mt-3 flex items-center gap-1.5 text-[12px] text-status-active">
-              <Check className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
-              Профиль применён к Telegram.
-            </p>
-          )}
+          {apply.state.phase === "done" && (() => {
+            const applied = apply.state.firstResult?.applied_username as string | undefined;
+            const errors = (apply.state.firstResult?.errors as Record<string, string>) ?? {};
+            const chosen = username.trim();
+            // Если реально встал не тот username, что был выбран — явно
+            // показываем, что и почему подменилось, а не молчим об этом
+            // (иначе пользователь узнаёт о подмене только зайдя в Telegram).
+            const swapped = Boolean(applied) && chosen && applied !== chosen;
+            return (
+              <div className="mt-3">
+                <p className="flex items-center gap-1.5 text-[12px] text-status-active">
+                  <Check className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+                  Профиль применён к Telegram.
+                </p>
+                {swapped && (
+                  <p className="mt-1 text-[12px] text-status-warning">
+                    @{chosen} был занят{errors[chosen] ? ` (${errors[chosen]})` : ""} — вместо
+                    него поставлен свободный вариант:{" "}
+                    <span className="font-semibold">@{applied}</span>.
+                  </p>
+                )}
+                {!applied && chosen && (
+                  <p className="mt-1 text-[12px] text-status-warning">
+                    Ни один из username-кандидатов не подошёл — username не изменён.
+                  </p>
+                )}
+              </div>
+            );
+          })()}
           {avatarFromPool && avatarCount > 0 && (
             <>
               {applyAvatar.state.phase === "running" && (
