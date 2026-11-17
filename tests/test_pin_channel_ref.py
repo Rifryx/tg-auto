@@ -1,4 +1,5 @@
-"""pin_channel_ref: закрепление произвольного канала/чата по @username/ссылке."""
+"""pin_channel_ref: установка личного канала (Personal Channel) на публичном
+профиле аккаунта по @username/ссылке — через account.updatePersonalChannel."""
 
 from __future__ import annotations
 
@@ -36,12 +37,15 @@ class _Ctx:
 
 
 class _Client:
-    def __init__(self, username="durov"):
+    def __init__(self, username="durov", broadcast=True):
         self.requests: list[str] = []
         self._username = username
+        self._broadcast = broadcast
 
     async def get_entity(self, ref):
-        return SimpleNamespace(id=1, title="Durov", username=self._username)
+        return SimpleNamespace(
+            id=1, title="Durov", username=self._username, broadcast=self._broadcast
+        )
 
     async def get_input_entity(self, _e):
         return SimpleNamespace(channel_id=1, access_hash=2)
@@ -62,7 +66,7 @@ async def test_pin_channel_ref_public_returns_link(session):
         client=client,
     )
     assert result.ok is True
-    assert "ToggleDialogPinRequest" in client.requests
+    assert "UpdatePersonalChannelRequest" in client.requests
     assert result.detail["pinned"] is True
     assert result.detail["link"] == "https://t.me/durov"
     assert result.detail["title"] == "Durov"
@@ -97,3 +101,33 @@ async def test_pin_channel_ref_resolve_failure(session):
     )
     assert result.ok is False
     assert result.detail["reason"] == "resolve_failed"
+
+
+async def test_pin_channel_ref_rejects_non_broadcast(session):
+    client = _Client(username="somechat", broadcast=False)
+    action = ACTION_REGISTRY[BulkActionType.PIN_CHANNEL_REF.value]
+    result = await action.run(
+        account_id=1,
+        payload=PinChannelRefPayload(ref="@somechat", pinned=True),
+        session_factory=lambda: _Ctx(session),
+        publisher=None,
+        client=client,
+    )
+    assert result.ok is False
+    assert result.detail["reason"] == "not_a_broadcast_channel"
+    assert client.requests == []
+
+
+async def test_pin_channel_ref_unpin_without_ref(session):
+    client = _Client()
+    action = ACTION_REGISTRY[BulkActionType.PIN_CHANNEL_REF.value]
+    result = await action.run(
+        account_id=1,
+        payload=PinChannelRefPayload(pinned=False),
+        session_factory=lambda: _Ctx(session),
+        publisher=None,
+        client=client,
+    )
+    assert result.ok is True
+    assert "UpdatePersonalChannelRequest" in client.requests
+    assert result.detail["pinned"] is False

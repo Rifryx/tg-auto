@@ -4,9 +4,11 @@ import { Field, TextInput } from "../../../modules/commenting/components/ui";
 import { CapsuleButton, Section } from "./ui";
 import { useBulkJob } from "./useBulkJob";
 
-/* Закрепить/открепить ПРОИЗВОЛЬНЫЙ канал или чат в списке диалогов аккаунта —
-   по @username или ссылке t.me (не только созданные приложением каналы).
-   Расположено рядом с профилем, как просили: «в блоке с изменением имени/авы». */
+/* Установить/снять "личный канал" (Personal Channel) на ПУБЛИЧНОМ профиле
+   аккаунта — карточка канала, которую видит любой, кто открыл профиль
+   (как в официальном Telegram-клиенте, доступно без Premium).
+   Канал должен быть именно broadcast-каналом (не чатом/супергруппой) —
+   иначе Telegram вернёт ошибку. */
 export function PinChannelSection({ accountId }: { accountId: number }) {
   const [ref, setRef] = useState("");
   const [link, setLink] = useState<string | null>(null);
@@ -30,13 +32,14 @@ export function PinChannelSection({ accountId }: { accountId: number }) {
     job.run("pin_channel_ref", [accountId], { ref: ref.trim(), pinned });
 
   return (
-    <Section title="Закрепить канал/чат в аккаунте">
+    <Section title="Личный канал на публичном профиле">
       <div className="card p-4">
         <p className="mb-3 text-[13px] text-text-secondary">
-          Укажите @username или ссылку на канал/чат, на который у аккаунта есть
-          доступ — он закрепится в его списке диалогов.
+          Укажите @username или ссылку на канал — он появится карточкой на
+          публичном профиле аккаунта (видно всем, не только самому аккаунту).
+          Работает только с broadcast-каналами, не чатами/супергруппами.
         </p>
-        <Field label="Канал или чат">
+        <Field label="Канал">
           <TextInput
             value={ref}
             onChange={(e) => {
@@ -54,7 +57,7 @@ export function PinChannelSection({ accountId }: { accountId: number }) {
               {busy ? "Закрепляем…" : "Закрепить"}
             </span>
           </CapsuleButton>
-          <CapsuleButton variant="secondary" disabled={!valid || busy} onClick={() => pin(false)}>
+          <CapsuleButton variant="secondary" disabled={busy} onClick={() => pin(false)}>
             <span className="inline-flex items-center gap-2">
               <PinOff className="h-4 w-4" strokeWidth={2} aria-hidden />
               Открепить
@@ -64,7 +67,7 @@ export function PinChannelSection({ accountId }: { accountId: number }) {
 
         {job.state.phase === "failed" && (
           <p className="mt-2 text-[12px] text-status-critical">
-            {job.state.error ?? "Не удалось. Проверьте, что аккаунт имеет доступ к этому каналу/чату."}
+            {job.state.error ?? "Не удалось. Проверьте, что это публичный broadcast-канал и аккаунт имеет к нему доступ."}
           </p>
         )}
         {job.state.phase === "done" && (
