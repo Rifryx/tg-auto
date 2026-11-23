@@ -17,6 +17,13 @@ from modules.commenting.worker import registry as reg
 pytestmark = pytest.mark.asyncio
 
 
+async def _fake_sleep(_seconds):
+    """Подменяет registry.asyncio.sleep в тестах на load_all — анти-флуд пауза
+    между attach() не нужна в юнит-тестах (иначе 2+ кампании = реальные
+    секунды ожидания на каждый прогон)."""
+    return None
+
+
 # --- фейки -------------------------------------------------------------------
 
 
@@ -107,6 +114,7 @@ def _patch_repo(monkeypatch, campaigns: dict, *, account_for=None):
 
 
 async def test_load_all_attaches_all_enabled(monkeypatch):
+    monkeypatch.setattr("modules.commenting.worker.registry.asyncio.sleep", _fake_sleep)
     campaigns = {1: _campaign(1), 2: _campaign(2), 3: _campaign(3, enabled=False)}
     _patch_repo(monkeypatch, campaigns)
     client = _FakeClient()
