@@ -41,6 +41,11 @@ class BulkAction:
     # None — действие не проходит через governor (напр. чисто локальные
     # операции без Telegram API). Дефолт: bulk_view (самый мягкий).
     governor_key: Optional[str] = "bulk_view"
+    # Override глобального _ITEM_TIMEOUT_SECONDS (worker/tasks/bulk.py) для
+    # действий, которым нужны паузы МЕЖДУ несколькими Telegram-вызовами внутри
+    # одного run() (напр. join_channels — пачка ссылок на один аккаунт).
+    # None — используется глобальный дефолт (180с), как раньше.
+    item_timeout_seconds: Optional[int] = None
 
 
 ACTION_REGISTRY: dict[str, BulkAction] = {}
