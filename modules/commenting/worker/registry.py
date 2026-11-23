@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import redis.asyncio as aioredis
@@ -40,6 +42,20 @@ CAMPAIGN_LIFECYCLE_CHANNEL = "campaign_lifecycle"
 CHANNEL_LIFECYCLE_CHANNEL = "channel_lifecycle"
 ACTION_ATTACH = "attach"
 ACTION_DETACH = "detach"
+
+# load_all() подключает слушателей ПОДРЯД, без паузы между attach() — а каждый
+# attach для нового канала/группы делает get_dialogs/get_entity/GetFullChannel/
+# JoinChannel на аккаунте. При десятках каналов на 2-4 аккаунтах (как у
+# пользователя — "Marie Claire Russia", "Новости Москвы" и т.д. все на акк.
+# #1/#2/#4) это тот же баг, что был в join_channels: залп Join/GetFullChannel
+# без пауз → FloodWaitError → аккаунт уходит в cooldown. load_all вызывается
+# при каждом старте/передеплое воркера — значит, баг бьёт на КАЖДЫЙ рестарт.
+_ATTACH_PACE_MIN_SECONDS = 5.0
+_ATTACH_PACE_MAX_SECONDS = 12.0
+
+
+async def _attach_pace() -> None:
+    await asyncio.sleep(random.uniform(_ATTACH_PACE_MIN_SECONDS, _ATTACH_PACE_MAX_SECONDS))
 
 
 @dataclass
@@ -216,7 +232,12 @@ class ListenerRegistry:
         session_factory = ctx["session_factory"]
         with session_factory() as session:
             enabled = [c.id for c in CampaignRepository(session).list_all() if c.enabled]
-        for campaign_id in enabled:
+        for i, campaign_id in enumerate(enabled):
+            # Пауза ПЕРЕД каждым attach, кроме первого — иначе все кампании
+            # подключаются одним залпом Join/GetFullChannel без пауз (см.
+            # комментарий у _attach_pace выше).
+            if i > 0:
+                await _attach_pace()
             await self.attach(campaign_id, ctx)
         started = self.active()
         get_logger().info("commenting.listener.load_all", campaigns=started)
@@ -541,11 +562,21 @@ class ChannelListenerRegistry:
             campaigns = CampaignRepository(session)
             accounts = AccountRepository(session)
             candidates: list[int] = []
+            skipped_cooldown = 0
+            now = datetime.now(timezone.utc)
             for ch in repo.list_all_working():
                 if ch.discussion_group_id is None:
                     continue
                 account = accounts.get(ch.account_id)
                 if account is None or account.status != "assigned":
+                    continue
+                # Аккаунт уже в cooldown (напр. после флудвейта) — не долбим
+                # его ещё одним Join/GetFullChannel поверх существующего
+                # наказания, это только продлит реальный флудвейт на стороне
+                # Telegram. Канал останется неподключённым до следующего
+                # load_all/attach — заберём его позже, когда cooldown пройдёт.
+                if account.cooldown_until is not None and account.cooldown_until > now:
+                    skipped_cooldown += 1
                     continue
                 link = links.get_by_account(ch.account_id)
                 if link is None:
@@ -554,10 +585,19 @@ class ChannelListenerRegistry:
                 if campaign is None or not campaign.enabled:
                     continue
                 candidates.append(ch.id)
-        for channel_id in candidates:
+        for i, channel_id in enumerate(candidates):
+            # Пауза ПЕРЕД каждым attach, кроме первого — та же причина, что и
+            # в ListenerRegistry.load_all выше: без неё залп Join/GetFullChannel
+            # по всем каналам сразу — прямой путь к флудвейту (см. _attach_pace).
+            if i > 0:
+                await _attach_pace()
             await self.attach(channel_id, ctx)
         started = self.active()
-        get_logger().info("commenting.channel_listener.load_all", channels=started)
+        get_logger().info(
+            "commenting.channel_listener.load_all",
+            channels=started,
+            skipped_cooldown=skipped_cooldown,
+        )
         return started
 
     async def attach(self, channel_id: int, ctx: dict) -> bool:

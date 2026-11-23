@@ -26,6 +26,13 @@ from modules.commenting.worker import channels, registry, runner
 
 pytestmark = pytest.mark.asyncio
 
+
+async def _fake_sleep(_seconds):
+    """Подменяет registry.asyncio.sleep в тестах на load_all — анти-флуд пауза
+    между attach() не нужна в юнит-тестах, иначе суммарно уходят реальные
+    секунды на каждый прогон с 2+ каналами."""
+    return None
+
 NOW_INSIDE = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
 _PHONE = itertools.count(97_000_000_000)
 _TABLES = (
@@ -450,7 +457,10 @@ class _ChannelListenerClient:
         self.added = [(h, e) for h, e in self.added if h is not handler]
 
 
-async def test_channel_registry_attach_fires_on_channel_post(session):
+async def test_channel_registry_attach_fires_on_channel_post(session, monkeypatch):
+    # load_all теперь паузит между attach() (анти-флуд) — в реальном времени
+    # тесту это не нужно, иначе суммарно добавляет секунды к каждому прогону.
+    monkeypatch.setattr("modules.commenting.worker.registry.asyncio.sleep", _fake_sleep)
     _clean(session)
     campaign_id = _make_campaign(session)
     account_id = _make_account(session, status="assigned", campaign_id=campaign_id)
@@ -492,7 +502,8 @@ async def test_channel_registry_attach_fires_on_channel_post(session):
     assert ctx["client_pool"].released == [account_id]
 
 
-async def test_channel_registry_shares_client_across_channels(session):
+async def test_channel_registry_shares_client_across_channels(session, monkeypatch):
+    monkeypatch.setattr("modules.commenting.worker.registry.asyncio.sleep", _fake_sleep)
     _clean(session)
     campaign_id = _make_campaign(session)
     account_id = _make_account(session, status="assigned", campaign_id=campaign_id)
@@ -523,7 +534,8 @@ async def test_channel_registry_shares_client_across_channels(session):
     assert ctx["client_pool"].released == [account_id]
 
 
-async def test_channel_registry_dedup_shared_discussion_group(session):
+async def test_channel_registry_dedup_shared_discussion_group(session, monkeypatch):
+    monkeypatch.setattr("modules.commenting.worker.registry.asyncio.sleep", _fake_sleep)
     """Два monitored-канала одного аккаунта с ОДНОЙ группой обсуждений →
     один telethon-handler (посты не обрабатываются дважды), одно событие.
     Регрессия «по два раза подключается слушатель каналов»."""
