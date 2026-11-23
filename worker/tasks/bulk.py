@@ -179,6 +179,11 @@ async def item_impl(ctx: dict, job_id: int, item_id: int) -> dict[str, Any]:
             return {"skipped": True, "reason": "rate_limited"}
 
     # 3) Выполняем действие.
+    # item_timeout_seconds — override на конкретном action'е (напр. у
+    # join_channels: нужны паузы между несколькими Telegram-вызовами внутри
+    # одного run(), глобальных 180с на это не хватит). Остальные действия
+    # его не задают → поведение не меняется.
+    item_timeout = action.item_timeout_seconds or _ITEM_TIMEOUT_SECONDS
     client = None
     try:
         if action.requires_client:
@@ -193,19 +198,19 @@ async def item_impl(ctx: dict, job_id: int, item_id: int) -> dict[str, Any]:
                 publisher=publisher,
                 client=client,
             ),
-            timeout=_ITEM_TIMEOUT_SECONDS,
+            timeout=item_timeout,
         )
     except asyncio.TimeoutError:
         _finalize_failed(
             session_factory, publisher, job_id, item_id,
-            f"timeout: действие не завершилось за {_ITEM_TIMEOUT_SECONDS}с "
+            f"timeout: действие не завершилось за {item_timeout}с "
             "(проверьте прокси и активную сессию аккаунта)",
             now,
         )
         get_logger().warning(
             "bulk.item.timeout",
             job_id=job_id, item_id=item_id, action=action_name,
-            timeout_s=_ITEM_TIMEOUT_SECONDS,
+            timeout_s=item_timeout,
         )
         return {"failed": True, "reason": "timeout"}
     except Exception as exc:  # noqa: BLE001 — фиксируем как failed
@@ -300,6 +305,7 @@ _REASON_LABELS = {
     "no_proxy": "у аккаунта не назначен прокси",
     "no_media": "нет медиа для публикации",
     "no_session": "нет активной сессии аккаунта",
+    "flood_wait": "Telegram попросил подождать (flood wait) — часть ссылок не обработана",
 }
 
 
