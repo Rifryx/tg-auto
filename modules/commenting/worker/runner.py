@@ -1061,6 +1061,24 @@ async def on_channel_post(
                       "LLM-провайдера (ключ/доступ к API). Коммент не создан.",
                       {"reason": "generate_timeout", "account_id": account_id})
                 return 0
+            except asyncio.CancelledError:
+                # BaseException, НЕ Exception — старый код ниже её не ловил, и
+                # задача пропадала БЕЗ единого события в таймлайне: в UI висело
+                # «Генерирую ответ…» навсегда, без следа ошибки (баг-репорт:
+                # «посты ловятся, коммент не отправляется»). Чаще всего это не
+                # баг генерации, а воркер, который перезапустили/передеплоили,
+                # пока задача висела в asyncio.wait_for — arq отменяет таску, и
+                # без этого except'а причина была видна только в логах
+                # контейнера, а не пользователю. Логируем и ПЕРЕДАЁМ отмену
+                # дальше (re-raise) — иначе проглотим настоящий shutdown и
+                # worker не завершится штатно; arq сам переставит job в очередь
+                # на повтор у следующего живого воркера.
+                log.warning("commenting.on_channel_post.generate_cancelled", account_id=account_id)
+                _push(ctx, campaign_id, TimelineKind.COMMENT_FAILED,
+                      f"Генерация ответа на пост #{channel_msg_id} прервана (воркер "
+                      "перезапустился) — задача вернётся в очередь на повтор.",
+                      {"reason": "generate_cancelled", "account_id": account_id})
+                raise
             except Exception as exc:  # noqa: BLE001 — показываем причину, а не молчим
                 log.warning("commenting.on_channel_post.generate_failed",
                             account_id=account_id, error=repr(exc))
