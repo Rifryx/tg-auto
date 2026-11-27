@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import itertools
 from datetime import datetime, time, timezone
 from types import SimpleNamespace
@@ -345,6 +346,50 @@ async def test_on_channel_post_schedules_one_comment(session):
     assert args[1] == campaign_id
     assert args[2] == 555
     assert args[4] == 100
+
+
+async def test_on_channel_post_generation_cancelled_logs_and_reraises(session, monkeypatch):
+    """Регрессия: воркер перезапустили во время генерации → задача раньше
+
+    пропадала без единого события в таймлайне (CancelledError — BaseException,
+    общий except Exception её не ловил). Теперь: событие COMMENT_FAILED
+    пушится, а отмена идёт дальше (re-raise), чтобы arq корректно перепоставил
+    job в очередь, а shutdown воркера не завис."""
+    _clean(session)
+    campaign_id = _make_campaign(session)
+    account_id = _make_account(session, status="assigned", campaign_id=campaign_id)
+    repo = MonitoredChannelRepository(session)
+    ch = repo.create(account_id, "@durov", is_folder=False)
+    repo.mark_working(
+        ch.id, channel_ref="durov", channel_tg_id=777, title="Chan",
+        discussion_group_id=555,
+    )
+    session.commit()
+
+    ctx = _ctx(session, client=_ResolveClient())
+
+    pushed: list[tuple] = []
+    monkeypatch.setattr(
+        runner, "_push",
+        lambda ctx_, campaign_id_, kind, message, meta=None: pushed.append(
+            (campaign_id_, kind, message, meta)
+        ),
+    )
+
+    async def _cancelled(*_a, **_kw):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(runner, "_generate", _cancelled)
+
+    with pytest.raises(asyncio.CancelledError):
+        await runner.on_channel_post(ctx, account_id, ch.id, 100)
+
+    assert len(pushed) == 1
+    pushed_campaign_id, kind, _message, meta = pushed[0]
+    assert pushed_campaign_id == campaign_id
+    assert kind == runner.TimelineKind.COMMENT_FAILED
+    assert meta["reason"] == "generate_cancelled"
+    assert meta["account_id"] == account_id
 
 
 async def test_on_channel_post_keyword_filter(session):
